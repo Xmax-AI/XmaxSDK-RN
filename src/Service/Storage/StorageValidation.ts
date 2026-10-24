@@ -13,7 +13,7 @@ import {
   XmaxError,
   XmaxErrorCode,
 } from '../../Foundation/Errors/XmaxError';
-import { record, nonEmpty } from '../Network/ApiService';
+import { record, nonEmpty } from '../Network/ApiResponse';
 import type { StorageConfiguration } from './StorageTypes';
 
 /**

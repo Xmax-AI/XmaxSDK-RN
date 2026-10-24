@@ -13,7 +13,7 @@ import { XmaxLoggerOption } from '../../Core/XmaxConfiguration';
 /**
  * Receives formatted, credential-free logs while retaining severity.
  *
- * @param level The transport level, from 1 for highest quality to 5 for lowest.
+ * @param level The log severity: debug, info, warn, or error.
  * @param message The formatted log message.
  * @param option The current message's log-category bitmask.
  */

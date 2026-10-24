@@ -9,9 +9,9 @@
 //
 
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
-import type { RemoteStream } from '../../Foundation/RTC/RtcManager';
+import type { RemoteStream } from '../../Foundation/RTC/RemoteStream';
 import type { VideoContentMode } from '../../Service/Realtime/RealtimeTypes';
-import type { VideoBinding } from '../RenderController';
+import type { VideoRenderBinding } from './VideoRenderBinding';
 
 /**
  * The binding and remote visibility state of one mounted video canvas.
@@ -63,7 +63,7 @@ export class VideoSurfaceBinding {
     /**
      * The video binding for the mounted canvas.
      */
-    private readonly record: VideoBinding,
+    private readonly record: VideoRenderBinding,
 
     /**
      * The unique native identity of the mounted container.

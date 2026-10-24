@@ -2,8 +2,8 @@ const { test, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const { setImmediate: nextTurn } = require('node:timers/promises');
 const {
-  RealtimeCoordinator,
-} = require('../lib/commonjs/Core/Realtime/RealtimeCoordinator');
+  XmaxRealtimeLifecycleManager,
+} = require('../lib/commonjs/Core/Realtime/XmaxRealtimeLifecycleManager');
 const {
   waitFor,
   abortable,
@@ -90,7 +90,7 @@ test('task IDs reject invalid UUIDs and unsupported platforms', () => {
 
 test('interrupt cancels confirmation promptly, cleanup runs once, operation gate reopens', async () => {
   let cleaned = 0;
-  const coordinator = new RealtimeCoordinator(async () => { cleaned++; }, () => false);
+  const coordinator = new XmaxRealtimeLifecycleManager(async () => { cleaned++; }, () => false);
   const pending = coordinator.run('generation', ({ signal }) =>
     waitFor(() => () => {}, signal, 10000, 'confirmation'),
   );
@@ -861,7 +861,7 @@ test('disconnect waits for native overlay hiding before stop signal and room rel
   const start = rtc.packets.find(packet => packet.event === 'start');
   rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
   await starting;
-  const { videoBinding } = require('../lib/commonjs/Render/RenderController');
+  const { videoBinding } = require('../lib/commonjs/Render/Video/VideoRenderRegistry');
   const record = videoBinding(remote.videoTrack);
   const hidden = defer();
   let hiding = false, leaves = 0;
@@ -886,7 +886,7 @@ test('disconnect waits for native overlay hiding before stop signal and room rel
   } finally { hidden.resolve(); await disconnecting; await manager.close(); }
 });
 
-const { videoBinding } = require('../lib/commonjs/Render/RenderController');
+const { videoBinding } = require('../lib/commonjs/Render/Video/VideoRenderRegistry');
 const { VideoSurfaceBinding } = require('../lib/commonjs/Render/Video/VideoSurfaceBinding');
 
 function bindPreview(manager, stream) {

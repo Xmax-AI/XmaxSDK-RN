@@ -8,18 +8,19 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import { ImageManager } from '../../Foundation/Media/ImageManager';
-import type { RtcManager } from '../../Foundation/RTC/RtcManager';
+import type { MediaServicing } from '../../Service/Media/MediaServicing';
+import type { ImageControlling } from './ImageControlling';
+import type { ImageManaging } from '../../Foundation/Media/ImageManaging';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { ensureActive } from '../../Foundation/Runtime/Async';
 import { invalid } from '../../Foundation/Errors/XmaxError';
-import type { RenderController } from '../../Render/RenderController';
-import { MediaService } from '../../Service/Media/MediaService';
+import type { RenderControlling } from '../../Render/RenderControlling';
+
 import {
   realtimeModelSpecifications,
   RealtimeMediaSource,
   type ImageStreamOptions,
   type RealtimeMediaStream,
-  type RealtimeModel,
 } from '../../Service/Realtime/RealtimeTypes';
 import { EncodingController } from '../../Stream/Encoding/EncodingController';
 
@@ -28,7 +29,7 @@ import { EncodingController } from '../../Stream/Encoding/EncodingController';
  *
  * The original file remains caller-owned; copies prepared after cancellation are deleted.
  */
-export class ImageController {
+export class ImageController implements ImageControlling {
 
   /**
    * The currently held local image stream.
@@ -41,39 +42,34 @@ export class ImageController {
   private fileURL: string | null = null;
 
   /**
-   * The service for calculating aspect-preserving dimensions and model pixel limits before image
-   * preparation.
-   */
-  private readonly media: MediaService;
-
-  /**
    * Creates an image input controller for native image preparation and RTC frame submission.
    *
    * @param rtc The RTC manager for media configuration and room events.
    * @param render The render controller for stream and video-track bindings.
-   * @param model The generation model defining media constraints and supported formats.
-   * @param images The image metadata and copy management service; defaults to a native image
-   *   service.
+   * @param media The shared model sizing and capability service.
+   * @param images The service managing image metadata, prepared copies, and copy cleanup.
    */
   constructor(
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
 
     /**
      * The render controller for stream and video-track bindings.
      */
-    private readonly render: RenderController,
-    model: RealtimeModel,
+    private readonly render: RenderControlling,
+
+    /**
+     * The shared model sizing and capability service.
+     */
+    private readonly media: MediaServicing,
 
     /**
      * The service for image metadata, copy preparation, and cache cleanup.
      */
-    private readonly images = new ImageManager(),
-  ) {
-    this.media = new MediaService(model);
-  }
+    private readonly images: ImageManaging,
+  ) {}
 
   /**
    * Prepares an upright private image copy and starts repeated native frame submission. Copies

@@ -8,22 +8,21 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RenderControlling } from '../../Render/RenderControlling';
+import type { MediaServicing } from '../../Service/Media/MediaServicing';
+import type { CameraControlling } from './CameraControlling';
 import { cameraPresetSize } from './CameraPreset';
-import type { RtcManager } from '../../Foundation/RTC/RtcManager';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { ensureActive, abortable } from '../../Foundation/Runtime/Async';
 import { invalid } from '../../Foundation/Errors/XmaxError';
-import { MediaService } from '../../Service/Media/MediaService';
-import {
-  RenderController,
-  refreshBinding,
-} from '../../Render/RenderController';
+
+import { refreshBinding } from '../../Render/Video/VideoRenderRegistry';
 import {
   CameraPosition,
   realtimeModelSpecifications,
   RealtimeMediaSource,
   type CameraStreamOptions,
   type RealtimeMediaStream,
-  type RealtimeModel,
   type RealtimeVideoFormat,
 } from '../../Service/Realtime/RealtimeTypes';
 import { EncodingController } from '../../Stream/Encoding/EncodingController';
@@ -32,7 +31,7 @@ import { validateVideoFormat } from '../../Stream/Encoding/EncodingBitratePolicy
 /**
  * A controller that manages camera capture and updates the existing track when switching cameras.
  */
-export class CameraController {
+export class CameraController implements CameraControlling {
 
   /**
    * The currently held local camera stream.
@@ -45,32 +44,28 @@ export class CameraController {
   useMicrophone = false;
 
   /**
-   * The service for calculating camera dimensions and default encoding settings for the current
-   * model.
-   */
-  private readonly media: MediaService;
-
-  /**
    * Creates a camera controller sharing the RTC engine and rendering registry.
    *
    * @param rtc The RTC manager for media configuration and room events.
    * @param render The render controller for stream and video-track bindings.
-   * @param model The generation model defining media constraints and supported formats.
+   * @param media The shared model sizing and capability service.
    */
   constructor(
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
 
     /**
      * The render controller for stream and video-track bindings.
      */
-    private readonly render: RenderController,
-    model: RealtimeModel,
-  ) {
-    this.media = new MediaService(model);
-  }
+    private readonly render: RenderControlling,
+
+    /**
+     * The shared model sizing and capability service.
+     */
+    private readonly media: MediaServicing,
+  ) {}
 
   /**
    * Requests camera permission, configures encoding, and starts capture. The returned track is

@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { InteractionControlling } from './InteractionControlling';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
 import {
@@ -20,7 +21,7 @@ import {
  * A controller that manages touch messages for the current task, retaining only the latest pending
  * sample when sending is slower than sampling.
  */
-export class InteractionController {
+export class InteractionController implements InteractionControlling {
 
   /**
    * The task identifier and original input format accepting touch samples.

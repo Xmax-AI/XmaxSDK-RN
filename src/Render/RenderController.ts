@@ -8,10 +8,18 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RenderControlling } from './RenderControlling';
+import type { VideoRenderBinding } from './Video/VideoRenderBinding';
+import {
+  registerVideoRenderBinding,
+  streamBinding,
+  refreshBinding,
+} from './Video/VideoRenderRegistry';
 import { XmaxLogger } from '../Foundation/Logging/XmaxLogger';
-import type { InteractionController } from '../Media/Interaction/InteractionController';
+import type { InteractionControlling } from '../Media/Interaction/InteractionControlling';
 import { invalid } from '../Foundation/Errors/XmaxError';
-import type { RtcManager, RemoteStream } from '../Foundation/RTC/RtcManager';
+import type { RtcManaging } from '../Foundation/RTC/RtcManaging';
+import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
 import type {
   CameraPosition,
   RealtimeMediaStream,
@@ -20,149 +28,14 @@ import type {
 } from '../Service/Realtime/RealtimeTypes';
 
 /**
- * The mutable rendering state behind a public video track.
- */
-export interface VideoBinding {
-
-  /**
-   * The unique identifier of this render binding.
-   */
-  readonly id: string;
-
-  /**
-   * The ownership identity used to reject retired resource holders.
-   */
-  readonly owner: object;
-
-  /**
-   * The RTC engine and room adapter for this manager.
-   */
-  readonly rtc: RtcManager;
-
-  /**
-   * Whether this binding represents local input.
-   */
-  readonly local: boolean;
-
-  /**
-   * Notifies lifecycle coordination when local preview binding is ready.
-   */
-  readonly onPreviewReady?: () => void;
-
-  /**
-   * Forwards native canvas failures to the owning lifecycle.
-   *
-   * @param error The failure reported by the operation.
-   */
-  readonly onBindingFailure?: (
-    error: unknown
-  ) => void;
-
-  /**
-   * The interaction controller for remote output; local preview does not submit interactions.
-   */
-  readonly interaction: InteractionController | null;
-
-  /**
-   * Whether this binding still represents an active stream.
-   */
-  valid: boolean;
-
-  /**
-   * Whether output display is retiring, independently of binding validity.
-   */
-  retiring: boolean;
-
-  /**
-   * The shared task awaiting native output hiding.
-   */
-  retirement: Promise<void> | null;
-
-  /**
-   * The native view hiding operations that must complete before remote release.
-   */
-  readonly hideBeforeRelease: Set<() => Promise<void>>;
-
-  /**
-   * Whether the current remote task is confirmed.
-   */
-  confirmed: boolean;
-
-  /**
-   * The video dimensions, frame rate, and encoder bitrate settings.
-   */
-  format: RealtimeVideoFormat;
-
-  /**
-   * The camera position; image and remote tracks have no position.
-   */
-  position: CameraPosition | null;
-
-  /**
-   * The remote room and account; absent for local bindings.
-   */
-  remote: RemoteStream | null;
-
-  /**
-   * The private image copy used by RN Image rather than an RTC canvas.
-   */
-  imageURL: string | null;
-
-  /**
-   * The revision used to reject late asynchronous results.
-   */
-  version: number;
-
-  /**
-   * The subscribers to binding or resource changes.
-   */
-  readonly listeners: Set<() => void>;
-}
-
-/**
- * The weak registry from public video tracks to render bindings.
- */
-const tracks = new WeakMap<RealtimeVideoTrack, VideoBinding>();
-
-/**
- * The weak registry from public streams to local or remote bindings.
- */
-const streams = new WeakMap<RealtimeMediaStream, VideoBinding>();
-
-/**
- * Looks up a track binding without creating one.
- *
- * @param track The video track to look up.
- * @returns The binding, or null if the track is absent or not owned by the SDK.
- */
-export function videoBinding(
-  track: RealtimeVideoTrack | null | undefined,
-): VideoBinding | null {
-  return track ? tracks.get(track) ?? null : null;
-}
-
-/**
- * Notifies mounted video components of binding changes while preserving track identity.
- *
- * @param binding The binding used for rendering, interaction, and cleanup.
- */
-export function refreshBinding(
-  binding: VideoBinding
-): void {
-  binding.version++;
-
-  for (const listener of [...binding.listeners]) listener();
-}
-
-/**
  * Coordinates video tracks, render bindings, and trajectory rendering.
  */
-export class RenderController {
+export class RenderController implements RenderControlling {
 
   /**
    * The active bindings created by this render controller.
    */
-  private owned = new Set<VideoBinding>();
+  private owned = new Set<VideoRenderBinding>();
 
   /**
    * Creates a render registry with preview readiness and failure handlers.
@@ -176,20 +49,20 @@ export class RenderController {
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
 
     /**
      * The interaction controller for the active task.
      */
-    private readonly interaction: InteractionController | null = null,
+    private readonly interaction: InteractionControlling | null = null,
 
     /**
      * The handler invoked when local preview is ready.
      *
      * @param binding The affected local or remote track binding.
      */
-    private readonly onPreviewReady?: (
-      binding: VideoBinding
+    private onPreviewReady?: (
+      binding: VideoRenderBinding
     ) => void,
 
     /**
@@ -198,16 +71,43 @@ export class RenderController {
      * @param binding The affected local or remote track binding.
      * @param error The normalized native canvas error.
      */
-    private readonly onBindingFailure?: (
-      binding: VideoBinding,
+    private onBindingFailure?: (
+      binding: VideoRenderBinding,
       error: unknown,
     ) => void,
   ) {}
 
   /**
+   * Sets the listener notified when the current local preview becomes ready.
+   *
+   * @param listener The preview readiness handler, or null to remove it.
+   */
+  setPreviewReadyListener(
+    listener: ((
+      binding: VideoRenderBinding
+    ) => void) | null,
+  ): void {
+    this.onPreviewReady = listener ?? undefined;
+  }
+
+  /**
+   * Sets the listener receiving native canvas registration and binding failures.
+   *
+   * @param listener The binding failure handler, or null to remove it.
+   */
+  setBindingFailureListener(
+    listener: ((
+      binding: VideoRenderBinding,
+      error: unknown
+    ) => void) | null,
+  ): void {
+    this.onBindingFailure = listener ?? undefined;
+  }
+
+  /**
    * Creates a stream and stable track backed by mutable render state.
    *
-   * @param local Whether the media is local; null selects both directions where supported.
+   * @param local Whether this stream represents local input.
    * @param format The dimensions, frame rate, and bitrate bounds, in pixels, fps, and kbps.
    * @param position The front or rear camera position.
    * @param remote The remote room and account; null denotes local media.
@@ -221,7 +121,7 @@ export class RenderController {
     remote: RemoteStream | null = null,
     imageURL: string | null = null,
   ): RealtimeMediaStream {
-    const binding: VideoBinding = {
+    const binding: VideoRenderBinding = {
       id: this.rtc.randomUUID(),
       owner: this.owner,
       rtc: this.rtc,
@@ -266,12 +166,9 @@ export class RenderController {
       videoTrack: track,
     });
 
-    tracks.set(
-      track,
-      binding
-    );
-    streams.set(
+    registerVideoRenderBinding(
       stream,
+      track,
       binding
     );
     this.owned.add(binding);
@@ -287,8 +184,8 @@ export class RenderController {
    */
   requireLocal(
     stream: RealtimeMediaStream
-  ): VideoBinding {
-    const binding = streams.get(stream);
+  ): VideoRenderBinding {
+    const binding = streamBinding(stream);
 
     if (
       !binding ||
@@ -299,6 +196,24 @@ export class RenderController {
       throw invalid('Local stream does not belong to this active manager');
 
     return binding;
+  }
+
+  /**
+   * Updates remote stream confirmation without replacing the public track.
+   *
+   * @param stream The manager-owned result stream.
+   * @param remote The confirmed RTC room and account; null hides output while retaining its binding.
+   */
+  setRemoteStream(
+    stream: RealtimeMediaStream,
+    remote: RemoteStream | null,
+  ): void {
+    const binding = streamBinding(stream);
+    if (!binding || binding.owner !== this.owner || binding.local) return;
+
+    if (remote) binding.remote = remote;
+    binding.confirmed = remote !== null;
+    refreshBinding(binding);
   }
 
   /**

@@ -8,57 +8,12 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { record, nonEmpty } from './ApiResponse';
+import type { ApiServicing } from './ApiServicing';
 import { ApiLogger } from './ApiLogger';
 import { requestHTTP, type HttpTransport } from './HttpTransport';
 import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
 import type { RuntimeInfo } from '../../Foundation/Runtime/RuntimeInfo';
-
-/**
- * Returns a record only for non-array objects; otherwise returns null.
- *
- * @param value The service data to inspect.
- */
-export function record(
-  value: unknown
-): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-/**
- * Trims a string and returns null for blank or nonstring input.
- *
- * @param value The text value to inspect.
- */
-export function nonEmpty(
-  value: unknown
-): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-/**
- * The internal JSON request interface shared by realtime and storage services.
- */
-export interface ApiServicing {
-
-  /**
-   * Requests data from an API root and propagates cancellation to transport. A response that wins
-   * cancellation remains available for resource reclamation.
-   *
-   * @param method The HTTP request method.
-   * @param path The request path relative to the API root.
-   * @param body The JSON-serializable request body; omitted for requests without a payload.
-   * @param signal The operation's cancellation signal.
-   * @returns The business data after transport and response validation.
-   */
-  request(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
-    path: string,
-    body?: unknown,
-    signal?: AbortSignal,
-  ): Promise<unknown>;
-}
 
 /**
  * Sends Xmax API requests and handles responses, logging, and errors.

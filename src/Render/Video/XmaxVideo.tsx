@@ -20,7 +20,7 @@ import {
 } from 'react';
 import { Image, View, StyleSheet, type ViewProps } from 'react-native';
 import { RtcVideoSurface } from '../../Foundation/RTC/RtcVideoSurface';
-import { videoBinding } from '../RenderController';
+import { videoBinding } from './VideoRenderRegistry';
 import { VideoSurfaceBinding } from './VideoSurfaceBinding';
 import {
   VideoContentMode,

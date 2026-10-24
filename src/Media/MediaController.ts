@@ -8,23 +8,25 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { RtcManager } from '../Foundation/RTC/RtcManager';
+import type { CameraControlling } from './Camera/CameraControlling';
+import type { ImageControlling } from './Image/ImageControlling';
+import type { InteractionControlling } from './Interaction/InteractionControlling';
+import type { InteractionFrame } from './Interaction/InteractionCoordinateMapper';
+import type { MediaControlling } from './MediaControlling';
+
 import { invalid } from '../Foundation/Errors/XmaxError';
-import type { RenderController } from '../Render/RenderController';
+
 import type {
   CameraStreamOptions,
   ImageStreamOptions,
   RealtimeMediaStream,
-  RealtimeModel,
   RealtimeVideoFormat,
 } from '../Service/Realtime/RealtimeTypes';
-import { CameraController } from './Camera/CameraController';
-import { ImageController } from './Image/ImageController';
 
 /**
- * A controller that serializes ownership of a single local input, including pending preparation.
+ * Coordinates local media ownership, preparation, and task interactions.
  */
-export class MediaController {
+export class MediaController implements MediaControlling {
 
   /**
    * The current local input type.
@@ -32,36 +34,84 @@ export class MediaController {
   source: 'camera' | 'image' | null = null;
 
   /**
-   * The controller for local camera capture and release.
-   */
-  private readonly camera: CameraController;
-
-  /**
-   * The controller for image preparation, frame submission, and cleanup.
-   */
-  private readonly image: ImageController;
-
-  /**
-   * Creates mutually exclusive camera and image input controllers for the current model.
-   *
-   * @param rtc The RTC manager for media configuration and room events.
-   * @param render The render controller for stream and video-track bindings.
-   * @param model The generation model defining media constraints and supported formats.
+   * Creates a local media owner with camera, image, and interaction controllers.
    */
   constructor(
-    rtc: RtcManager,
-    render: RenderController,
-    model: RealtimeModel
-  ) {
-    this.camera = new CameraController(
-      rtc,
-      render,
-      model
+    /**
+     * The camera capture and release controller.
+     */
+    private readonly camera: CameraControlling,
+
+    /**
+     * The image preparation and frame delivery controller.
+     */
+    private readonly image: ImageControlling,
+
+    /**
+     * The interaction controller for this owner's active generation task.
+     */
+    private readonly interaction: InteractionControlling,
+  ) {}
+
+  /**
+   * The current touch sampling revision.
+   */
+  get generation(): number {
+    return this.interaction.generation;
+  }
+
+  /**
+   * Whether the current task accepts touch samples.
+   */
+  get isActive(): boolean {
+    return this.interaction.isActive;
+  }
+
+  /**
+   * Registers an interaction state callback and returns an unsubscribe function.
+   *
+   * @param listener The callback receiving task or sampling revision changes.
+   * @returns The function that removes this subscription.
+   */
+  subscribe = (listener: () => void): (() => void) =>
+    this.interaction.subscribe(listener);
+
+  /**
+   * Starts interaction mapping after generation is confirmed.
+   *
+   * @param taskID The confirmed generation task identifier.
+   * @param videoFormat The original input dimensions and frame rate used for touch mapping.
+   */
+  startInteraction(
+    taskID: string,
+    videoFormat: RealtimeVideoFormat
+  ): void {
+    this.interaction.startInteraction(
+      taskID,
+      videoFormat
     );
-    this.image = new ImageController(
-      rtc,
-      render,
-      model
+  }
+
+  /**
+   * Cancels pending touch samples without releasing local media.
+   */
+  stopInteraction(): void {
+    this.interaction.stopInteraction();
+  }
+
+  /**
+   * Submits viewport samples for the current task and gesture revision.
+   *
+   * @param frame The sampled touch positions, viewport, scaling mode, and validity check.
+   * @param generation The sampling revision accepting this frame.
+   */
+  submitInteraction(
+    frame: InteractionFrame,
+    generation: number
+  ): void {
+    this.interaction.submitInteraction(
+      frame,
+      generation
     );
   }
 

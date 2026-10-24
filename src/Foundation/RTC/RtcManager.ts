@@ -8,6 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RtcManaging } from './RtcManaging';
+import type { RemoteStream } from './RemoteStream';
+import type { RtcEvent } from './RtcEvent';
 import {
   PermissionsAndroid,
   Platform,
@@ -29,145 +32,13 @@ import {
   RealtimeNetworkQualityLevel,
   RealtimePerformanceStatus,
   type RealtimeVideoFormat,
-  type RealtimeNetworkQuality,
   type RealtimePerformanceAlarm,
   type UplinkVideoStatistics,
   type DownlinkVideoStatistics,
   type VideoContentMode,
 } from '../../Service/Realtime/RealtimeTypes';
-import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionService';
+import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
 import type { RuntimeInfo } from '../Runtime/RuntimeInfo';
-
-/**
- * A remote stream identified by room and string account rather than numeric UID.
- */
-export type RemoteStream = {
-
-  /**
-   * The RTC room identifier supplied by the session service.
-   */
-  roomID: string;
-
-  /**
-   * The RTC participant's string account.
-   */
-  userID: string;
-};
-/**
- * Normalized RTC events using stable string accounts and measured metrics.
- */
-export type RtcEvent =
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'localFrame' | 'captureReady';
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'rendered' | 'decoded';
-
-      /**
-       * The remote video's room and account.
-       */
-      stream: RemoteStream;
-
-      /**
-       * The width, in pixels.
-       */
-      width: number;
-
-      /**
-       * The height, in pixels.
-       */
-      height: number;
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'publication';
-
-      /**
-       * The remote video's room and account.
-       */
-      stream: RemoteStream;
-
-      /**
-       * Whether the remote account is publishing video.
-       */
-      published: boolean;
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'error';
-
-      /**
-       * The SDK error associated with the event or final state.
-       */
-      error: XmaxError;
-
-      /**
-       * The resources released by this cleanup.
-       */
-      scope?: 'connection' | 'all';
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'quality';
-
-      /**
-       * The most recent uplink and downlink network quality snapshot.
-       */
-      quality: RealtimeNetworkQuality;
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'performance';
-
-      /**
-       * The device performance limitation or recovery notification.
-       */
-      alarm: RealtimePerformanceAlarm;
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'uplinkStatistics';
-
-      /**
-       * The measured video statistics for one direction.
-       */
-      statistics: UplinkVideoStatistics;
-    }
-  | {
-
-      /**
-       * The event or result discriminator.
-       */
-      type: 'downlinkStatistics';
-
-      /**
-       * The measured video statistics for one direction.
-       */
-      statistics: DownlinkVideoStatistics;
-    };
 
 /**
  * The network quality levels ordered by native quality value.
@@ -177,7 +48,7 @@ const qualities = Object.values(RealtimeNetworkQualityLevel);
 /**
  * Manages RTC leases, connection waits, and event validity.
  */
-export class RtcManager {
+export class RtcManager implements RtcManaging {
 
   /**
    * The ownership identity used to reject retired resource holders.

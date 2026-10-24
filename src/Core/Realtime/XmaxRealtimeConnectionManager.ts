@@ -8,17 +8,16 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  RealtimeSession,
-  RealtimeSessionService,
-} from '../../Service/Realtime/RealtimeSessionService';
+import type { RoomControlling } from '../../Stream/Room/RoomControlling';
+import type { RenderControlling } from '../../Render/RenderControlling';
+import type { RealtimeSessionServicing } from '../../Service/Realtime/RealtimeSessionServicing';
+import type { RealtimeSession } from '../../Service/Realtime/RealtimeSession';
 import type {
   RealtimeModel,
   RealtimeVideoFormat,
   RealtimeMediaStream,
 } from '../../Service/Realtime/RealtimeTypes';
-import { RenderController } from '../../Render/RenderController';
-import { RoomController } from '../../Stream/Room/RoomController';
+
 import { ensureActive, repeatHeartbeat } from '../../Foundation/Runtime/Async';
 
 /**
@@ -55,17 +54,17 @@ export class XmaxRealtimeConnectionManager {
     /**
      * The service that creates, refreshes, and closes server sessions.
      */
-    private readonly service: RealtimeSessionService,
+    private readonly service: RealtimeSessionServicing,
 
     /**
      * The room controller for connection and signaling.
      */
-    private readonly room: RoomController,
+    private readonly room: RoomControlling,
 
     /**
      * The render controller for stream and video-track bindings.
      */
-    private readonly render: RenderController,
+    private readonly render: RenderControlling,
   ) {}
 
   /**

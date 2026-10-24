@@ -8,17 +8,18 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { InteractionController } from '../../Media/Interaction/InteractionController';
+import type { InteractionControlling } from '../../Media/Interaction/InteractionControlling';
 import { invalid } from '../../Foundation/Errors/XmaxError';
 import { ensureActive } from '../../Foundation/Runtime/Async';
 import { taskIDFromUUID } from '../../Foundation/Runtime/RuntimeInfo';
 import type { GenerationParameters } from '../../Stream/Room/RoomEvent';
-import type { RtcManager, RemoteStream } from '../../Foundation/RTC/RtcManager';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
+import type { RemoteStream } from '../../Foundation/RTC/RemoteStream';
 import type {
   RealtimeContext,
   RealtimeVideoFormat,
 } from '../../Service/Realtime/RealtimeTypes';
-import type { StreamController } from '../../Stream/StreamController';
+import type { StreamControlling } from '../../Stream/StreamControlling';
 
 /**
  * Coordinates generation signaling, remote stream confirmation, condition updates, and
@@ -43,17 +44,17 @@ export class XmaxRealtimeGenerationManager {
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
 
     /**
      * The stream controller.
      */
-    private readonly stream: StreamController,
+    private readonly stream: StreamControlling,
 
     /**
      * The interaction controller for the active task.
      */
-    private readonly interaction: InteractionController,
+    private readonly interaction: InteractionControlling,
   ) {}
 
   /**

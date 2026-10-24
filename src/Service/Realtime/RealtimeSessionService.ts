@@ -8,56 +8,16 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { ApiServicing } from '../Network/ApiService';
-import { record, nonEmpty } from '../Network/ApiService';
+import type { RealtimeSessionServicing } from './RealtimeSessionServicing';
+import type { RealtimeSession } from './RealtimeSession';
+import type { ApiServicing } from '../Network/ApiServicing';
+import { record, nonEmpty } from '../Network/ApiResponse';
 import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
-
-/**
- * The room credentials and generation bot identity returned by the session service.
- */
-export interface RealtimeSessionConnection {
-
-  /**
-   * The RTC room identifier supplied by the session service.
-   */
-  readonly roomID: string;
-
-  /**
-   * The RTC access token for the current room and user; must never be logged.
-   */
-  readonly token: string;
-
-  /**
-   * The RTC participant's string account.
-   */
-  readonly userID: string;
-
-  /**
-   * The expected result account; when omitted, results are not filtered by account.
-   */
-  readonly botName: string | null;
-}
-
-/**
- * The server session identifier and validated RTC connection information.
- */
-export interface RealtimeSession {
-
-  /**
-   * The session identifier allocated by the realtime session service.
-   */
-  readonly id: string;
-
-  /**
-   * The active room connection and server session.
-   */
-  readonly connection: RealtimeSessionConnection;
-}
 
 /**
  * Manages session creation, heartbeat, and closure.
  */
-export class RealtimeSessionService {
+export class RealtimeSessionService implements RealtimeSessionServicing {
 
   /**
    * Creates a session service using an authenticated API client.

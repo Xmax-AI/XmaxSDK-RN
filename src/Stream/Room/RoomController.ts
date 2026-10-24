@@ -8,10 +8,11 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RoomControlling } from './RoomControlling';
 import type { InteractionPoint } from '../../Media/Interaction/InteractionCoordinateMapper';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
-import type { RtcManager } from '../../Foundation/RTC/RtcManager';
-import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionService';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
+import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
 import type {
   RealtimeContext,
   RealtimeVideoFormat,
@@ -23,7 +24,7 @@ import { cancelledError } from '../../Foundation/Errors/XmaxError';
 /**
  * Manages RTC room lifecycle, heartbeat, and generation signaling.
  */
-export class RoomController {
+export class RoomController implements RoomControlling {
 
   /**
    * The active room connection and server session.
@@ -42,7 +43,7 @@ export class RoomController {
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
   ) {}
 
   /**

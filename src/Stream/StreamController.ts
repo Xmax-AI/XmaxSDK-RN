@@ -8,53 +8,56 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import { QualityController } from './Quality/QualityController';
-import { EncodingController } from './Encoding/EncodingController';
-import type { RtcManager, RemoteStream } from '../Foundation/RTC/RtcManager';
+import type { RoomControlling } from './Room/RoomControlling';
+import type { EncodingControlling } from './Encoding/EncodingControlling';
+import type { QualityControlling } from './Quality/QualityControlling';
+import type { StreamControlling } from './StreamControlling';
+
+import type { RtcManaging } from '../Foundation/RTC/RtcManaging';
+import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
 import type {
   RealtimeContext,
   RealtimeVideoFormat,
 } from '../Service/Realtime/RealtimeTypes';
 import { waitFor } from '../Foundation/Runtime/Async';
-import { RoomController } from './Room/RoomController';
+
 import { invalid } from '../Foundation/Errors/XmaxError';
 import type { GenerationParameters } from './Room/RoomEvent';
 
 /**
  * Coordinates RTC rooms, media streams, encoding, and quality.
  */
-export class StreamController {
-
-  /**
-   * The connection's transport quality policy and history.
-   */
-  readonly quality: QualityController;
-
-  /**
-   * The controller that applies video formats to the RTC uplink encoder.
-   */
-  readonly encoding: EncodingController;
+export class StreamController implements StreamControlling {
 
   /**
    * Creates a signaling and transport configuration controller.
    *
    * @param rtc The RTC manager for encoder configuration and room events.
    * @param room The room controller for connection and generation signaling.
+   * @param encoding The controller applying uplink encoding settings.
+   * @param quality The controller managing transport quality policies and history.
    */
   constructor(
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
 
     /**
      * The room controller for connection and signaling.
      */
-    readonly room: RoomController,
-  ) {
-    this.quality = new QualityController(rtc);
-    this.encoding = new EncodingController(rtc);
-  }
+    readonly room: RoomControlling,
+
+    /**
+     * The controller applying uplink encoding settings.
+     */
+    readonly encoding: EncodingControlling,
+
+    /**
+     * The connection's transport quality policy and history.
+     */
+    readonly quality: QualityControlling,
+  ) {}
 
   /**
    * Submits a start signal and waits for publication by the expected result account and room.

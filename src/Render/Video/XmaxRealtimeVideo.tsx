@@ -20,7 +20,7 @@ import {
 } from 'react';
 import { findNodeHandle, StyleSheet, View, type ViewProps } from 'react-native';
 import { VideoSurface } from './XmaxVideo';
-import { videoBinding } from '../RenderController';
+import { videoBinding } from './VideoRenderRegistry';
 import {
   VideoContentMode,
   type RealtimeVideoTrack,

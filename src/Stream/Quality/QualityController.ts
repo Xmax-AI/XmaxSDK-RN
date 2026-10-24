@@ -8,7 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { RtcManager } from '../../Foundation/RTC/RtcManager';
+import type { QualityControlling } from './QualityControlling';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { monotonicTime } from '../../Foundation/Runtime/MonotonicTime';
 import type {
   MediaSize,
@@ -23,7 +24,7 @@ import type { RealtimeQualityLevel } from '../../Service/Realtime/RealtimeTypes'
 /**
  * The controller for independent uplink and downlink quality, with one-hour per-model history.
  */
-export class QualityController {
+export class QualityController implements QualityControlling {
 
   /**
    * The uplink adaptation state for the media baseline.
@@ -52,7 +53,7 @@ export class QualityController {
     /**
      * The RTC manager for media configuration and room events.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
   ) {}
 
   /**

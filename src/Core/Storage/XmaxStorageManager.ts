@@ -8,12 +8,12 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { StorageServicing } from '../../Service/Storage/StorageServicing';
 import type {
   XmaxStorageManaging,
   UploadFileOptions,
   DownloadFileOptions,
 } from './XmaxStorageManaging';
-import { StorageService } from '../../Service/Storage/StorageService';
 
 /**
  * Provides public file transfer operations backed by the storage service.
@@ -29,7 +29,7 @@ export class XmaxStorageManager implements XmaxStorageManaging {
     /**
      * The service that validates files and manages independent transfers.
      */
-    private readonly service: StorageService,
+    private readonly service: StorageServicing,
   ) {}
 
   /**

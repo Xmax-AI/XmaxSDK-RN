@@ -8,14 +8,15 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { RtcManager } from '../../Foundation/RTC/RtcManager';
+import type { EncodingControlling } from './EncodingControlling';
+import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
 import { resolveBitrates } from './EncodingBitratePolicy';
 
 /**
  * Applies RTC encoding settings for a realtime video format.
  */
-export class EncodingController {
+export class EncodingController implements EncodingControlling {
 
   /**
    * Creates a video encoding controller.
@@ -24,7 +25,7 @@ export class EncodingController {
     /**
      * The RTC encoder configuration target.
      */
-    private readonly rtc: RtcManager,
+    private readonly rtc: RtcManaging,
   ) {}
 
   /**

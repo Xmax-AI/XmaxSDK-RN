@@ -8,9 +8,10 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { StorageServicing } from './StorageServicing';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
-import type { ApiServicing } from '../Network/ApiService';
-import { record, nonEmpty } from '../Network/ApiService';
+import type { ApiServicing } from '../Network/ApiServicing';
+import { record, nonEmpty } from '../Network/ApiResponse';
 import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
 import { abortable } from '../../Foundation/Runtime/Async';
 import type {
@@ -29,7 +30,7 @@ import {
 /**
  * Coordinates media transfers, temporary credentials, and image safety checks.
  */
-export class StorageService {
+export class StorageService implements StorageServicing {
 
   /**
    * Creates a storage service.

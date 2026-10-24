@@ -27,10 +27,8 @@ import {
 import { invalid } from '../Foundation/Errors/XmaxError';
 import { XmaxRealtimeManager } from './Realtime/XmaxRealtimeManager';
 import type { XmaxRealtimeManaging } from './Realtime/XmaxRealtimeManaging';
-import {
-  MediaService,
-  type MediaServicing,
-} from '../Service/Media/MediaService';
+import { MediaService } from '../Service/Media/MediaService';
+import type { MediaServicing } from '../Service/Media/MediaServicing';
 
 /**
  * A client that provides access to Xmax realtime generation, storage, and media services.

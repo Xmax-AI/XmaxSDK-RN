@@ -32,7 +32,7 @@ export type {
 
 export * from './Service/Realtime/RealtimeTypes';
 
-export type { MediaServicing } from './Service/Media/MediaService';
+export type { MediaServicing } from './Service/Media/MediaServicing';
 
 export { XmaxError, XmaxErrorCode } from './Foundation/Errors/XmaxError';
 

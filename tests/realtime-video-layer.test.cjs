@@ -28,7 +28,8 @@ mock.module(require.resolve('../lib/commonjs/Foundation/Native/NativeXmaxRuntime
   defaultExport: { hideVideoContainer: async (...args) => { nativeHides.push(args); } },
 });
 const { XmaxRealtimeVideo } = require('../lib/commonjs/Render/Video/XmaxRealtimeVideo');
-const { RenderController, videoBinding, refreshBinding } = require('../lib/commonjs/Render/RenderController');
+const { RenderController } = require('../lib/commonjs/Render/RenderController');
+const { videoBinding, refreshBinding } = require('../lib/commonjs/Render/Video/VideoRenderRegistry');
 
 function fixture() {
   displayed = false; dirty = false;

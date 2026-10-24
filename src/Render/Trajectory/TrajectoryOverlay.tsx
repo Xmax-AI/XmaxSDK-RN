@@ -23,7 +23,7 @@ import {
   StyleSheet,
   type GestureResponderEvent,
 } from 'react-native';
-import type { VideoBinding } from '../RenderController';
+import type { VideoRenderBinding } from '../Video/VideoRenderBinding';
 import type { VideoContentMode } from '../../Service/Realtime/RealtimeTypes';
 import type { TrajectoryEffectRendering } from './TrajectoryEffectRendering';
 import { DefaultTrajectoryEffectRenderer } from './DefaultTrajectoryEffectRenderer';
@@ -45,7 +45,7 @@ export function TrajectoryOverlay(
     /**
      * The video track binding for this view.
      */
-    binding: VideoBinding;
+    binding: VideoRenderBinding;
 
     /**
      * The scaling mode mapping video into the viewport.

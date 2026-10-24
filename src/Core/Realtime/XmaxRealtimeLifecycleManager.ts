@@ -1,5 +1,5 @@
 //
-//  RealtimeCoordinator.ts
+//  XmaxRealtimeLifecycleManager.ts
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -14,6 +14,7 @@ import {
   XmaxError,
   XmaxErrorCode,
 } from '../../Foundation/Errors/XmaxError';
+import { XmaxRealtimeErrorManager } from './XmaxRealtimeErrorManager';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import {
   RealtimeConnectionState,
@@ -134,9 +135,9 @@ interface Termination {
 }
 
 /**
- * A coordinator for realtime operation admission, state commitment, and resource cleanup.
+ * Coordinates realtime operation admission, state commitment, and resource cleanup.
  */
-export class RealtimeCoordinator {
+export class XmaxRealtimeLifecycleManager {
 
   /**
    * The immutable lifecycle state snapshot.
@@ -164,7 +165,14 @@ export class RealtimeCoordinator {
   private termination: Termination | null = null;
 
   /**
-   * Creates a lifecycle coordinator.
+   * The internal observer notified as connection or media resources are released.
+   */
+  private cleanupListener: ((
+    scope: TerminationScope
+  ) => void) | null = null;
+
+  /**
+   * Creates a realtime lifecycle manager.
    */
   constructor(
     /**
@@ -190,7 +198,36 @@ export class RealtimeCoordinator {
      * Pauses local capture immediately; final release waits for the active operation.
      */
     private readonly pauseLocalCapture: () => void = () => {},
+
+    /**
+     * The error manager shared by runtime callbacks and lifecycle operations.
+     */
+    private readonly errorManager: XmaxRealtimeErrorManager = new XmaxRealtimeErrorManager(),
   ) {}
+
+  /**
+   * Sets the internal resource cleanup observer.
+   *
+   * @param listener The observer receiving completed cleanup phases, or null to remove it.
+   */
+  setCleanupListener(
+    listener: ((
+      scope: TerminationScope
+    ) => void) | null,
+  ): void {
+    this.cleanupListener = listener;
+  }
+
+  /**
+   * Reports a released resource scope to the facade without changing lifecycle state.
+   *
+   * @param scope The connection or complete media scope whose cleanup has finished.
+   */
+  didCleanup(
+    scope: TerminationScope
+  ): void {
+    this.cleanupListener?.(scope);
+  }
 
   /**
    * Defers adaptation while an operation or cleanup is active.
@@ -336,8 +373,9 @@ export class RealtimeCoordinator {
             });
         }
         if (failure.code !== XmaxErrorCode.cancelled)
-          XmaxLogger.realtime.error(
-            () => `Realtime operation failed: ${failure.code}`,
+          this.errorManager.report(
+            failure,
+            'Realtime operation failed'
           );
         throw entry.terminalError ?? failure;
       })
@@ -406,9 +444,7 @@ export class RealtimeCoordinator {
   ): Promise<void> {
     const existing = this.termination;
     if (existing) {
-      /**
-       * Late room errors must not replace a user-initiated termination reason.
-       */
+      // Late room errors must not replace a user-initiated termination reason.
       if (
         scope === 'all' &&
         reason.type === 'failure' &&
@@ -437,17 +473,16 @@ export class RealtimeCoordinator {
     };
     this.termination = pending;
     pending.completion = Promise.resolve().then(async () => {
-      /**
-       * Wait for active resource users before destroying the room or engine.
-       */
+      // Wait for active resource users before destroying the room or engine.
       await pending.operation?.completion;
       let cleanedScope: TerminationScope;
       do {
         cleanedScope = pending.scope;
         await this.cleanup(cleanedScope).catch(error => {
           const failure = XmaxError.from(error);
-          XmaxLogger.realtime.error(
-            () => `Realtime cleanup failed: ${failure.code}`,
+          this.errorManager.report(
+            failure,
+            'Realtime cleanup failed'
           );
           if (pending.reason.type !== 'failure')
             pending.reason = { type: 'failure', error: failure };
@@ -462,9 +497,7 @@ export class RealtimeCoordinator {
         taskID: null,
         reason: pending.reason,
       };
-      /**
-       * Release admission before notification so a final-state listener can start new work.
-       */
+      // Release admission before notification so a final-state listener can start new work.
       if (this.operation === pending.operation) this.operation = null;
       this.termination = null;
       this.setState(next);
