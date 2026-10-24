@@ -1,3 +1,13 @@
+//
+//  StorageManager.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { Platform } from 'react-native';
 import type {
   CosXmlClientError,
@@ -17,10 +27,20 @@ import {
 import { invalid, XmaxError, XmaxErrorCode } from '../Errors/XmaxError';
 import NativeRuntime from '../Native/NativeXmaxRuntime';
 
-// Pool by endpoint, never by credential. Each request supplies its own STS token.
+/**
+ * The native adapter shared by endpoint and region; credentials remain request-specific.
+ */
 const transfers = new Map<string, Promise<CosUploadAdapter>>();
 
-function transfer(config: StorageConfiguration): Promise<CosUploadAdapter> {
+/**
+ * Obtains a manager shared by endpoint and region with request-specific temporary credentials.
+ *
+ * @param config The validated client configuration.
+ * @returns The adapter for the endpoint and region; registration failures may be retried.
+ */
+function transfer(
+  config: StorageConfiguration
+): Promise<CosUploadAdapter> {
   const endpoint = storageEndpoint(config);
   const key = `xmax:simple:${config.region}:${endpoint.origin}`;
   const existing = transfers.get(key);
@@ -34,7 +54,9 @@ function transfer(config: StorageConfiguration): Promise<CosUploadAdapter> {
       ...(Platform.OS === 'android' && endpoint.port
         ? { port: Number(endpoint.port) }
         : {}),
-      // iOS derives the scheme from host; its NSNumber isHttps setter is unnecessary.
+      /**
+       * Supplies an explicit protocol only when native configuration requires it.
+       */
       ...(Platform.OS === 'android'
         ? { isHttps: endpoint.protocol === 'https:' }
         : {}),
@@ -44,16 +66,19 @@ function transfer(config: StorageConfiguration): Promise<CosUploadAdapter> {
     },
     {
       forceSimpleUpload: true,
-      // The pinned iOS bridge ignores forceSimpleUpload. Its file-size check
-      // must instead select startSimpleUpload / QCloudPutObjectRequest for all
-      // supported objects. Do not send this value to Android's 32-bit getInt.
+      /**
+       * Selects single-request upload sizes within the native integer range.
+       */
       ...(Platform.OS === 'ios'
         ? { divisionForUpload: Number.MAX_SAFE_INTEGER }
         : {}),
     },
   );
 
-  transfers.set(key, promise);
+  transfers.set(
+    key,
+    promise
+  );
   promise.catch(() => {
     if (transfers.get(key) === promise) transfers.delete(key);
   });
@@ -61,7 +86,17 @@ function transfer(config: StorageConfiguration): Promise<CosUploadAdapter> {
   return promise;
 }
 
-function storageProgress(complete: number, total: number) {
+/**
+ * Normalizes byte counts and clamps the completed fraction when total size is known.
+ *
+ * @param complete The number of bytes transferred.
+ * @param total The expected byte count; nonpositive or omitted values indicate an unknown total.
+ * @returns The nonnegative completed and total byte counts and fraction from 0 to 1.
+ */
+function storageProgress(
+  complete: number,
+  total: number
+) {
   const completedUnitCount = Math.max(
     0,
     Number.isFinite(complete) ? complete : 0,
@@ -78,6 +113,9 @@ function storageProgress(complete: number, total: number) {
   };
 }
 
+/**
+ * Creates a CANCELLED error for this transfer without affecting other tasks.
+ */
 function cancelled() {
   return new XmaxError({
     code: XmaxErrorCode.cancelled,
@@ -85,7 +123,14 @@ function cancelled() {
   });
 }
 
-/** Preserves diagnostic codes without exposing COS payloads, credentials or signed URLs. */
+/**
+ * Retains safe diagnostic codes without exposing COS response bodies, credentials, or signed URLs.
+ *
+ * @param client The COS client failure.
+ * @param service The optional COS server error; omission leaves out the service code and HTTP
+ *   status.
+ * @returns An UPLOAD_ERROR containing safe diagnostic codes and HTTP status.
+ */
 function uploadError(
   client?: CosXmlClientError,
   service?: CosXmlServiceError,
@@ -121,15 +166,22 @@ function uploadError(
 }
 
 /**
- * Adapts native COS uploads and file downloads to the internal storage
- * boundary.
+ * A manager for native COS uploads and local file downloads.
  *
- * Uses simple PUT for every upload, routes each transfer independently and
- * commits downloads through an atomic file move. COS simple-upload size limits
- * apply; uploads never opt into multipart or resumable transfer.
+ * Uploads use isolated single-request PUT tasks; downloads are atomically moved on success. COS
+ * simple-upload size limits apply; multipart and resumable uploads are not used.
  */
 export class StorageManager implements StorageManaging {
-  async fileSize(fileURL: string) {
+
+  /**
+   * Requires a regular upload source and reads its byte size.
+   *
+   * @param fileURL The readable local file URL; your app retains ownership of the original.
+   * @returns The file size, in bytes; rejects unreadable files and nonregular sources.
+   */
+  async fileSize(
+    fileURL: string
+  ) {
     try {
       const stat = await Blob.fs.stat(filePath(fileURL));
 
@@ -144,7 +196,16 @@ export class StorageManager implements StorageManaging {
     }
   }
 
-  async upload(options: Parameters<StorageManaging['upload']>[0]) {
+  /**
+   * Uploads a local file with request-specific credentials and progress until completion or
+   * cancellation.
+   *
+   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @returns The uploaded URL, object key, and available ETag.
+   */
+  async upload(
+    options: Parameters<StorageManaging['upload']>[0]
+  ) {
     const { configuration, signal, progress, objectKey } = options;
     const manager = await transfer(configuration);
 
@@ -158,7 +219,10 @@ export class StorageManager implements StorageManaging {
           if (done) return;
 
           done = true;
-          signal.removeEventListener('abort', abort);
+          signal.removeEventListener(
+            'abort',
+            abort
+          );
           if (error) {
             reject(error);
             return;
@@ -189,7 +253,10 @@ export class StorageManager implements StorageManaging {
           task?.cancel().catch(() => {});
         };
 
-        signal.addEventListener('abort', abort);
+        signal.addEventListener(
+          'abort',
+          abort
+        );
         if (signal.aborted) {
           abort();
           return;
@@ -198,7 +265,11 @@ export class StorageManager implements StorageManaging {
         const now = Math.floor(Date.now() / 1000);
 
         manager
-          .upload(configuration.bucket, objectKey, options.fileURL, {
+          .upload(
+          configuration.bucket,
+          objectKey,
+          options.fileURL,
+          {
             signal,
             region: configuration.region,
             sessionCredentials: {
@@ -210,14 +281,24 @@ export class StorageManager implements StorageManaging {
             },
             customHeaders: { 'Content-Type': options.contentType },
             progressCallback: (complete, total) => {
-              if (!done) progress(storageProgress(complete, total));
+              if (!done) progress(storageProgress(
+                complete,
+                total
+              ));
             },
             resultListener: {
-              successCallBack: headers => finish(undefined, headers),
+              successCallBack: headers => finish(
+                undefined,
+                headers
+              ),
               failCallBack: (client, service) =>
-                finish(uploadError(client, service)),
+                finish(uploadError(
+                  client,
+                  service
+                )),
             },
-          })
+          }
+        )
           .then(
             created => {
               task = created;
@@ -235,7 +316,16 @@ export class StorageManager implements StorageManaging {
     );
   }
 
-  async download(options: Parameters<StorageManaging['download']>[0]) {
+  /**
+   * Downloads to an isolated temporary file and atomically replaces the destination after a
+   * successful, uncancelled response.
+   *
+   * @param options The remote URL, destination, progress handler, and cancellation signal.
+   * @returns The saved destination URL and byte count.
+   */
+  async download(
+    options: Parameters<StorageManaging['download']>[0]
+  ) {
     const { signal, progress } = options;
     const destination = filePath(options.destinationURL);
     const temporary = `${destination}.${NativeRuntime.randomUUID()}.partial`;
@@ -250,12 +340,21 @@ export class StorageManager implements StorageManaging {
       request.cancel(() => {});
     };
 
-    signal.addEventListener('abort', abort);
+    signal.addEventListener(
+      'abort',
+      abort
+    );
     if (signal.aborted) abort();
 
-    request.progress({ interval: 150 }, (complete, total) => {
-      if (!signal.aborted) progress(storageProgress(complete, total));
-    });
+    request.progress(
+      { interval: 150 },
+      (complete, total) => {
+        if (!signal.aborted) progress(storageProgress(
+          complete,
+          total
+        ));
+      }
+    );
 
     try {
       const response = await request;
@@ -272,12 +371,21 @@ export class StorageManager implements StorageManaging {
 
       if (signal.aborted) throw cancelled();
 
-      await NativeRuntime.replaceFile(temporary, destination);
-      progress(storageProgress(byteCount, byteCount));
+      await NativeRuntime.replaceFile(
+        temporary,
+        destination
+      );
+      progress(storageProgress(
+        byteCount,
+        byteCount
+      ));
 
       return { fileURL: options.destinationURL, byteCount };
     } finally {
-      signal.removeEventListener('abort', abort);
+      signal.removeEventListener(
+        'abort',
+        abort
+      );
       await Blob.fs.unlink(temporary).catch(() => {});
     }
   }

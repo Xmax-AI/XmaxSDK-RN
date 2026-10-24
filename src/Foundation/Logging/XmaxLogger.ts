@@ -1,69 +1,211 @@
+//
+//  XmaxLogger.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { XmaxLoggerOption } from '../../Core/XmaxConfiguration';
 
-/** Native sinks receive preformatted, credential-free messages at their original level. */
+/**
+ * Receives formatted, credential-free logs while retaining severity.
+ *
+ * @param level The transport level, from 1 for highest quality to 5 for lowest.
+ * @param message The formatted log message.
+ * @param option The current message's log-category bitmask.
+ */
 export type LogSink = (
   level: 'debug' | 'info' | 'warn' | 'error',
   message: string,
   option: XmaxLoggerOption,
 ) => void;
 
+/**
+ * The log text or lazy producer, evaluated only when its category is enabled.
+ */
 type Message = string | (() => string);
 
 /**
- * Global categorized SDK logging, matching the iOS logger's last-client-wins policy.
- * Messages are evaluated only when enabled. Callers must select safe metadata;
- * never pass credentials, prompts, URLs with query strings or raw response bodies.
+ * A global category logger with lazy message production. The latest client determines filtering and
+ * output. Never log credentials, prompts, signed URLs, or raw responses.
  */
 export class XmaxLogger {
+
+  /**
+   * The realtime lifecycle logger.
+   */
   static readonly realtime = new XmaxLogger('Realtime');
+
+  /**
+   * The logger for RTC ownership, transport, and video statistics.
+   */
   static readonly rtc = new XmaxLogger('RTC');
+
+  /**
+   * The local media preparation and release logger.
+   */
   static readonly media = new XmaxLogger('Media');
+
+  /**
+   * The service request metadata logger.
+   */
   static readonly api = new XmaxLogger('API');
+
+  /**
+   * The file transfer logger.
+   */
   static readonly storage = new XmaxLogger('Storage');
+
+  /**
+   * The room connection and generation signaling logger.
+   */
   static readonly room = new XmaxLogger('Room');
+
+  /**
+   * The generation task and transport-policy logger.
+   */
   static readonly stream = new XmaxLogger('Stream');
+
+  /**
+   * The canvas binding and remote display logger.
+   */
   static readonly render = new XmaxLogger('Render');
+
+  /**
+   * The interaction submission and custom trajectory callback logger.
+   */
   static readonly interaction = new XmaxLogger('Interaction');
+
+  /**
+   * The media permission logger.
+   */
   static readonly permission = new XmaxLogger('Permission');
 
+  /**
+   * The global category bitmask; 0 disables logging.
+   */
   private static options = 0;
+
+  /**
+   * The output function for enabled, formatted logs.
+   */
   private static sink: LogSink = () => {};
 
-  private constructor(private readonly category: string) {}
+  /**
+   * Creates a category logger sharing global filtering and output.
+   */
+  private constructor(
+    /**
+     * The category name attached to messages.
+     */
+    private readonly category: string,
+  ) {}
 
-  /** Applies to existing and future SDK services, including independent storage tasks. */
-  static configure(options: number, sink: LogSink): void {
+  /**
+   * Replaces global filtering and output for existing and future services.
+   *
+   * @param options The SDK log-category bitmask; 0 disables logging.
+   * @param sink The formatted log output function.
+   */
+  static configure(
+    options: number,
+    sink: LogSink
+  ): void {
     this.options = options;
     this.sink = sink;
   }
 
-  /** Tests the category bitmask without building a message or crossing the native bridge. */
-  static isEnabled(option: number): boolean {
-    // Bitmask semantics match the public OptionSet contract.
+  /**
+   * Checks category flags without producing message text or invoking native code.
+   *
+   * @param option The current message's log-category bitmask.
+   * @returns Whether every requested category flag is enabled.
+   */
+  static isEnabled(
+    option: number
+  ): boolean {
     // eslint-disable-next-line no-bitwise
     return option !== 0 && (this.options & option) === option;
   }
 
-  /** Writes diagnostic details under the business category unless explicitly overridden. */
-  debug(message: Message, option = XmaxLoggerOption.business): void {
-    this.write('debug', message, option);
+  /**
+   * Logs diagnostic details using the business category by default.
+   *
+   * @param message The log text or lazy message producer.
+   * @param option The message category bitmask; defaults to the business category.
+   */
+  debug(
+    message: Message,
+    option = XmaxLoggerOption.business
+  ): void {
+    this.write(
+      'debug',
+      message,
+      option
+    );
   }
 
-  /** Writes a normal lifecycle or operation event. */
-  info(message: Message, option = XmaxLoggerOption.business): void {
-    this.write('info', message, option);
+  /**
+   * Logs a lifecycle or business event.
+   *
+   * @param message The log text or lazy message producer.
+   * @param option The message category bitmask; defaults to the business category.
+   */
+  info(
+    message: Message,
+    option = XmaxLoggerOption.business
+  ): void {
+    this.write(
+      'info',
+      message,
+      option
+    );
   }
 
-  /** Writes a recoverable condition or a host callback failure. */
-  warn(message: Message, option = XmaxLoggerOption.business): void {
-    this.write('warn', message, option);
+  /**
+   * Logs a recoverable issue or app callback failure.
+   *
+   * @param message The log text or lazy message producer.
+   * @param option The message category bitmask; defaults to the business category.
+   */
+  warn(
+    message: Message,
+    option = XmaxLoggerOption.business
+  ): void {
+    this.write(
+      'warn',
+      message,
+      option
+    );
   }
 
-  /** Writes an operation failure without affecting its error propagation. */
-  error(message: Message, option = XmaxLoggerOption.business): void {
-    this.write('error', message, option);
+  /**
+   * Logs an operation failure without changing error propagation.
+   *
+   * @param message The log text or lazy message producer.
+   * @param option The message category bitmask; defaults to the business category.
+   */
+  error(
+    message: Message,
+    option = XmaxLoggerOption.business
+  ): void {
+    this.write(
+      'error',
+      message,
+      option
+    );
   }
 
+  /**
+   * Formats and delivers enabled messages without propagating logging failures.
+   *
+   * @param level The log severity.
+   * @param message The log text or lazy message producer.
+   * @param option The current message's log-category bitmask.
+   */
   private write(
     level: Parameters<LogSink>[0],
     message: Message,
@@ -71,16 +213,22 @@ export class XmaxLogger {
   ): void {
     if (!XmaxLogger.isEnabled(option)) return;
 
-    // Logging failures, including native transport failures, cannot interrupt SDK work.
+    // Logging and native output failures must not interrupt SDK operations.
     try {
       const text = typeof message === 'function' ? message() : message;
       const formatted = text
         .split(/\r?\n/)
         .map(line => `[Xmax][${this.category}] ${line}`)
         .join('\n');
-      XmaxLogger.sink(level, formatted, option);
+      XmaxLogger.sink(
+        level,
+        formatted,
+        option
+      );
     } catch {
-      // No recursive console fallback: it could bypass logging/privacy settings.
+      /**
+       * Avoid recursive console fallback that bypasses category and privacy controls.
+       */
     }
   }
 }

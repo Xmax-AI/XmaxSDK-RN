@@ -13,10 +13,8 @@ import type {
   XLabApiEndpoint,
 } from '../configuration/ConfigurationStore';
 import {
-  apiBaseURLForEndpoint,
   environmentForEndpoint,
   parseBitrateOverride,
-  parseGenerationBitrate,
 } from '../configuration/ConfigurationStore';
 import { FeedScreen } from '../screens/FeedScreen';
 import { CameraScreen } from '../screens/CameraScreen';
@@ -31,13 +29,11 @@ export type XLabStackParamList = {
     endpoint: XLabApiEndpoint;
     model: RealtimeModel;
     bitrate: BitrateOverride | null;
-    generationBitrate: BitrateOverride | null;
   };
   Image: {
     endpoint: XLabApiEndpoint;
     model: RealtimeModel;
     bitrate: BitrateOverride | null;
-    generationBitrate: BitrateOverride | null;
     fileURL: string;
     customTrajectory: boolean;
     contentType: string | undefined;
@@ -52,18 +48,6 @@ function bitrateParam(
   const parsed = parseBitrateOverride(
     configuration.minBitrate,
     configuration.maxBitrate,
-  );
-
-  return parsed === 'invalid' ? null : parsed;
-}
-
-/** Downlink limits captured for the generation start event. */
-function generationBitrateParam(
-  configuration: SavedConfiguration,
-): BitrateOverride | null {
-  const parsed = parseGenerationBitrate(
-    configuration.downMinBitrate,
-    configuration.downMaxBitrate,
   );
 
   return parsed === 'invalid' ? null : parsed;
@@ -110,7 +94,6 @@ function FeedRoute({
             endpoint,
             model: configuration.model,
             bitrate: bitrateParam(configuration),
-            generationBitrate: generationBitrateParam(configuration),
           });
       }}
       onImage={(_apiKey, endpoint, fileURL, customTrajectory, contentType) => {
@@ -119,7 +102,6 @@ function FeedRoute({
             endpoint,
             model: configuration.model,
             bitrate: bitrateParam(configuration),
-            generationBitrate: generationBitrateParam(configuration),
             fileURL,
             customTrajectory,
             contentType,
@@ -145,10 +127,8 @@ function CameraRoute({
       entryReady={entryReady}
       model={route.params.model}
       bitrate={route.params.bitrate}
-      generationBitrate={route.params.generationBitrate}
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
-      baseURL={apiBaseURLForEndpoint(route.params.endpoint)}
       onBack={navigation.goBack}
     />
   );
@@ -166,10 +146,8 @@ function ImageRoute({
       entryReady={entryReady}
       model={route.params.model}
       bitrate={route.params.bitrate}
-      generationBitrate={route.params.generationBitrate}
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
-      baseURL={apiBaseURLForEndpoint(route.params.endpoint)}
       fileURL={route.params.fileURL}
       customTrajectory={route.params.customTrajectory}
       imageContentType={route.params.contentType}
@@ -188,7 +166,6 @@ function StorageRoute({
     <StorageScreen
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
-      baseURL={apiBaseURLForEndpoint(route.params.endpoint)}
       onBack={navigation.goBack}
     />
   );

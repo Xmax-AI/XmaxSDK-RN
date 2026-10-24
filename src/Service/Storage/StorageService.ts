@@ -1,3 +1,13 @@
+//
+//  StorageService.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import type { ApiServicing } from '../Network/ApiService';
 import { record, nonEmpty } from '../Network/ApiService';
@@ -17,17 +27,46 @@ import {
 } from './StorageValidation';
 
 /**
- * Coordinates temporary credentials, object naming, explicit safety checks and
- * per-operation cancellation.
+ * Coordinates media transfers, temporary credentials, and image safety checks.
  */
 export class StorageService {
+
+  /**
+   * Creates a storage service.
+   */
   constructor(
+    /**
+     * The authenticated HTTP request interface.
+     */
     private readonly api: ApiServicing,
+
+    /**
+     * The upload and download transport implementation.
+     */
     private readonly storage: StorageManaging,
+
+    /**
+     * The function producing unique task, file, or message identifiers.
+     */
     private readonly uuid: () => string,
+
+    /**
+     * The millisecond clock for object naming and elapsed time.
+     *
+     * @returns The current system time, in milliseconds.
+     */
     private readonly now: () => number = Date.now,
   ) {}
 
+  /**
+   * Validates local media, requests temporary credentials, and uploads, optionally checking image
+   * safety afterward.
+   *
+   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param media The image or video category used for file validation and MIME inference.
+   * @param checksSafety Whether to check image safety after upload.
+   * @returns The uploaded URL, object key, and available ETag.
+   */
   async upload(
     options: UploadFileOptions,
     media: 'image' | 'video',
@@ -43,11 +82,19 @@ export class StorageService {
           options.contentType,
         );
 
-        await abortable(this.storage.fileSize(options.fileURL), signal);
+        await abortable(
+          this.storage.fileSize(options.fileURL),
+          signal
+        );
 
         const config = parseStorageConfiguration(
           await abortable(
-            this.api.request('GET', '/cos/sts', undefined, signal),
+            this.api.request(
+              'GET',
+              '/cos/sts',
+              undefined,
+              signal
+            ),
             signal,
           ),
         );
@@ -106,7 +153,15 @@ export class StorageService {
     );
   }
 
-  async download(options: DownloadFileOptions) {
+  /**
+   * Validates remote and destination URLs and downloads within independent cancellation scope.
+   *
+   * @param options The remote URL, destination, progress handler, and cancellation signal.
+   * @returns The saved destination URL and byte count.
+   */
+  async download(
+    options: DownloadFileOptions
+  ) {
     return this.operation(
       options,
       XmaxErrorCode.downloadError,
@@ -119,12 +174,24 @@ export class StorageService {
     );
   }
 
+  /**
+   * Runs an isolated transfer with protected progress callbacks and a 15-minute overall timeout.
+   *
+   * @param options The transfer URLs, progress handler, and task cancellation signal.
+   * @param code The SDK or service error code for this operation.
+   * @param run The asynchronous transfer operation under current cancellation and progress
+   *   ownership.
+   * @returns Validates transfer completion against timeout and cancellation; rejects with
+   *   normalized transfer errors.
+   */
   private async operation<T>(
     options: Pick<UploadFileOptions, 'signal' | 'progress'>,
     code: XmaxErrorCode,
     run: (
       signal: AbortSignal,
-      progress: (p: StorageProgress) => void,
+      progress: (
+        p: StorageProgress
+      ) => void,
     ) => Promise<T>,
   ): Promise<T> {
     const action = code === XmaxErrorCode.uploadError ? 'Upload' : 'Download';
@@ -135,26 +202,35 @@ export class StorageService {
     const abort = () => controller.abort();
     let finished = false,
       timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, 15 * 60 * 1000);
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        controller.abort();
+      },
+      15 * 60 * 1000
+    );
 
-    options.signal?.addEventListener('abort', abort);
+    options.signal?.addEventListener(
+      'abort',
+      abort
+    );
     if (options.signal?.aborted) controller.abort();
 
     try {
       if (controller.signal.aborted) throw new Error('Cancelled');
 
-      const result = await run(controller.signal, value => {
-        if (finished || controller.signal.aborted) return;
+      const result = await run(
+        controller.signal,
+        value => {
+          if (finished || controller.signal.aborted) return;
 
-        try {
-          options.progress?.(value);
-        } catch {
-          XmaxLogger.storage.warn('Progress listener threw an exception');
+          try {
+            options.progress?.(value);
+          } catch {
+            XmaxLogger.storage.warn('Progress listener threw an exception');
+          }
         }
-      });
+      );
 
       XmaxLogger.storage.info(
         () => `${action} completed in ${this.now() - started} ms`,
@@ -193,7 +269,10 @@ export class StorageService {
     } finally {
       finished = true;
       clearTimeout(timer);
-      options.signal?.removeEventListener('abort', abort);
+      options.signal?.removeEventListener(
+        'abort',
+        abort
+      );
     }
   }
 }

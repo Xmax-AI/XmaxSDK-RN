@@ -1,14 +1,60 @@
+//
+//  TrajectoryTouchCoordinates.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import type { MediaSize } from '../../Service/Realtime/RealtimeTypes';
 import type { InteractionPoint } from '../../Media/Interaction/InteractionCoordinateMapper';
 
 /**
- * Converts page coordinates into the actual overlay bounds. Child-relative
- * locationX/Y cannot be used because a hit target may have its own origin.
- * RN's synchronous bounding rect includes the root viewport/safe-area offset.
+ * Maps positions using the overlay's actual page bounds. Child locationX/Y origins may differ;
+ * synchronous bounds include root viewport and safe-area offsets.
+ *
+ * @param touch The touch position reported by the view.
+ * @param rect The overlay bounds in page coordinates, including layout offsets.
+ * @param viewport The viewport dimensions, in layout units.
+ * @returns The overlay-local position, or null for invalid geometry.
  */
 export function trajectoryTouchPoint(
-  touch: { pageX: number; pageY: number },
-  rect: { x: number; y: number; width: number; height: number },
+  touch: {
+
+    /**
+     * The horizontal page coordinate, in layout units.
+     */
+    pageX: number;
+
+    /**
+     * The vertical page coordinate, in layout units.
+     */
+    pageY: number;
+  },
+  rect: {
+
+    /**
+     * The horizontal coordinate in the enclosing position's coordinate space.
+     */
+    x: number;
+
+    /**
+     * The vertical coordinate in the enclosing position's coordinate space.
+     */
+    y: number;
+
+    /**
+     * The width, in pixels.
+     */
+    width: number;
+
+    /**
+     * The height, in pixels.
+     */
+    height: number;
+  },
   viewport: MediaSize,
 ): InteractionPoint | null {
   if (

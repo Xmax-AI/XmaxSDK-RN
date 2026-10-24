@@ -3,9 +3,13 @@ import {
   DefaultTrajectoryEffectRenderer,
   type TrajectoryEffectRendering,
   RealtimeModel,
+  RealtimeMediaSource,
   RealtimeVideoEncoderPreference,
   realtimeModelSpecifications,
   CameraPosition,
+  RealtimeCameraPreset,
+  RealtimeQualityLevel,
+  type RealtimeVideoFormat,
   VideoContentMode,
   type RealtimeMediaStream,
   type RealtimeState,
@@ -17,39 +21,50 @@ import {
 
 // Compile the emitted consumer declarations, including negative calls. Never executed.
 export async function cameraContract(client: XmaxClient) {
-  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_0_pro].resolutionBuckets;
+  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1].supportedVideoFormats;
   // @ts-expect-error Model buckets cannot be changed by callers.
   bucket.push({ width: 640, height: 480 });
   const pro: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_0_pro,
+    model: RealtimeModel.x2_1,
   });
-  client.createMediaService(RealtimeModel.x2_0_pro);
+  client.createMediaService(RealtimeModel.x2_1);
   await pro.close();
 
   const preview: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1_preview,
+    model: RealtimeModel.x2_1,
   });
-  client.createMediaService(RealtimeModel.x2_1_preview);
+  client.createMediaService(RealtimeModel.x2_1);
   await preview.close();
 
   const manager: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_0,
+    model: RealtimeModel.x2_1,
   });
   const size: MediaSize = client
-    .createMediaService(RealtimeModel.x2_0)
-    .resolveModelInputSize({ width: 640, height: 480 });
+    .createMediaService(RealtimeModel.x2_1)
+    .resolveMediaSize({ width: 1080, height: 1920 }, RealtimeMediaSource.camera);
   const local = await manager.createLocalCameraStream({
     position: CameraPosition.front,
     videoFormat: { ...size, fps: 30, minimumBitrate: 0, maximumBitrate: 3000,
       encoderPreference: RealtimeVideoEncoderPreference.maintainFramerate },
     useMicrophone: false,
   });
+  const format: RealtimeVideoFormat | null = manager.currentCameraVideoFormat;
+  const preset: RealtimeCameraPreset | null = manager.currentCameraPreset;
+  const level: RealtimeQualityLevel | null = manager.uplinkQualityLevel;
+  await manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408);
+  await manager.updateCameraFormat({ width: 1080, height: 1920, fps: 30 });
+  await manager.setUplinkQualityLevel(RealtimeQualityLevel.l1);
+  await manager.setDownlinkQualityLevel(RealtimeQualityLevel.l3);
+  // @ts-expect-error Quality levels are limited to the declared enum values.
+  await manager.setUplinkQualityLevel(6);
+  void [format, preset, level];
   const connected: RealtimeMediaStream = await manager.connect({
     localStream: local,
   });
   const generated: RealtimeMediaStream = await manager.startGeneration({
     localStream: local,
     context: { prompt: '水彩' },
+    faceRestoration: true,
   });
   const updated: void = await manager.startGeneration({
     context: { prompt: '油画', referencePath: null },
@@ -76,6 +91,11 @@ export async function cameraContract(client: XmaxClient) {
   await manager.setErrorListener(null);
   // @ts-expect-error Preview readiness is represented by Ready.
   await manager.setCameraPreviewReadyListener(null);
+  await manager.setUplinkVideoStatisticsListener(statistics => {
+    const width: number | null | undefined = statistics?.width;
+    void width;
+  });
+  await manager.setDownlinkVideoStatisticsListener(null);
   await manager.setNetworkQualityListener(null);
   await manager.setPerformanceAlarmListener(null);
   await manager.setLocalAudioVolume(0);

@@ -1,4 +1,7 @@
 PODS:
+  - AgoraInfra_iOS (1.3.5)
+  - AgoraRtcEngine_iOS/RtcBasic (4.6.4):
+    - AgoraInfra_iOS (= 1.3.5)
   - boost (1.84.0):
     - ReactNativeDependencies
   - DoubleConversion (1.1.6):
@@ -1316,55 +1319,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-rtc (1.3.2):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
-    - React-bridging
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - react-native-rtc/Core (= 1.3.2)
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - VolcApiEngine (= 1.6.6)
-    - VolcEngineRTC (= 3.58.1.51400)
-    - Yoga
-  - react-native-rtc/Core (1.3.2):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
-    - React-bridging
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - VolcApiEngine (= 1.6.6)
-    - VolcEngineRTC (= 3.58.1.51400)
-    - Yoga
   - react-native-safe-area-context (5.9.1):
     - hermes-engine
     - RCTRequired
@@ -1953,23 +1907,8 @@ PODS:
     - Yoga
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
-  - VolcApiEngine (1.6.6)
-  - VolcEngineRTC (3.58.1.51400):
-    - VolcEngineRTC/BMF (= 3.58.1.51400)
-    - VolcEngineRTC/ByteRTCVideoDenoiseExtension (= 3.58.1.51400)
-    - VolcEngineRTC/ByteRTCVideoSharpenExtension (= 3.58.1.51400)
-    - VolcEngineRTC/ByteRTCVideoSRExtension (= 3.58.1.51400)
-    - VolcEngineRTC/Core (= 3.58.1.51400)
-    - VolcEngineRTC/CVByteNN (= 3.58.1.51400)
-    - VolcEngineRTC/RealXBase (= 3.58.1.51400)
-  - VolcEngineRTC/BMF (3.58.1.51400)
-  - VolcEngineRTC/ByteRTCVideoDenoiseExtension (3.58.1.51400)
-  - VolcEngineRTC/ByteRTCVideoSharpenExtension (3.58.1.51400)
-  - VolcEngineRTC/ByteRTCVideoSRExtension (3.58.1.51400)
-  - VolcEngineRTC/Core (3.58.1.51400)
-  - VolcEngineRTC/CVByteNN (3.58.1.51400)
-  - VolcEngineRTC/RealXBase (3.58.1.51400)
   - XmaxReactNativeSDK (1.0.4):
+    - AgoraRtcEngine_iOS/RtcBasic (= 4.6.4)
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1990,8 +1929,6 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
-    - VolcApiEngine (= 1.6.6)
-    - VolcEngineRTC (= 3.58.1.51400)
     - Yoga
   - Yoga (0.0.0):
     - React-Core-prebuilt
@@ -2048,7 +1985,6 @@ DEPENDENCIES:
   - react-native-blob-util (from `../../../node_modules/react-native-blob-util`)
   - react-native-cos-sdk-nobeacon (from `../../../node_modules/react-native-cos-sdk-nobeacon`)
   - react-native-image-picker (from `../../../node_modules/react-native-image-picker`)
-  - "react-native-rtc (from `../../../node_modules/@volcengine/react-native-rtc`)"
   - react-native-safe-area-context (from `../../../node_modules/react-native-safe-area-context`)
   - react-native-video (from `../../../node_modules/react-native-video`)
   - React-NativeModulesApple (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -2095,10 +2031,9 @@ DEPENDENCIES:
   - Yoga (from `build/rncore-facades/Yoga`)
 
 SPEC REPOS:
-  https://github.com/volcengine/volcengine-specs.git:
-    - VolcApiEngine
-    - VolcEngineRTC
   trunk:
+    - AgoraInfra_iOS
+    - AgoraRtcEngine_iOS
     - QCloudCore
     - QCloudCOSXML
 
@@ -2204,8 +2139,6 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native-cos-sdk-nobeacon"
   react-native-image-picker:
     :path: "../../../node_modules/react-native-image-picker"
-  react-native-rtc:
-    :path: "../../../node_modules/@volcengine/react-native-rtc"
   react-native-safe-area-context:
     :path: "../../../node_modules/react-native-safe-area-context"
   react-native-video:
@@ -2296,6 +2229,8 @@ EXTERNAL SOURCES:
     :path: build/rncore-facades/Yoga
 
 SPEC CHECKSUMS:
+  AgoraInfra_iOS: 0bf927aad4fc425b24ca5d094b333361960f5cb0
+  AgoraRtcEngine_iOS: 2ac3c06dd68eff8e895b5529e59a10a05da63878
   boost: 8502bfdc46e2804408af2e163049ece181009af4
   DoubleConversion: 501a575c40c0b50c89685762dd3e415e6bb26fb0
   fast_float: 7c925d1cebf8328d4018d061f49377e9f887e3b4
@@ -2348,7 +2283,6 @@ SPEC CHECKSUMS:
   react-native-blob-util: 0bc55ea9649e01a4d3369f0bf675600ace81f1d7
   react-native-cos-sdk-nobeacon: 77c500b06a5dc63e7103a5c6b0cc738d75e439c8
   react-native-image-picker: 870b31525256975a2d4b6b20a54db9b380cd725d
-  react-native-rtc: 72364364cc08ef0cc249bd92e4a8905cfb46454b
   react-native-safe-area-context: f17f4ec987ecdd130820a4a850498b874fb70388
   react-native-video: a15af3d54cbf5087c5e93b17cdaf24dc84f970b5
   React-NativeModulesApple: adb1dd8361dff80e9f6652fb3fdbf033cfbe2a89
@@ -2391,11 +2325,9 @@ SPEC CHECKSUMS:
   RNKeychain: 551d42b0ef53426f82551a0cc961cfa10ad33afa
   RNScreens: 0135deb65b65d207ee6294d0baf06681e1071d93
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
-  VolcApiEngine: 8af6532461096ff9ec22a6f486d3cc2b522da593
-  VolcEngineRTC: 511293bbde08c44439f228b82ec726ccd64eb2da
-  XmaxReactNativeSDK: d6888a41b6a778f42c06860ea044581d33952e8f
+  XmaxReactNativeSDK: fd49b13172841dc2320cc2f5dc89377a405c6fc0
   Yoga: d1c536142c5ff8ec8cd856ab2a7c227a1d875c8e
 
-PODFILE CHECKSUM: c24c99d37d00b62c12a5e305500ad4a1686dcafc
+PODFILE CHECKSUM: 2dee7963f469543f7fc354a49a5db24d438695ff
 
 COCOAPODS: 1.17.0

@@ -1,3 +1,13 @@
+//
+//  StorageValidation.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import {
   invalid,
   XmaxError,
@@ -6,7 +16,14 @@ import {
 import { record, nonEmpty } from '../Network/ApiService';
 import type { StorageConfiguration } from './StorageTypes';
 
-export function httpURL(value: string): URL {
+/**
+ * Requires an absolute HTTP(S) URL without embedded user credentials.
+ *
+ * @param value An absolute HTTP(S) URL without user credentials.
+ */
+export function httpURL(
+  value: string
+): URL {
   try {
     const url = new URL(value);
 
@@ -24,8 +41,16 @@ export function httpURL(value: string): URL {
   }
 }
 
-export function filePath(value: string): string {
-  // RN's built-in URL.pathname handles HTTP only; do not use it for file URLs.
+/**
+ * Decodes an absolute file URL and rejects malformed or null-containing paths.
+ *
+ * @param value An absolute file URL without query, fragment, or null characters.
+ * @returns The decoded absolute local path.
+ */
+export function filePath(
+  value: string
+): string {
+  // Decode and validate the complete file URL before accessing native storage.
   const match = /^file:\/\/(?:localhost)?(\/[^?#]*)$/i.exec(value);
 
   try {
@@ -41,6 +66,9 @@ export function filePath(value: string): string {
   }
 }
 
+/**
+ * The supported image extensions and MIME subtypes.
+ */
 const imageTypes: Record<string, string> = {
   jpg: 'jpeg',
   jpeg: 'jpeg',
@@ -57,6 +85,9 @@ const imageTypes: Record<string, string> = {
   avif: 'avif',
 };
 
+/**
+ * The supported video extensions and MIME subtypes.
+ */
 const videoTypes: Record<string, string> = {
   mp4: 'mp4',
   mov: 'quicktime',
@@ -69,6 +100,13 @@ const videoTypes: Record<string, string> = {
   ts: 'mp2t',
 };
 
+/**
+ * Validates a media category and derives a safe object name and MIME type.
+ *
+ * @param fileURL The readable local file URL; your app retains ownership of the original.
+ * @param media The image or video category used for file validation and MIME inference.
+ * @param contentType The MIME type; inferred from the extension when omitted or null.
+ */
 export function uploadMetadata(
   fileURL: string,
   media: 'image' | 'video',
@@ -77,9 +115,18 @@ export function uploadMetadata(
   const name = filePath(fileURL).split('/').pop() ?? '';
   const fileName = name
     .trim()
-    .replace(/[^\p{L}\p{N}._-]/gu, '_')
-    .replace(/_+/g, '_')
-    .replace(/^[._-]+|[._-]+$/g, '');
+    .replace(
+    /[^\p{L}\p{N}._-]/gu,
+    '_'
+  )
+    .replace(
+    /_+/g,
+    '_'
+  )
+    .replace(
+    /^[._-]+|[._-]+$/g,
+    ''
+  );
 
   if (!fileName) throw invalid('File name cannot be empty');
 
@@ -99,6 +146,12 @@ export function uploadMetadata(
   return { fileName, contentType: type };
 }
 
+/**
+ * Validates upload endpoints, directories, and temporary credentials before transfer.
+ *
+ * @param value The raw credential response to validate.
+ * @returns The validated bucket, endpoint, directory, and temporary credentials.
+ */
 export function parseStorageConfiguration(
   value: unknown,
 ): StorageConfiguration {
@@ -139,7 +192,14 @@ export function parseStorageConfiguration(
   return configuration;
 }
 
-export function storageEndpoint(config: StorageConfiguration): URL {
+/**
+ * Resolves the authorized bucket endpoint, adding its bucket prefix to regional endpoints.
+ *
+ * @param config The validated client configuration.
+ */
+export function storageEndpoint(
+  config: StorageConfiguration
+): URL {
   const endpoint =
     config.endpoint ||
     `https://${config.bucket}.cos.${config.region}.myqcloud.com`;
@@ -155,6 +215,15 @@ export function storageEndpoint(config: StorageConfiguration): URL {
   return url;
 }
 
+/**
+ * Resolves a valid upload URL or constructs an encoded URL from the authorized endpoint and object
+ * key.
+ *
+ * @param config The validated client configuration.
+ * @param key The authorized object key, encoded separately by path segment.
+ * @param candidate The service-returned URL; invalid or missing values use the configured object
+ *   URL.
+ */
 export function objectURL(
   config: StorageConfiguration,
   key: string,
@@ -166,7 +235,9 @@ export function objectURL(
         candidate.startsWith('//') ? `https:${candidate}` : candidate,
       ).href;
     } catch {
-      /* Fall back to the configured object endpoint. */
+      /**
+       * Fall back to the configured object URL.
+       */
     }
   }
 

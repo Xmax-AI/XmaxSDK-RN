@@ -42,17 +42,18 @@
     "pods": "cd Example/XLab/ios && bundle exec pod install",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p Example/XLab/tsconfig.json",
-    "lint": "eslint src Example/XLab/App.tsx Example/XLab/src Example/XLab/index.js",
-    "format:check": "prettier --check src scripts Example/XLab/App.tsx Example/XLab/src",
+    "lint": "eslint src Example/XLab/App.tsx Example/XLab/src Example/XLab/index.js && npm run lint:comments",
+    "lint:comments": "node scripts/check-sdk-comments.mjs",
+    "format:check": "node scripts/format-sdk.mjs --check && prettier --check scripts Example/XLab/App.tsx Example/XLab/src",
     "format:ios": "xcrun swift-format format --in-place --recursive ios",
     "format:ios:check": "xcrun swift-format lint --strict --recursive ios",
     "prepack": "npm run build",
-    "test": "npm run build && tsc --noEmit -p tests/tsconfig.json && node --experimental-test-module-mocks --test tests/*.test.cjs"
+    "test": "npm run build && tsc --noEmit -p tests/tsconfig.json && node --experimental-test-module-mocks --test tests/*.test.cjs",
+    "format:sdk": "node scripts/format-sdk.mjs"
   },
   "peerDependencies": {
     "react": "^19.2.3",
     "react-native": ">=0.87.1 <0.88.0",
-    "@volcengine/react-native-rtc": "1.3.2",
     "react-native-cos-sdk-nobeacon": "1.3.0",
     "react-native-blob-util": "0.24.10"
   },

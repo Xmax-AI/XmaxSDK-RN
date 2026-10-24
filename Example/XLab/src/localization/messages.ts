@@ -1,5 +1,19 @@
 /** XLab copy mirrored from the iOS XLab string catalog; RN-only states are explicit. */
 export const english = {
+  'realtime.faceRestoration': 'Face restoration',
+  'realtime.statistics.title': 'Statistics',
+  'realtime.cameraPreset': 'Resolution',
+  'realtime.statistics.uplinkQuality': 'Upload tier',
+  'realtime.statistics.downlinkQuality': 'Return tier',
+  'realtime.statistics.uplink': 'Uplink video',
+  'realtime.statistics.downlink': 'Downlink video',
+  'realtime.statistics.capture': 'Capture',
+  'realtime.statistics.encode': 'Encode',
+  'realtime.statistics.send': 'Send',
+  'realtime.statistics.decode': 'Decode',
+  'realtime.statistics.render': 'Render',
+  'realtime.statistics.loss': 'Loss',
+  'realtime.statistics.delay': 'Delay',
   'error.apiKey': 'Invalid API Key. Please check it on Home.',
   'error.configuration':
     'Invalid configuration. Please check your input and try again.',
@@ -155,13 +169,6 @@ export const english = {
   'feed.endpoint.title': 'API ENDPOINT',
   'feed.endpoint.china': 'China',
   'feed.endpoint.global': 'Global',
-  'feed.downlink.title': 'DOWNLINK BITRATE (KBPS)',
-  'feed.downlink.minPlaceholder': 'e.g. 2000',
-  'feed.downlink.maxPlaceholder': 'e.g. 6000',
-  'feed.downlink.help':
-    'Empty uses server defaults (2000/6000). Sent with the generation start event.',
-  'feed.downlink.invalid':
-    'Downlink bitrate must be whole numbers within 100–10000, min not above max.',
   'configuration.loading': 'Loading configuration…',
   'configuration.readError':
     'Unable to read saved configuration. Please retry.',
@@ -171,6 +178,20 @@ export const english = {
 export type MessageKey = keyof typeof english;
 
 export const simplifiedChinese: Record<MessageKey, string> = {
+  'realtime.faceRestoration': '人脸还原',
+  'realtime.statistics.title': '统计',
+  'realtime.cameraPreset': '分辨率',
+  'realtime.statistics.uplinkQuality': '上行档位',
+  'realtime.statistics.downlinkQuality': '下行档位',
+  'realtime.statistics.uplink': '上行视频',
+  'realtime.statistics.downlink': '下行视频',
+  'realtime.statistics.capture': '采集',
+  'realtime.statistics.encode': '编码',
+  'realtime.statistics.send': '发送',
+  'realtime.statistics.decode': '解码',
+  'realtime.statistics.render': '渲染',
+  'realtime.statistics.loss': '丢包',
+  'realtime.statistics.delay': '延迟',
   'error.apiKey': 'API Key 无效，请返回首页检查。',
   'error.configuration': '配置无效，请检查输入后重试。',
   'error.internal': '操作失败，请重试。',
@@ -317,11 +338,6 @@ export const simplifiedChinese: Record<MessageKey, string> = {
   'feed.endpoint.title': 'API 地址',
   'feed.endpoint.china': '国内',
   'feed.endpoint.global': '海外',
-  'feed.downlink.title': '下行码率 (KBPS)',
-  'feed.downlink.minPlaceholder': '例如 2000',
-  'feed.downlink.maxPlaceholder': '例如 6000',
-  'feed.downlink.help': '留空使用服务端默认 2000/6000，随生成启动事件发送。',
-  'feed.downlink.invalid': '下行码率需为 100–10000 的整数，且最小不大于最大。',
   'configuration.loading': '正在读取配置…',
   'configuration.readError': '无法读取已保存的配置，请重试。',
   'configuration.saveError': '配置保存失败，请重试。',

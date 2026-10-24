@@ -86,3 +86,6 @@ artifacts/
 /.cicd/
 
 dev-docs/
+
+# Internal SDK documentation (README assets live in materials/)
+/docs/

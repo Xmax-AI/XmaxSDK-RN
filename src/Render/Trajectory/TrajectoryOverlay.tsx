@@ -1,3 +1,13 @@
+//
+//  TrajectoryOverlay.tsx
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import {
   useCallback,
   useLayoutEffect,
@@ -20,16 +30,34 @@ import { DefaultTrajectoryEffectRenderer } from './DefaultTrajectoryEffectRender
 import { TrajectorySampler } from './TrajectorySampler';
 import { trajectoryTouchPoint } from './TrajectoryTouchCoordinates';
 
-/** One passive renderer plus SDK-owned responders for a confirmed remote binding. */
-export function TrajectoryOverlay({
-  binding,
-  contentMode,
-  renderer: requested,
-}: {
-  binding: VideoBinding;
-  contentMode: VideoContentMode;
-  renderer?: TrajectoryEffectRendering | null | undefined;
-}) {
+/**
+ * Installs passive rendering and SDK interaction handling for confirmed remote output.
+ *
+ * @param props The binding, scaling mode, and trajectory renderer.
+ */
+export function TrajectoryOverlay(
+  {
+    binding,
+    contentMode,
+    renderer: requested,
+  }: {
+
+    /**
+     * The video track binding for this view.
+     */
+    binding: VideoBinding;
+
+    /**
+     * The scaling mode mapping video into the viewport.
+     */
+    contentMode: VideoContentMode;
+
+    /**
+     * The renderer associated with this mounted trajectory view.
+     */
+    renderer?: TrajectoryEffectRendering | null | undefined;
+  }
+) {
   const interaction = binding.interaction!;
   const generation = useSyncExternalStore(
     interaction.subscribe,
@@ -45,8 +73,14 @@ export function TrajectoryOverlay({
     },
     [binding],
   );
-  useSyncExternalStore(subscribe, () => binding.version);
-  const fallback = useMemo(() => new DefaultTrajectoryEffectRenderer(), []);
+  useSyncExternalStore(
+    subscribe,
+    () => binding.version
+  );
+  const fallback = useMemo(
+    () => new DefaultTrajectoryEffectRenderer(),
+    []
+  );
   const renderer = requested ?? fallback;
   const [size, setSize] = useState({ width: 0, height: 0 });
   const sampler = useRef<TrajectorySampler | null>(null);
@@ -56,7 +90,11 @@ export function TrajectoryOverlay({
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return [];
     return event.nativeEvent.changedTouches.flatMap(touch => {
-      const point = trajectoryTouchPoint(touch, rect, size);
+      const point = trajectoryTouchPoint(
+        touch,
+        rect,
+        size
+      );
       return point ? [{ identifier: String(touch.identifier), ...point }] : [];
     });
   };
@@ -67,51 +105,60 @@ export function TrajectoryOverlay({
     );
   };
 
-  useLayoutEffect(() => {
-    if (
-      !binding.valid ||
-      !binding.confirmed ||
-      !interaction.isActive ||
-      !size.width ||
-      !size.height
-    )
-      return;
+  useLayoutEffect(
+    () => {
+      if (
+        !binding.valid ||
+        !binding.confirmed ||
+        !interaction.isActive ||
+        !size.width ||
+        !size.height
+      )
+        return;
 
-    const current = new TrajectorySampler(
-      size,
-      binding.format,
+      const current = new TrajectorySampler(
+        size,
+        binding.format,
+        contentMode,
+        renderer,
+        frame => {
+          if (binding.valid && binding.confirmed)
+            interaction.submitInteraction(
+              frame,
+              generation
+            );
+        },
+      );
+      sampler.current = current;
+      const subscription = AppState.addEventListener(
+        'change',
+        state => {
+          if (state === 'background') {
+            current.dispose();
+            sampler.current = null;
+          }
+        }
+      );
+
+      return () => {
+        subscription.remove();
+        sampler.current = null;
+        current.dispose();
+      };
+    },
+    [
+      binding,
+      binding.valid,
+      binding.confirmed,
+      binding.format.width,
+      binding.format.height,
+      interaction,
+      generation,
       contentMode,
       renderer,
-      frame => {
-        if (binding.valid && binding.confirmed)
-          interaction.submitInteraction(frame, generation);
-      },
-    );
-    sampler.current = current;
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'background') {
-        current.dispose();
-        sampler.current = null;
-      }
-    });
-
-    return () => {
-      subscription.remove();
-      sampler.current = null;
-      current.dispose();
-    };
-  }, [
-    binding,
-    binding.valid,
-    binding.confirmed,
-    binding.format.width,
-    binding.format.height,
-    interaction,
-    generation,
-    contentMode,
-    renderer,
-    size,
-  ]);
+      size,
+    ]
+  );
 
   return (
     <View
@@ -129,11 +176,15 @@ export function TrajectoryOverlay({
       onStartShouldSetResponder={event => {
         const rect = viewport.current?.getBoundingClientRect();
         const point =
-          rect && trajectoryTouchPoint(event.nativeEvent, rect, size);
+          rect && trajectoryTouchPoint(
+            event.nativeEvent,
+            rect,
+            size
+          );
         return !!point && !!sampler.current?.contains(point);
       }}
       onResponderGrant={event => {
-        // A new responder grant is a new gesture, even if native finger IDs are reused.
+        // Each responder acquisition starts a new gesture even when native identifiers are reused.
         sampler.current?.release();
         sampler.current?.begin(touches(event));
       }}

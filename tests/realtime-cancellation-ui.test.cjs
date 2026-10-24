@@ -96,6 +96,7 @@ function load(relative, react, mocks = {}) {
     if (name.endsWith('/ErrorMessages')) return load('localization/ErrorMessages.ts', {});
     if (name.endsWith('RealtimeReferenceCatalog')) return catalog;
     if (name.endsWith('.png')) return name;
+    if (name.endsWith('/RealtimeStatisticsPanel')) return { RealtimeStatisticsPanel: 'RealtimeStatisticsPanel' };
     throw new Error(`Missing boundary: ${name}`);
   };
   loaded._compile(source, filename);
@@ -166,8 +167,15 @@ function screenFixture(t, options = {}) {
   let cleanup = null;
   const cancelled = () => ({ code: 'CANCELLED' });
   const manager = {
+    currentCameraPreset: options.fileURL ? null : '1080x1920',
+    uplinkQualityLevel: null, downlinkQualityLevel: null,
+    async updateCameraFormat(preset) { manager.currentCameraPreset = preset; },
+    async setUplinkQualityLevel(level) { manager.uplinkQualityLevel = level; },
+    async setDownlinkQualityLevel(level) { manager.downlinkQualityLevel = level; },
     currentState: { connectionState: options.preparing ? 'preparing' : 'ready', reason: null },
     setStateListener: async listener => { stateListener = listener; },
+    setUplinkVideoStatisticsListener: async () => {},
+    setDownlinkVideoStatisticsListener: async () => {},
     createLocalCameraStream: async () => { previews++; return { videoTrack: localTrack }; },
     createLocalImageStream: async () => { previews++; return { videoTrack: localTrack }; },
     async startGeneration({ context, signal }) {
@@ -212,9 +220,10 @@ function screenFixture(t, options = {}) {
     '../realtime/TouchAnimationReference': { uploadTouchAnimationReference: options.prepareTouch },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     '@xmaxai/react-native-sdk': {
+      RealtimeCameraPreset: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeCameraPreset,
       XmaxLoggerOption: { all: 3 },
       XmaxClient: class { createRealtimeManager({ model }) { models.push(model); return manager; } createStorageManager() { return {}; } },
-      XmaxRealtimeVideo: 'Video', RealtimeModel: { x2_0: 'x2.0' }, VideoContentMode: { fit: 'fit', fill: 'fill' },
+      XmaxRealtimeVideo: 'Video', RealtimeModel: { x2_1: 'x2.1' }, VideoContentMode: { fit: 'fit', fill: 'fill' },
       RealtimeConnectionState: { idle: 'idle', connecting: 'connecting', connected: 'connected',
         generating: 'generating', preparing: 'preparing', ready: 'ready' },
       XmaxError: { from: value => value },
@@ -228,7 +237,7 @@ function screenFixture(t, options = {}) {
   const props = type => find(draw(), node => node.type === type).props;
   t.after(() => { h.dispose(); native.AppState.currentState = 'active'; });
   draw();
-  return { props, connect, start, disconnect, localTrack, remoteTrack, contexts, models,
+  return { props, draw, manager, connect, start, disconnect, localTrack, remoteTrack, contexts, models,
     dispose: h.dispose,
     setEntryReady(value) { options.entryReady = value; draw(); },
     state(value) { manager.currentState = value; stateListener?.(value); },
@@ -663,7 +672,7 @@ test('storage selection, progress, safety errors and results follow the current 
 
 test('endpoint selection drives credentials and backend routing for every feature route', () => {
   const configuration = { keys: { china: 'cn-fixture', global: 'global-fixture' },
-    endpoint: 'global', model: 'x2.0', language: 'en', loaded: true,
+    endpoint: 'global', model: 'x2.1', language: 'en', loaded: true,
     minBitrate: '', maxBitrate: '', downMinBitrate: '', downMaxBitrate: '' };
   const writes = [], routes = [];
   const context = { configuration, store: { setKey: (...args) => writes.push(args),
@@ -689,26 +698,26 @@ test('endpoint selection drives credentials and backend routing for every featur
   assert.equal(feed.configuration.endpoint, 'global');
   feed.onAPIKeyChange('new-global');
   assert.deepEqual(writes.at(-1), ['global', 'new-global']);
-  feed.onModelChange('x2.1-preview');
-  assert.equal(configuration.model, 'x2.1-preview');
-  feed.onModelChange('x2.0');
+  feed.onModelChange('x2.1');
+  assert.equal(configuration.model, 'x2.1');
+  feed.onModelChange('x2.1');
   feed.onCamera('global-fixture', 'global');
-  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.0', bitrate: null, generationBitrate: null }]);
+  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1', bitrate: null }]);
   for (const name of ['Camera', 'Image', 'Storage']) {
-    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.0', bitrate: null, generationBitrate: null } }, navigation }).props;
+    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1', bitrate: null } }, navigation }).props;
     if (name !== 'Storage') {
-      assert.equal(props.model, 'x2.0');
+      assert.equal(props.model, 'x2.1');
       assert.equal(props.entryReady, false, 'Media routes forward native transition readiness');
     }
     assert.equal(props.environment, 'global');
-    assert.equal(props.baseURL, 'https://api.xmax.ai/open/api/v1');
+    assert.equal(props.baseURL, undefined, 'The SDK selects each service backend from environment');
     assert.equal(props.apiKey, 'global-fixture');
   }
   feed.onEndpointChange('china');
   assert.equal(configuration.endpoint, 'china');
   const china = routeComponent('Storage')({ route: { params: { endpoint: 'china' } }, navigation }).props;
   assert.equal(china.environment, 'china');
-  assert.equal(china.baseURL, 'https://api.xmaxai.com/open/api/v1');
+  assert.equal(china.baseURL, undefined);
   assert.equal(china.apiKey, 'cn-fixture');
   configuration.keys.global = '';
   feed.onEndpointChange('global');
@@ -761,13 +770,13 @@ test('all home feature entries require the current endpoint key before navigatio
   const draw = () => h.render(FeedScreen, props);
   for (const language of ['en', 'zh-Hans']) {
     locale = language;
-    const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1-PREVIEW');
-    assert(preview, 'Preview must have its own model entry');
-    assert(find(draw(), node => node.props?.children === 'RealtimeModel.x2_1_preview'));
+    const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1');
+    assert(preview, 'X2.1 must have its own model entry');
+    assert(find(draw(), node => node.props?.children === 'RealtimeModel.x2_1'));
     assert(!find(draw(), node => node.props?.accessibilityLabel === 'X2.0-PRO'), 'X2.0 Pro must not appear in the model list');
     preview.props.onPress();
-    assert.equal(configuration.model, 'x2.1-preview');
-    assert.equal(find(draw(), node => node.props?.accessibilityLabel === 'X2.1-PREVIEW').props.accessibilityState.checked, true);
+    assert.equal(configuration.model, 'x2.1');
+    assert.equal(find(draw(), node => node.props?.accessibilityLabel === 'X2.1').props.accessibilityState.checked, true);
   }
   const press = target => {
     const tree = draw();
@@ -794,11 +803,6 @@ test('all home feature entries require the current endpoint key before navigatio
   press('camera');
   assert.equal(alerts.at(-1)[1], '请同时填写整数最小/最大码率，且最小不大于最大。', 'A lone bitrate field must block entry');
   configuration.maxBitrate = '4000';
-  configuration.downMinBitrate = '99';
-  configuration.downMaxBitrate = '6000';
-  press('camera');
-  assert.equal(alerts.at(-1)[1], '下行码率需为 100–10000 的整数，且最小不大于最大。', 'Out-of-range downlink bitrate must block entry');
-  configuration.downMinBitrate = '2000';
   press('camera');
   press('Storage');
   press('image');
@@ -834,7 +838,7 @@ test('image input opens on touch animation without automatically generating; cam
 });
 
 
-for (const model of ['x2.0-pro', 'x2.1-preview']) {
+for (const model of ['x2.1', 'x2.1']) {
 test(`XLab initializes camera and image managers with the route-selected ${model}`, async t => {
   const camera = screenFixture(t, { model });
   const image = screenFixture(t, { model, fileURL: 'file:///image.jpg' });
@@ -1038,4 +1042,47 @@ test('storage selection retains native error explanations and falls back only wh
     locale = language;
     assert.equal(f.message(), translateUI('storage.file.error'));
   }
+});
+
+test('XLab camera preset menu updates the existing preview and uses fit for square and 3:4 formats', async t => {
+  const screen = screenFixture(t);
+  await tick();
+  const menu = () => find(screen.draw(), node => node.props?.accessibilityLabel === '分辨率');
+  screen.state({ connectionState: 'ready' });
+  assert.equal(menu().props.disabled, false);
+  menu().props.onPress();
+  const square = find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1408 × 1408'));
+  assert(square, 'All model camera presets are offered');
+  const track = screen.props('Video').localTrack, before = screen.counts();
+  square.props.onPress();
+  await tick();
+  assert.equal(screen.manager.currentCameraPreset, '1408x1408');
+  assert.equal(screen.props('Video').videoContentMode, 'fit');
+  assert.equal(screen.props('Video').localTrack, track);
+  assert.deepEqual(screen.counts(), before);
+  menu().props.onPress();
+  find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1152 × 1536')).props.onPress();
+  await tick();
+  assert.equal(screen.props('Video').videoContentMode, 'fit');
+  screen.state({ connectionState: 'connected' });
+  assert.equal(menu().props.disabled, true);
+});
+
+test('XLab statistics forwards quality changes only during generation and refreshes acknowledged levels', async t => {
+  const screen = screenFixture(t);
+  await tick();
+  find(screen.draw(), node => node.props?.accessibilityLabel === '统计').props.onPress();
+  assert.equal(screen.props('RealtimeStatisticsPanel').canChange, false);
+  screen.manager.uplinkQualityLevel = 2;
+  screen.manager.downlinkQualityLevel = 2;
+  screen.state({ connectionState: 'generating' });
+  assert.equal(screen.props('RealtimeStatisticsPanel').canChange, true);
+  screen.props('RealtimeStatisticsPanel').onUplinkChange(1);
+  await tick();
+  assert.equal(screen.props('RealtimeStatisticsPanel').uplinkLevel, 1);
+  screen.props('RealtimeStatisticsPanel').onDownlinkChange(3);
+  await tick();
+  assert.equal(screen.props('RealtimeStatisticsPanel').downlinkLevel, 3);
+  screen.state({ connectionState: 'ready' });
+  assert.equal(screen.props('RealtimeStatisticsPanel').canChange, false);
 });

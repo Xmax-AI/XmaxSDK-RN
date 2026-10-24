@@ -1,20 +1,43 @@
+//
+//  Async.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { cancelledError, XmaxError, XmaxErrorCode } from '../Errors/XmaxError';
 
 /**
- * Throws CANCELLED when the operation signal has already been aborted.
+ * Throws CANCELLED when the signal is aborted.
+ *
+ * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
  */
-export function ensureActive(signal: AbortSignal): void {
+export function ensureActive(
+  signal: AbortSignal
+): void {
   if (signal.aborted) throw cancelledError();
 }
 
 /**
- * Waits for a subscribed event with a timeout and cancellation. Always removes
- * the subscription on settlement.
+ * Waits for subscribed events with timeout and cancellation, removing subscriptions on every exit
+ * path.
+ *
+ * @param subscribe Registers success and failure handlers and returns an unsubscribe function.
+ * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+ * @param milliseconds The maximum wait, in milliseconds.
+ * @param label The operation name used in timeout errors; exclude credentials and user content.
  */
 export function waitFor<T>(
   subscribe: (
-    resolve: (value: T) => void,
-    reject: (error: unknown) => void,
+    resolve: (
+      value: T
+    ) => void,
+    reject: (
+      error: unknown
+    ) => void,
   ) => () => void,
   signal: AbortSignal,
   milliseconds: number,
@@ -33,7 +56,10 @@ export function waitFor<T>(
 
       done = true;
       clearTimeout(timer);
-      signal.removeEventListener('abort', abort);
+      signal.removeEventListener(
+        'abort',
+        abort
+      );
       unsubscribe();
       if (error) reject(error);
       else resolve(value as T);
@@ -50,11 +76,17 @@ export function waitFor<T>(
       milliseconds,
     );
 
-    signal.addEventListener('abort', abort);
+    signal.addEventListener(
+      'abort',
+      abort
+    );
 
     try {
       unsubscribe = subscribe(
-        value => finish(null, value),
+        value => finish(
+          null,
+          value
+        ),
         error => finish(error),
       );
       if (done) unsubscribe();
@@ -65,12 +97,20 @@ export function waitFor<T>(
 }
 
 /**
- * Schedules non-overlapping heartbeats and returns a function that stops future
- * ticks and error delivery, and cancels the in-flight request.
+ * Schedules nonoverlapping heartbeats. The returned stop function cancels scheduling and the active
+ * request without reporting later errors.
+ *
+ * @param action The work performed under this operation's cancellation and ownership lease.
+ * @param onError The operation failure handler.
+ * @param interval The interval between requests; defaults to 10000 ms.
  */
 export function repeatHeartbeat(
-  action: (signal: AbortSignal) => Promise<void>,
-  onError: (error: unknown) => void,
+  action: (
+    signal: AbortSignal
+  ) => Promise<void>,
+  onError: (
+    error: unknown
+  ) => void,
   interval = 10000,
 ): () => void {
   let stopped = false;
@@ -82,10 +122,16 @@ export function repeatHeartbeat(
     } catch (error) {
       if (!stopped) onError(error);
     }
-    if (!stopped) timer = setTimeout(tick, interval);
+    if (!stopped) timer = setTimeout(
+      tick,
+      interval
+    );
   };
 
-  timer = setTimeout(tick, interval);
+  timer = setTimeout(
+    tick,
+    interval
+  );
 
   return () => {
     stopped = true;
@@ -95,10 +141,13 @@ export function repeatHeartbeat(
 }
 
 /**
- * Stops waiting when cancelled without cancelling the underlying promise.
+ * Stops waiting on cancellation without cancelling the underlying Promise.
  *
- * Use this only when late completion does not require additional resource
- * cleanup.
+ * Use only when a late result requires no additional resource release.
+ *
+ * @param promise The underlying task; cancellation only stops awaiting its result.
+ * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+ * @returns The underlying result, or immediate rejection when the signal is aborted.
  */
 export function abortable<T>(
   promise: Promise<T>,
@@ -113,9 +162,19 @@ export function abortable<T>(
       return;
     }
 
-    signal.addEventListener('abort', abort, { once: true });
+    signal.addEventListener(
+      'abort',
+      abort,
+      { once: true }
+    );
     promise
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener('abort', abort));
+      .then(
+      resolve,
+      reject
+    )
+      .finally(() => signal.removeEventListener(
+        'abort',
+        abort
+      ));
   });
 }

@@ -1,3 +1,13 @@
+//
+//  CosUploadAdapter.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { TurboModuleRegistry } from 'react-native';
 import type { Spec as CosNative } from 'react-native-cos-sdk-nobeacon/lib/typescript/NativeQCloudCosReactNative';
 import type {
@@ -6,21 +16,62 @@ import type {
 } from 'react-native-cos-sdk-nobeacon/lib/typescript/data_model/errors';
 import NativeRuntime from '../Native/NativeXmaxRuntime';
 
-/** Only the callback entry points of a transfer manager owned by XmaxSDK. */
+/**
+ * The callback interface owned by an SDK transfer manager.
+ */
 interface CosCallbacks {
-  runResultSuccessCallBack(key: string, headers?: object): void;
 
+  /**
+   * Delivers native upload success to its task.
+   *
+   * @param key The native transfer-manager or request identity used for callback routing.
+   * @param headers The transfer response headers.
+   */
+  runResultSuccessCallBack(
+    key: string,
+    headers?: object
+  ): void;
+
+  /**
+   * Delivers native client or server errors to the upload task.
+   *
+   * @param key The native transfer-manager or request identity used for callback routing.
+   * @param client The COS client failure.
+   * @param service The COS server failure with response status and safe diagnostic codes.
+   */
   runResultFailCallBack(
     key: string,
     client?: CosXmlClientError,
     service?: CosXmlServiceError,
   ): void;
 
-  runProgressCallBack(key: string, complete: number, total: number): void;
+  /**
+   * Delivers byte progress to the matching active upload.
+   *
+   * @param key The native transfer-manager or request identity used for callback routing.
+   * @param complete The number of bytes transferred.
+   * @param total The expected byte count; nonpositive or omitted values indicate an unknown total.
+   */
+  runProgressCallBack(
+    key: string,
+    complete: number,
+    total: number
+  ): void;
 }
 
-/** Keeps the vendor's broken root declaration out of the SDK's type graph. */
+/**
+ * Registers native COS callbacks independently for each SDK upload manager.
+ */
 interface CosRegistration {
+
+  /**
+   * Creates an isolated native transfer manager for an endpoint and transport policy.
+   *
+   * @param key The native transfer-manager or request identity used for callback routing.
+   * @param configuration The client configuration.
+   * @param policy The native transfer policy, including upload method and retry configuration.
+   * @returns The callback dispatcher for an isolated manager.
+   */
   registerTransferManger(
     key: string,
     configuration: object,
@@ -28,17 +79,67 @@ interface CosRegistration {
   ): Promise<CosCallbacks>;
 }
 
-/** The static import name is preserved for Metro; only the used API is exposed internally. */
+/**
+ * The native COS registration interface isolating SDK transfer managers by endpoint.
+ */
 const Cos: CosRegistration = require('react-native-cos-sdk-nobeacon').default;
 
+/**
+ * Temporary credentials, cancellation, progress, and result handlers for one upload.
+ */
 interface UploadParameters {
+
+  /**
+   * The operation's cancellation signal.
+   */
   signal: AbortSignal;
+
+  /**
+   * The destination COS bucket region.
+   */
   region: string;
+
+  /**
+   * The temporary credentials used only for this upload; never log them.
+   */
   sessionCredentials: object;
+
+  /**
+   * The HTTP headers for this upload request.
+   */
   customHeaders: object;
-  progressCallback(complete: number, total: number): void;
+
+  /**
+   * Delivers completed and total byte counts to the progress handler.
+   *
+   * @param complete The number of bytes transferred.
+   * @param total The expected byte count; nonpositive or omitted values indicate an unknown total.
+   */
+  progressCallback(
+    complete: number,
+    total: number
+  ): void;
+
+  /**
+   * The result handler retained until completion or cancellation.
+   */
   resultListener: {
-    successCallBack(headers?: object): void;
+
+    /**
+     * Completes upload by resolving the remote URL and ETag from response headers.
+     *
+     * @param headers The transfer response headers.
+     */
+    successCallBack(
+      headers?: object
+    ): void;
+
+    /**
+     * Ends upload with a normalized client or server error.
+     *
+     * @param client The COS client failure.
+     * @param service The COS server failure with response status and safe diagnostic codes.
+     */
     failCallBack(
       client?: CosXmlClientError,
       service?: CosXmlServiceError,
@@ -46,24 +147,61 @@ interface UploadParameters {
   };
 }
 
-/** Cancels the native task and releases its JS callbacks. */
+/**
+ * Cancels the native task and releases JS handlers.
+ */
 export interface CosUploadTask {
+
+  /**
+   * Cancels the native upload and releases completion and progress handlers.
+   *
+   * Completes after native cancellation and callback release.
+   */
   cancel(): Promise<void>;
 }
 
 /**
- * Owns callback routing for SDK uploads while retaining the official native COS
- * transport and its global event emitter. No vendor prototype or file is changed.
+ * A task-specific callback adapter using native COS transfers and global events without vendor
+ * patches.
  */
 export class CosUploadAdapter {
+
+  /**
+   * The tasks awaiting submission or native completion.
+   */
   private readonly pending = new Map<
     string,
-    { parameters: UploadParameters; cleanup(): void }
+    {
+
+      /**
+       * The credentials, cancellation settings, and handlers retained for one upload.
+       */
+      parameters: UploadParameters;
+
+      /**
+       * Releases upload handlers and cancellation observation when a task ends.
+       */
+      cleanup(): void;
+    }
   >();
 
+  /**
+   * Creates a callback dispatcher for an isolated transfer manager.
+   *
+   * @param key The native transfer-manager or request identity used for callback routing.
+   * @param manager The native manager whose callbacks are dispatched.
+   * @param native The native module that executes and cancels transfers.
+   */
   private constructor(
+    /**
+     * The native transfer-manager or request identity used for callback routing.
+     */
     private readonly key: string,
     manager: CosCallbacks,
+
+    /**
+     * The native module that executes and cancels transfers.
+     */
     private readonly native: CosNative,
   ) {
     manager.runResultSuccessCallBack = (id, headers) => {
@@ -74,14 +212,26 @@ export class CosUploadAdapter {
     manager.runResultFailCallBack = (id, client, service) => {
       const task = this.pending.get(id);
       task?.cleanup();
-      task?.parameters.resultListener.failCallBack(client, service);
+      task?.parameters.resultListener.failCallBack(
+        client,
+        service
+      );
     };
     manager.runProgressCallBack = (id, complete, total) => {
-      this.pending.get(id)?.parameters.progressCallback(complete, total);
+      this.pending.get(id)?.parameters.progressCallback(
+        complete,
+        total
+      );
     };
   }
 
-  /** Uses a unique manager key so other SDK copies and host COS clients stay isolated. */
+  /**
+   * Registers an isolated COS transfer manager.
+   *
+   * @param configuration The client configuration.
+   * @param policy The native transfer policy, including upload method and retry configuration.
+   * @returns The upload adapter for the endpoint and transport policy.
+   */
   static async register(
     configuration: object,
     policy: object,
@@ -99,7 +249,16 @@ export class CosUploadAdapter {
     );
   }
 
-  /** Drops callback references on completion, rejection or abort, including before a task ID arrives. */
+  /**
+   * Uploads a file and releases its callbacks on completion or cancellation, including cancellation
+   * before task identifier delivery.
+   *
+   * @param bucket The destination COS bucket.
+   * @param objectKey The remote object key within the authorized directory.
+   * @param fileURL The readable local file URL; your app retains ownership of the original.
+   * @param parameters The upload credentials, headers, cancellation settings, and result handlers.
+   * @returns The upload cancellation handle; results are delivered through completion handlers.
+   */
   async upload(
     bucket: string,
     objectKey: string,
@@ -109,11 +268,20 @@ export class CosUploadAdapter {
     const id = NativeRuntime.randomUUID();
     const cleanup = () => {
       this.pending.delete(id);
-      parameters.signal.removeEventListener('abort', cleanup);
+      parameters.signal.removeEventListener(
+        'abort',
+        cleanup
+      );
     };
     if (parameters.signal.aborted) throw new Error('Upload cancelled');
-    this.pending.set(id, { parameters, cleanup });
-    parameters.signal.addEventListener('abort', cleanup);
+    this.pending.set(
+      id,
+      { parameters, cleanup }
+    );
+    parameters.signal.addEventListener(
+      'abort',
+      cleanup
+    );
 
     try {
       const taskID = await this.native.upload(
@@ -136,7 +304,10 @@ export class CosUploadAdapter {
       return {
         cancel: async () => {
           cleanup();
-          await this.native.cancel(this.key, taskID);
+          await this.native.cancel(
+            this.key,
+            taskID
+          );
         },
       };
     } catch (error) {

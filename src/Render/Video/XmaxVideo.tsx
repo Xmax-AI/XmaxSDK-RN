@@ -1,3 +1,13 @@
+//
+//  XmaxVideo.tsx
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import type { TrajectoryEffectRendering } from '../Trajectory/TrajectoryEffectRendering';
 import { TrajectoryOverlay } from '../Trajectory/TrajectoryOverlay';
 import {
@@ -18,44 +28,64 @@ import {
 } from '../../Service/Realtime/RealtimeTypes';
 
 /**
- * Props for rendering one manager-owned video track in a React Native view.
+ * Properties for displaying a manager-owned video track.
  */
 export interface XmaxVideoProps extends ViewProps {
+
   /**
-   * The track to render. Omitted, null or invalidated tracks show the black
-   * background.
+   * The track to display; absent or invalid tracks show a black background.
    */
   track?: RealtimeVideoTrack | null;
 
   /**
-   * How the video scales inside the view. Defaults to VideoContentMode.fill.
+   * The video scaling mode; defaults to VideoContentMode.fill.
    */
   videoContentMode?: VideoContentMode;
 
-  /** Enables remote trajectory input after task confirmation. Defaults to true; local tracks stay passive. */
+  /**
+   * Whether confirmed remote output accepts interactions; defaults to true. Local tracks never
+   * accept interactions.
+   */
   isInteractionEnabled?: boolean;
 
-  /** Visual effects only. Null or omitted uses DefaultTrajectoryEffectRenderer. Use one instance per view. */
+  /**
+   * The visual renderer, independent of interaction delivery. Defaults to
+   * DefaultTrajectoryEffectRenderer; use one instance per mounted view.
+   */
   trajectoryRenderer?: TrajectoryEffectRendering | null | undefined;
 }
 
+/**
+ * Track display properties and remote visibility notifications.
+ */
 interface SurfaceProps extends XmaxVideoProps {
-  onDisplayed?: (ready: boolean) => void;
+
+  /**
+   * The handler for confirmed remote display visibility.
+   *
+   * @param ready Whether the remote canvas is confirmed and displayable.
+   */
+  onDisplayed?: (
+    ready: boolean
+  ) => void;
 }
 
 /**
- * Binds a native RTC view to a valid track and reports matching remote render
- * events.
+ * Binds an active track to an RTC view and handles matching render events.
+ *
+ * @param props The track, scaling mode, visibility handler, interaction renderer, and view styles.
  */
-export function VideoSurface({
-  track,
-  videoContentMode = VideoContentMode.fill,
-  onDisplayed,
-  isInteractionEnabled = true,
-  trajectoryRenderer,
-  style,
-  ...props
-}: SurfaceProps) {
+export function VideoSurface(
+  {
+    track,
+    videoContentMode = VideoContentMode.fill,
+    onDisplayed,
+    isInteractionEnabled = true,
+    trajectoryRenderer,
+    style,
+    ...props
+  }: SurfaceProps
+) {
   const record = videoBinding(track);
   const viewID = `xmax-${useId().replaceAll(':', '')}-${record?.id ?? 'empty'}`;
   const [loadedViewID, setLoadedViewID] = useState<string | null>(null);
@@ -76,7 +106,10 @@ export function VideoSurface({
     [record],
   );
 
-  useSyncExternalStore(subscribe, () => record?.version ?? 0);
+  useSyncExternalStore(
+    subscribe,
+    () => record?.version ?? 0
+  );
 
   const roomID = record?.remote?.roomID,
     userID = record?.remote?.userID;
@@ -85,40 +118,54 @@ export function VideoSurface({
   const mode = useRef(videoContentMode);
 
   mode.current = videoContentMode;
-  useEffect(() => {
-    setDisplayedViewID(null);
-    callback.current?.(false);
-    if (
-      !loaded ||
-      !record ||
-      record.imageURL ||
-      !valid ||
-      (!record.local && (!roomID || !userID))
-    )
-      return;
+  useEffect(
+    () => {
+      setDisplayedViewID(null);
+      callback.current?.(false);
+      if (
+        !loaded ||
+        !record ||
+        record.imageURL ||
+        !valid ||
+        (!record.local && (!roomID || !userID))
+      )
+        return;
 
-    const stream = record.local ? null : { roomID: roomID!, userID: userID! };
-    const surface = new VideoSurfaceBinding(record, viewID, stream, ready => {
-      setDisplayedViewID(ready ? viewID : null);
-      callback.current?.(ready);
-    });
+      const stream = record.local ? null : { roomID: roomID!, userID: userID! };
+      const surface = new VideoSurfaceBinding(
+        record,
+        viewID,
+        stream,
+        ready => {
+          setDisplayedViewID(ready ? viewID : null);
+          callback.current?.(ready);
+        }
+      );
 
-    binding.current = surface;
-    surface.start(mode.current);
+      binding.current = surface;
+      surface.start(mode.current);
 
-    return () => {
-      binding.current = null;
-      surface.dispose();
-    };
-  }, [loaded, record, valid, roomID, userID, viewID]);
+      return () => {
+        binding.current = null;
+        surface.dispose();
+      };
+    },
+    [loaded, record, valid, roomID, userID, viewID]
+  );
 
-  useEffect(() => {
-    binding.current?.setContentMode(videoContentMode);
-  }, [videoContentMode]);
+  useEffect(
+    () => {
+      binding.current?.setContentMode(videoContentMode);
+    },
+    [videoContentMode]
+  );
 
-  useEffect(() => {
-    binding.current?.refresh();
-  }, [record?.confirmed]);
+  useEffect(
+    () => {
+      binding.current?.refresh();
+    },
+    [record?.confirmed]
+  );
 
   return (
     <View {...props} style={[styles.container, style]}>
@@ -136,6 +183,7 @@ export function VideoSurface({
           <RtcVideoSurface
             viewID={viewID}
             onLoad={() => setLoadedViewID(viewID)}
+            onError={error => record?.onBindingFailure?.(error)}
           />
         )
       )}
@@ -156,14 +204,21 @@ export function VideoSurface({
 }
 
 /**
- * Renders camera and remote tracks using RTC, and local image tracks using RN Image.
+ * A video view that uses RTC rendering for camera and remote tracks and RN Image for local images.
  *
- * Unmounting unbinds the view; the caller still owns the manager lifecycle.
+ * Unmounting detaches the view binding; your app still owns the manager lifecycle.
+ *
+ * @param props The track, scaling mode, interaction options, and view styles.
  */
-export function XmaxVideo(props: XmaxVideoProps) {
+export function XmaxVideo(
+  props: XmaxVideoProps
+) {
   return <VideoSurface {...props} />;
 }
 
+/**
+ * The video container's layout and clipping styles.
+ */
 const styles = StyleSheet.create({
   container: { backgroundColor: '#000', overflow: 'hidden' },
 });

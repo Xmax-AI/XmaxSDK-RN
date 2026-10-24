@@ -1,15 +1,40 @@
+//
+//  XmaxNativeLogger.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import Foundation
 import OSLog
 
-/// Serializes the global log filter and routes JS/native diagnostics to Apple's unified log.
+/// A logger that filters SDK entries by category before writing native output.
 final class XmaxNativeLogger: @unchecked Sendable {
-  private static let state = XmaxNativeLogger()
-  private let gate = NSLock()
-  private var options = 0
-  private let logger = Logger(subsystem: "ai.xmax.XmaxSDK", category: "XmaxSDK")
 
-  /// Replaces the filter; a new client affects every existing SDK service.
-  static func configure(_ options: Double) {
+  /// The shared native runtime log filtering settings.
+  private static let state = XmaxNativeLogger()
+
+  /// The lock protecting log configuration across threads.
+  private let gate = NSLock()
+
+  /// The enabled log category bitmask; 0 disables logging.
+  private var options = 0
+
+  /// The structured native output for SDK logs.
+  private let logger = Logger(
+    subsystem: "ai.xmax.XmaxSDK",
+    category: "XmaxSDK"
+  )
+
+  /// Replaces the global native log category bitmask.
+  ///
+  /// - Parameter options: The SDK log-category bitmask; 0 disables logging.
+  static func configure(
+    _ options: Double
+  ) {
     state.gate.lock()
     defer {
       state.gate.unlock()
@@ -18,8 +43,17 @@ final class XmaxNativeLogger: @unchecked Sendable {
     state.options = options.isFinite && (0...3).contains(options) ? Int(options) : 0
   }
 
-  /// Receives only preformatted safe metadata, never credentials or raw native exceptions.
-  static func write(_ level: String, message: String, option: Int = 1) {
+  /// Writes an enabled, formatted SDK log entry without triggering a JavaScript console error.
+  ///
+  /// - Parameters:
+  ///   - level: The log level: debug, info, warn, or error.
+  ///   - message: The formatted log message.
+  ///   - option: The current message's log-category bitmask.
+  static func write(
+    _ level: String,
+    message: String,
+    option: Int = 1
+  ) {
     state.gate.lock()
     defer {
       state.gate.unlock()

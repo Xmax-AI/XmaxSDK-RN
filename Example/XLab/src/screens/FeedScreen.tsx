@@ -29,7 +29,6 @@ import type {
 import {
   apiBaseURLForEndpoint,
   parseBitrateOverride,
-  parseGenerationBitrate,
   xlabModels,
 } from '../configuration/ConfigurationStore';
 
@@ -39,14 +38,6 @@ const UPLINK_PRESETS: readonly (readonly [string, string])[] = [
   ['500', '1500'],
   ['1000', '2000'],
   ['2000', '4000'],
-];
-
-/** Downlink kbps presets within the server's [100, 10000] range. */
-const DOWNLINK_PRESETS: readonly (readonly [string, string])[] = [
-  ['', ''],
-  ['500', '1500'],
-  ['2000', '6000'],
-  ['3000', '8000'],
 ];
 
 /** Endpoint choices in display order; labels localize through feed.endpoint.*. */
@@ -260,19 +251,6 @@ export function FeedScreen({
 
       return false;
     }
-    if (
-      parseGenerationBitrate(
-        configuration.downMinBitrate,
-        configuration.downMaxBitrate,
-      ) === 'invalid'
-    ) {
-      Alert.alert(t('common.notice'), t('feed.downlink.invalid'), [
-        { text: t('common.ok') },
-      ]);
-
-      return false;
-    }
-
     return true;
   }
 
@@ -369,7 +347,7 @@ export function FeedScreen({
                 Platform.OS === 'ios' ? 'RN / iOS' : 'RN / Android',
               ],
               [t('feed.os'), Platform.OS === 'ios' ? '15.1+' : '8.0+'],
-              [t('feed.latestModel'), RealtimeModel.x2_1_preview.toUpperCase()],
+              [t('feed.latestModel'), RealtimeModel.x2_1.toUpperCase()],
             ].map(([label, value]) => (
               <View key={label} style={styles.metric}>
                 <FeedText
@@ -525,21 +503,6 @@ export function FeedScreen({
               presets={UPLINK_PRESETS}
               autoLabel={t('feed.bitrate.auto')}
               help={t('feed.bitrate.help')}
-              onChange={onBitrateChange}
-            />
-            <BitrateSection
-              title={t('feed.downlink.title')}
-              minimumLabel={t('feed.bitrate.min')}
-              maximumLabel={t('feed.bitrate.max')}
-              minimumPlaceholder={t('feed.downlink.minPlaceholder')}
-              maximumPlaceholder={t('feed.downlink.maxPlaceholder')}
-              minimumValue={configuration.downMinBitrate}
-              maximumValue={configuration.downMaxBitrate}
-              minimumField="downMinBitrate"
-              maximumField="downMaxBitrate"
-              presets={DOWNLINK_PRESETS}
-              autoLabel={t('feed.bitrate.auto')}
-              help={t('feed.downlink.help')}
               onChange={onBitrateChange}
             />
             <View style={styles.divider} />

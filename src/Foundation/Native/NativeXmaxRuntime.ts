@@ -1,73 +1,215 @@
-import { TurboModuleRegistry, type TurboModule } from 'react-native';
+//
+//  NativeXmaxRuntime.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
+import {
+  TurboModuleRegistry,
+  type TurboModule,
+  type CodegenTypes,
+} from 'react-native';
 
 /**
- * The Codegen contract for permissions, native media ownership and runtime
- * metadata.
+ * The Codegen interface for permissions, native media resources, and runtime metadata.
  */
 export interface Spec extends TurboModule {
-  /** Updates the global filter shared by JS and native SDK diagnostics. */
-  configureLogging(options: number): void;
 
-  /** Writes a preformatted SDK message to OSLog or Logcat without triggering LogBox. */
-  writeLog(level: string, message: string, option: number): void;
+  /**
+   * Updates global category filtering shared by JS and native logging.
+   *
+   * @param options The SDK log-category bitmask; 0 disables logging.
+   */
+  configureLogging(
+    options: number
+  ): void;
 
-  /** Hides the matching SDK container on the native UI thread before RTC teardown. */
-  hideVideoContainer(reactTag: number, nativeID: string): Promise<void>;
+  /**
+   * Writes formatted logs to OSLog or Logcat without triggering LogBox.
+   *
+   * @param level The log severity.
+   * @param message The formatted log message.
+   * @param option The current message's log-category bitmask.
+   */
+  writeLog(
+    level: string,
+    message: string,
+    option: number
+  ): void;
 
-  /** Sends touch commands to an owned native canvas; animation stays on the UI thread. */
-  renderTrajectory(reactTag: number, nativeID: string, command: string): void;
-
-  /** Atomically commits a completed download beside its destination. */
-  replaceFile(sourcePath: string, destinationPath: string): Promise<void>;
-
-  requestPermissions(useMicrophone: boolean): Promise<string>;
-
-  /** Reads orientation-corrected pixel dimensions without returning pixel data to JS. */
-  imageInfo(fileURL: string): Promise<string>;
-
-  /** Normalizes orientation and center-crops to a private JPEG file. */
-  prepareImage(fileURL: string, width: number, height: number): Promise<string>;
-
-  /** Removes only files created by prepareImage. */
-  removePreparedImage(fileURL: string): Promise<void>;
-
-  /** Repeats a prepared image; iOS resolves engineInstanceID from the existing RTC bridge. */
-  startImageVideo(
-    owner: string,
-    path: string,
-    width: number,
-    height: number,
-    fps: number,
-    engineInstanceID: string,
+  /**
+   * Hides a matching SDK video container on the native UI thread before RTC cleanup.
+   *
+   * Completes after hiding the matching view, or immediately if it is already unmounted.
+   *
+   * @param reactTag The mounted container's React Native tag.
+   * @param nativeID The native mount identity excluding removed or recycled views.
+   */
+  hideVideoContainer(
+    reactTag: number,
+    nativeID: string
   ): Promise<void>;
 
-  /** Sets the image frame task synchronously; an empty ID clears it. False means the source is unavailable. */
-  setImageVideoTask(owner: string, taskID: string): boolean;
+  /**
+   * Submits drawing commands to the current native canvas; animation runs on the UI thread.
+   *
+   * @param reactTag The mounted container's React Native tag.
+   * @param nativeID The native mount identity excluding removed or recycled views.
+   * @param command The serialized trajectory drawing command.
+   */
+  renderTrajectory(
+    reactTag: number,
+    nativeID: string,
+    command: string
+  ): void;
 
-  /** Stops native frame delivery before destroying the owner's RTC engine. */
-  stopImageVideo(owner: string): void;
+  /**
+   * Atomically replaces a destination with a completed temporary download in the same directory.
+   *
+   * Completes after atomic replacement; failure preserves the existing destination.
+   *
+   * @param sourcePath The absolute path of the completed temporary file.
+   * @param destinationPath The absolute destination path in the temporary file's directory.
+   */
+  replaceFile(
+    sourcePath: string,
+    destinationPath: string
+  ): Promise<void>;
 
-  /** Reads platform UI state asynchronously before acquiring a media lease. */
+  /**
+   * Requests camera permission and, when enabled, microphone permission before capture.
+   *
+   * @param useMicrophone Whether to request microphone permission and publish audio; false disables
+   *   audio.
+   * @returns Granted indicates success; camera or microphone identifies the first denied
+   *   permission.
+   */
+  requestPermissions(
+    useMicrophone: boolean
+  ): Promise<string>;
+
+  /**
+   * Reads orientation-corrected image dimensions without passing pixels to JS.
+   *
+   * @param fileURL The readable local file URL; your app retains ownership of the original.
+   * @returns JSON containing the orientation-corrected integer image dimensions.
+   */
+  imageInfo(
+    fileURL: string
+  ): Promise<string>;
+
+  /**
+   * Corrects orientation, center-crops to the target ratio, and saves a private JPEG copy.
+   *
+   * @param fileURL The readable local file URL; your app retains ownership of the original.
+   * @param width The width, in pixels.
+   * @param height The height, in pixels.
+   * @returns The private JPEG URL; removePreparedImage() only deletes SDK-owned copies.
+   */
+  prepareImage(
+    fileURL: string,
+    width: number,
+    height: number
+  ): Promise<string>;
+
+  /**
+   * Deletes only an image copy created by prepareImage.
+   *
+   * Completes after copy removal; rejects invalid or unowned paths.
+   *
+   * @param fileURL The SDK-owned private image copy URL returned by image preparation.
+   */
+  removePreparedImage(
+    fileURL: string
+  ): Promise<void>;
+
+  /**
+   * Native RTC events containing safe scalar metadata and media ownership identity.
+   */
+  readonly onRtcEvent: CodegenTypes.EventEmitter<string>;
+
+  /**
+   * Dispatches validated RTC operations; TypeScript owns business signaling.
+   *
+   * @param owner The owner identity; retired owners cannot modify replacement resources.
+   * @param request The serialized RTC operation and validated parameters.
+   * @returns The native JSON result; rejects invalid ownership or operation failure.
+   */
+  rtcCommand(
+    owner: string,
+    request: string
+  ): Promise<string>;
+
+  /**
+   * Registers a mounted Fabric view as an RTC canvas container.
+   *
+   * Completes after mount identity validation and registration; rejects removed or recycled views.
+   *
+   * @param reactTag The mounted container's React Native tag.
+   * @param nativeID The native mount identity excluding removed or recycled views.
+   */
+  registerVideoSurface(
+    reactTag: number,
+    nativeID: string
+  ): Promise<void>;
+
+  /**
+   * Unregisters only the specified mount identity without affecting replacement views.
+   *
+   * @param nativeID The native mount identity excluding removed or recycled views.
+   */
+  unregisterVideoSurface(
+    nativeID: string
+  ): void;
+
+  /**
+   * Refreshes native UI state asynchronously before media acquisition.
+   *
+   * Completes after foreground-state refresh; rejects after runtime destruction.
+   */
   prepareRuntime(): Promise<void>;
 
-  /** Normalizes Android RTC stream events for the current owner before JS decoding. */
-  adaptRtcVideoEvents(owner: string): boolean;
+  /**
+   * Attempts exclusive media acquisition while the app is foregrounded.
+   *
+   * @param owner The owner identity; retired owners cannot modify replacement resources.
+   * @returns Whether exclusive foreground media ownership was acquired.
+   */
+  acquire(
+    owner: string
+  ): boolean;
 
-  /** Installs Android camera pixel rotation and cropping before capture begins. */
-  configureCameraFrames(
-    owner: string,
-    width: number,
-    height: number,
-  ): Promise<void>;
+  /**
+   * Checks that media ownership is active and has not been invalidated by backgrounding.
+   *
+   * @param owner The owner identity; retired owners cannot modify replacement resources.
+   * @returns Whether the resource owner or current task remains active.
+   */
+  isActive(
+    owner: string
+  ): boolean;
 
-  acquire(owner: string): boolean;
+  /**
+   * Releases only the matching media owner; stale or repeated calls cannot release another owner.
+   *
+   * @param owner The owner identity; retired owners cannot modify replacement resources.
+   */
+  release(
+    owner: string
+  ): void;
 
-  isActive(owner: string): boolean;
-
-  release(owner: string): void;
-
+  /**
+   * Creates a UUID for a stream, operation, or media owner.
+   */
   randomUUID(): string;
 
+  /**
+   * Serializes platform, system version, and device model for service requests.
+   */
   runtimeInfo(): string;
 }
 

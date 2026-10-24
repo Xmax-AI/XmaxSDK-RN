@@ -1,38 +1,93 @@
+//
+//  RealtimeSessionService.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import type { ApiServicing } from '../Network/ApiService';
 import { record, nonEmpty } from '../Network/ApiService';
 import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
 
 /**
- * Validated room credentials and the optional generation bot identity returned
- * by a session.
+ * The room credentials and generation bot identity returned by the session service.
  */
 export interface RealtimeSessionConnection {
+
+  /**
+   * The RTC room identifier supplied by the session service.
+   */
   readonly roomID: string;
+
+  /**
+   * The RTC access token for the current room and user; must never be logged.
+   */
   readonly token: string;
+
+  /**
+   * The RTC participant's string account.
+   */
   readonly userID: string;
+
+  /**
+   * The expected result account; when omitted, results are not filtered by account.
+   */
   readonly botName: string | null;
 }
 
 /**
- * A server session identifier and its validated RTC join information.
+ * The server session identifier and validated RTC connection information.
  */
 export interface RealtimeSession {
+
+  /**
+   * The session identifier allocated by the realtime session service.
+   */
   readonly id: string;
+
+  /**
+   * The active room connection and server session.
+   */
   readonly connection: RealtimeSessionConnection;
 }
 
 /**
- * Creates, heartbeats and closes server sessions using the Xmax API schema.
+ * Manages session creation, heartbeat, and closure.
  */
 export class RealtimeSessionService {
-  constructor(private readonly api: ApiServicing) {}
 
+  /**
+   * Creates a session service using an authenticated API client.
+   */
+  constructor(
+    /**
+     * The authenticated HTTP request interface.
+     */
+    private readonly api: ApiServicing,
+  ) {}
+
+  /**
+   * Creates and validates a session for the current model. If its RTC information is invalid,
+   * closes the allocated session before rejecting.
+   *
+   * @param model The generation model defining media constraints and supported formats.
+   * @param signal The operation's cancellation signal.
+   * @returns The validated session and RTC connection credentials.
+   */
   async createSession(
     model: string,
     signal?: AbortSignal,
   ): Promise<RealtimeSession> {
     const value = record(
-      await this.api.request('POST', '/session', { model }, signal),
+      await this.api.request(
+        'POST',
+        '/session',
+        { model },
+        signal
+      ),
     );
     const id = nonEmpty(value?.sessionUid);
     let extra: unknown = value?.modelExtra;
@@ -49,7 +104,7 @@ export class RealtimeSessionService {
       userID = nonEmpty(connection?.user_id) ?? nonEmpty(value?.userUid);
 
     if (!id || !roomID || !token || !userID) {
-      // Even malformed join data may already have allocated a billable session.
+      // Invalid connection information may still include an allocated billable session that must be released.
       if (id) await this.closeSession(id).catch(() => {});
 
       throw new XmaxError({
@@ -69,7 +124,18 @@ export class RealtimeSessionService {
     };
   }
 
-  async heartbeat(sessionID: string, signal?: AbortSignal): Promise<void> {
+  /**
+   * Refreshes the specified session without changing generation conditions.
+   *
+   * Completes after the server acknowledges the session heartbeat.
+   *
+   * @param sessionID The server identifier returned when the session was created.
+   * @param signal The operation's cancellation signal.
+   */
+  async heartbeat(
+    sessionID: string,
+    signal?: AbortSignal
+  ): Promise<void> {
     const data = record(
       await this.api.request(
         'PUT',
@@ -89,7 +155,16 @@ export class RealtimeSessionService {
       });
   }
 
-  async closeSession(sessionID: string): Promise<void> {
+  /**
+   * Requests closure of the specified session without affecting local capture.
+   *
+   * Completes when the session closure request finishes.
+   *
+   * @param sessionID The server identifier returned when the session was created.
+   */
+  async closeSession(
+    sessionID: string
+  ): Promise<void> {
     await this.api.request(
       'DELETE',
       `/session/${encodeURIComponent(sessionID)}`,

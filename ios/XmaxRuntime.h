@@ -1,8 +1,18 @@
+//
+//  XmaxRuntime.h
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 #import <XmaxRuntimeSpec/XmaxRuntimeSpec.h>
 
 /**
- * Exposes the Swift runtime through the generated React Native TurboModule API.
- * Native resource ownership and lifecycle behavior live in the Swift implementation.
+ * A generated React Native TurboModule interface for media resource management, runtime metadata,
+ * and asynchronous operations.
  */
-@interface XmaxRuntime : NSObject <NativeXmaxRuntimeSpec>
+@interface XmaxRuntime : NativeXmaxRuntimeSpecBase <NativeXmaxRuntimeSpec>
 @end

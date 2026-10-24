@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -44,14 +44,3 @@ writeFileSync(
   new URL('../lib/module/package.json', import.meta.url),
   '{"type":"module"}\n',
 );
-
-// Ambient declarations have no compiler output; include them beside their references.
-for (const output of ['commonjs', 'module', 'typescript']) {
-  copyFileSync(
-    new URL('../src/Foundation/RTC/RtcNativeView.d.ts', import.meta.url),
-    new URL(
-      `../lib/${output}/Foundation/RTC/RtcNativeView.d.ts`,
-      import.meta.url,
-    ),
-  );
-}

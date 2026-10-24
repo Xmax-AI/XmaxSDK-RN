@@ -1,46 +1,73 @@
+//
+//  XmaxRuntimeImplementation.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import AVFoundation
 import Foundation
 @preconcurrency import React
 @preconcurrency import UIKit
-@preconcurrency import VolcEngineRTC
+@preconcurrency import AgoraRtcKit
 
-/// Owns permissions, prepared images, and the native media lease behind the TurboModule adapter.
-///
-/// Construction is safe on the JS thread. UIKit state is read asynchronously by
-/// prepareRuntime(), while the shared recursive lock protects all mutable lease state.
-/// The class is exported to Objective-C only for the internal RN bridge.
+/// A runtime that manages media leases, permissions, image copies, file replacement, and operations
+/// on mount-validated views.
 @objc(XmaxRuntimeImplementation)
 public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
-  // MARK: - Native services
+  // MARK: - Native Services
 
-  /// Serializes lease changes with frame submission and engine destruction.
+  /// The resource lock shared by media startup, frame submission, and release.
   private let gate = NSRecursiveLock()
+
+  /// The service for native image metadata, conversion, and copy ownership.
   private let images = XmaxImageManager()
+
+  /// The RTC adapter operating under the current media lease.
+  private var rtc = XmaxAgoraEngine()
+
+  /// The React Native callback receiving serialized RTC events.
+  @objc
+  public var eventSink: ((String) -> Void)?
+
+  /// The native image frame source, which must stop before RTC engine destruction.
   private let imageVideo: XmaxImageVideoSource
 
-  /// A thread-independent snapshot, returned by synchronous JS metadata calls.
+  /// The serialized platform, operating system, and device metadata.
   private let metadata: String
 
-  // MARK: - Lease state
+  // MARK: - Media Ownership
 
-  /// The owning manager's token; all lease fields below are protected by gate.
+  /// The exclusive resource identifier; stale identifiers cannot release replacement resources.
   private var owner: String?
+
+  /// Whether the current media lease still accepts native operations.
   private var active = false
+
+  /// Whether the application currently permits acquisition of foreground media resources.
   private var foreground = false
+
+  /// Whether the native resource manager has been permanently invalidated.
   private var invalidated = false
 
   // MARK: - Initialization
 
-  /// Creates native services and observes lifecycle changes without accessing UIKit state.
+  /// Creates native media services and device metadata without starting capture.
   public override init() {
     imageVideo = XmaxImageVideoSource(gate: gate)
 
-    // Codegen may instantiate this object on the JS thread. Metadata needs no UIKit access.
+    // Codegen may create instances on the JavaScript thread; metadata reads must not access UIKit.
     var info = utsname()
     uname(&info)
 
     let model = withUnsafeBytes(of: &info.machine) {
-      String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+      String(
+        decoding: $0.prefix { $0 != 0 },
+        as: UTF8.self
+      )
     }
 
     let version = ProcessInfo.processInfo.operatingSystemVersion
@@ -55,7 +82,10 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
       "os_version": components.map(String.init).joined(separator: "."),
       "device_model": model,
     ])
-    metadata = String(decoding: data, as: UTF8.self)
+    metadata = String(
+      decoding: data,
+      as: UTF8.self
+    )
 
     super.init()
 
@@ -73,34 +103,48 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     )
   }
 
-  /// Hides the SDK container after the RN adapter verifies its Fabric identity.
-  /// The adapter calls this on the main thread and resolves the promise after mutation.
+  /// Hides the validated result container before cleaning up the room or canvas.
+  ///
+  /// - Parameter view: The native video container whose mount identifier has been validated by the
+  ///   runtime.
   @MainActor
   @objc(hideVideoContainer:)
-  public func hideVideoContainer(_ view: UIView) {
-    // Match the React opacity prop so Fabric can safely reuse this container.
+  public func hideVideoContainer(
+    _ view: UIView
+  ) {
+    // Keeps native visibility consistent with React opacity so Fabric can safely reuse the container.
     view.layer.opacity = 0
   }
 
-  // MARK: - Runtime lifecycle
+  // MARK: - Runtime Lifecycle
 
-  /// Reads UIKit state on the main queue before a manager attempts to acquire the engine.
+  /// Refreshes the foreground state before requesting a native media lease.
   ///
-  /// Resolves once the foreground snapshot is ready. Invalidating the runtime while
-  /// this operation is pending rejects with CANCELLED and cannot reactivate the runtime.
+  /// Completes after the foreground state refresh; failures reject the Promise with an SDK error
+  /// code.
+  ///
+  /// - Parameters:
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(prepareRuntime:reject:)
   public func prepareRuntime(
     _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    let promise = XmaxNativePromise(resolve: resolve, reject: reject)
+    let promise = XmaxNativePromise(
+      resolve: resolve,
+      reject: reject
+    )
 
     DispatchQueue.main.async {
       let isForeground = UIApplication.shared.applicationState != .background
 
       self.gate.xmaxWithLock {
         guard !self.invalidated else {
-          promise.reject("Media runtime has been released", code: "CANCELLED")
+          promise.reject(
+            "Media runtime has been released",
+            code: "CANCELLED"
+          )
           return
         }
 
@@ -111,22 +155,26 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     }
   }
 
-  /// Stops frame delivery before destroying an engine owned by this runtime.
+  /// Stops image frame submission and releases foreground RTC resources when the application enters
+  /// the background.
   @objc
   private func didEnterBackground() {
     gate.xmaxWithLock {
-      XmaxNativeLogger.write("info", message: "[Xmax][Media] Background: releasing owned capture")
+      XmaxNativeLogger.write(
+        "info",
+        message: "[Xmax][Media] Background: releasing owned capture"
+      )
       foreground = false
 
       if owner != nil && active {
         imageVideo.stop()
         active = false
-        ByteRTCVideo.destroyRTCVideo()
+        rtc.close()
       }
     }
   }
 
-  /// Allows a later explicit media request; returning to the foreground does not restart it.
+  /// Allows subsequent explicit media acquisition without automatically restarting stopped media.
   @objc
   private func willEnterForeground() {
     gate.xmaxWithLock {
@@ -134,7 +182,8 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     }
   }
 
-  /// Stops native delivery before destroying the engine and clearing owned image files.
+  /// Stops native work and releases current resources without cancelling caller-owned file or
+  /// transfer operations.
   @objc
   public func invalidate() {
     NotificationCenter.default.removeObserver(self)
@@ -144,7 +193,7 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
       imageVideo.stop()
 
       if owner != nil && active {
-        ByteRTCVideo.destroyRTCVideo()
+        rtc.close()
       }
 
       active = false
@@ -155,13 +204,19 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     XmaxNativeLogger.configure(0)
   }
 
-  // MARK: - Media ownership
+  // MARK: - Media Resource Ownership
 
-  /// Acquires the exclusive media lease after prepareRuntime() has completed.
-  /// Returns false when another manager owns the engine, the app is in the background,
-  /// or this runtime has already been invalidated.
+  /// Acquires an exclusive foreground media lease if the runtime is valid and no other owner holds
+  /// it.
+  ///
+  /// - Parameter token: The media ownership identifier; only the current valid owner may modify
+  ///   resources.
+  ///
+  /// - Returns: Whether the exclusive foreground media lease was acquired.
   @objc(acquire:)
-  public func acquire(_ token: String) -> NSNumber {
+  public func acquire(
+    _ token: String
+  ) -> NSNumber {
     gate.xmaxWithLock {
       guard !invalidated, owner == nil, foreground else {
         return false
@@ -174,18 +229,27 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     }
   }
 
-  /// Reports whether this token still owns an engine that has not been released by backgrounding.
+  /// Checks whether the specified identifier still owns valid media resources.
+  ///
+  /// - Parameter token: The media ownership identifier; only the current valid owner may modify
+  ///   resources.
   @objc(isActive:)
-  public func isActive(_ token: String) -> NSNumber {
+  public func isActive(
+    _ token: String
+  ) -> NSNumber {
     gate.xmaxWithLock {
       NSNumber(value: owner == token && active)
     }
   }
 
-  /// Releases only the matching lease after the caller has destroyed its RTC engine.
-  /// Repeated calls and stale tokens leave a newer owner's resources untouched.
+  /// Releases only the matching media lease after capture and engine cleanup.
+  ///
+  /// - Parameter token: The media ownership identifier; only the current valid owner may modify
+  ///   resources.
   @objc(release:)
-  public func release(_ token: String) {
+  public func release(
+    _ token: String
+  ) {
     gate.xmaxWithLock {
       guard owner == token else {
         return
@@ -193,54 +257,82 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
 
       imageVideo.stop()
 
-      // Normal JS close already destroyed the engine; background may have done so earlier.
+      // Normal closure destroys the engine; entering the background may release it earlier.
       active = false
       owner = nil
     }
   }
 
-  // MARK: - Runtime metadata
+  // MARK: - Runtime Metadata
 
-  /// Updates the SDK-wide filter, including native lifecycle diagnostics.
+  /// Applies global log filtering to the native runtime and worker queues.
+  ///
+  /// - Parameter options: The SDK log-category bitmask; 0 disables logging.
   @objc(configureLogging:)
-  public func configureLogging(_ options: Double) {
+  public func configureLogging(
+    _ options: Double
+  ) {
     XmaxNativeLogger.configure(options)
   }
 
-  /// Sends an already categorized JS message to unified logging at its original level.
+  /// Writes a formatted SDK log entry with the specified level and category.
+  ///
+  /// - Parameters:
+  ///   - level: The log level: debug, info, warn, or error.
+  ///   - message: The formatted log message.
+  ///   - option: The current message's log-category bitmask.
   @objc(writeLog:message:option:)
-  public func writeLog(_ level: String, message: String, option: Double) {
+  public func writeLog(
+    _ level: String,
+    message: String,
+    option: Double
+  ) {
     guard option.isFinite, (1...3).contains(option) else {
       return
     }
 
-    XmaxNativeLogger.write(level, message: message, option: Int(option))
+    XmaxNativeLogger.write(
+      level,
+      message: message,
+      option: Int(option)
+    )
   }
 
-  /// Creates identifiers for media owners and operations without a main-thread hop.
+  /// Generates a unique identifier for a media owner, task, or image copy.
   @objc
   public func randomUUID() -> String {
     UUID().uuidString
   }
 
-  /// Returns the platform, OS version, and device model as the existing JS JSON payload.
+  /// Serializes the runtime platform, operating system version, and device model.
   @objc
   public func runtimeInfo() -> String {
     metadata
   }
 
-  // MARK: - Camera permissions
+  // MARK: - Camera Permissions
 
-  /// Requests camera permission, then microphone permission only when requested.
-  /// Resolves with granted, camera, or microphone to identify the first denied permission.
-  /// The image pipeline does not call this method.
+  /// Requests camera permission and requests recording permission only when microphone input is
+  /// explicitly enabled.
+  ///
+  /// Resolves the Promise with the permission result or a permission delegation marker; rejects
+  /// failures with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - useMicrophone: Whether to request microphone permission and publish audio; false disables
+  ///     audio.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(requestPermissions:resolve:reject:)
   public func requestPermissions(
     _ useMicrophone: Bool,
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    let promise = XmaxNativePromise(resolve: resolve, reject: reject)
+    let promise = XmaxNativePromise(
+      resolve: resolve,
+      reject: reject
+    )
 
     let cameraDone: @Sendable (Bool) -> Void = { granted in
       guard granted else {
@@ -267,13 +359,26 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     let status = AVCaptureDevice.authorizationStatus(for: .video)
 
     if status == .notDetermined {
-      AVCaptureDevice.requestAccess(for: .video, completionHandler: cameraDone)
+      AVCaptureDevice.requestAccess(
+        for: .video,
+        completionHandler: cameraDone
+      )
     } else {
       cameraDone(status == .authorized)
     }
   }
 
-  /// Commits completed downloads on the file queue independently of the media lease.
+  /// Replaces a completed download's destination file on the file queue independently of the
+  /// realtime media lease.
+  ///
+  /// Completes after successful atomic replacement; failures reject the Promise with an SDK error
+  /// code.
+  ///
+  /// - Parameters:
+  ///   - sourcePath: The absolute path of the completed temporary file.
+  ///   - destinationPath: The absolute destination path in the temporary file's directory.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(replaceFile:destinationPath:resolve:reject:)
   public func replaceFile(
     _ sourcePath: String,
@@ -281,31 +386,65 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    let promise = XmaxNativePromise(resolve: resolve, reject: reject)
+    let promise = XmaxNativePromise(
+      resolve: resolve,
+      reject: reject
+    )
     XmaxFileCommit.queue.async {
       do {
-        try XmaxFileCommit.replace(sourcePath, destinationPath: destinationPath)
+        try XmaxFileCommit.replace(
+          sourcePath,
+          destinationPath: destinationPath
+        )
         promise.resolve()
       } catch {
-        promise.reject("Unable to commit downloaded file", code: "DOWNLOAD_ERROR", error: error)
+        promise.reject(
+          "Unable to commit downloaded file",
+          code: "DOWNLOAD_ERROR",
+          error: error
+        )
       }
     }
   }
 
-  // MARK: - Prepared images
+  // MARK: - Image Copies
 
-  /// Reads orientation-corrected dimensions from a local image without sending pixels to JS.
+  /// Reads orientation-corrected local image dimensions without transferring pixels across the
+  /// bridge.
+  ///
+  /// Resolves the Promise with JSON containing orientation-corrected dimensions; rejects failures
+  /// with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The readable local file URL; your app retains ownership of the original.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(imageInfo:resolve:reject:)
   public func imageInfo(
     _ fileURL: String,
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    images.info(fileURL, promise: XmaxNativePromise(resolve: resolve, reject: reject))
+    images.info(
+      fileURL,
+      promise: XmaxNativePromise(
+        resolve: resolve,
+        reject: reject
+      )
+    )
   }
 
-  /// Normalizes orientation and prepares a centered JPEG crop at the requested dimensions.
-  /// The returned file belongs to the runtime and is removed during explicit cleanup or invalidation.
+  /// Creates a private upright JPEG copy at the target dimensions without modifying the caller's
+  /// original file.
+  ///
+  /// Resolves the Promise with the private JPEG URL; rejects failures with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The readable local file URL; your app retains ownership of the original.
+  ///   - width: The width, in pixels.
+  ///   - height: The height, in pixels.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(prepareImage:width:height:resolve:reject:)
   public func prepareImage(
     _ fileURL: String,
@@ -318,86 +457,131 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
       fileURL,
       width: width,
       height: height,
-      promise: XmaxNativePromise(resolve: resolve, reject: reject)
+      promise: XmaxNativePromise(
+        resolve: resolve,
+        reject: reject
+      )
     )
   }
 
-  /// Deletes a prepared SDK cache image; the user's original file is never removed.
-  /// Repeated removal of an already missing prepared image succeeds.
+  /// Deletes only SDK-owned image copies; an already absent copy is treated as successfully
+  /// removed.
+  ///
+  /// Completes after copy cleanup; failures reject the Promise with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The SDK-owned private image copy URL returned by image preparation.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
   @objc(removePreparedImage:resolve:reject:)
   public func removePreparedImage(
     _ fileURL: String,
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    images.remove(fileURL, promise: XmaxNativePromise(resolve: resolve, reject: reject))
+    images.remove(
+      fileURL,
+      promise: XmaxNativePromise(
+        resolve: resolve,
+        reject: reject
+      )
+    )
   }
 
-  // MARK: - Image frame delivery
+  // MARK: - RTC Adaptation
 
-  /// Starts repeated native image frames using the RN adapter's already-created RTC singleton.
-  /// Invalid formats, unavailable engines, and image decoding failures reject the operation.
-  /// Nonzero pushExternalVideoFrame results do not reject startup or stop subsequent frames.
-  @objc(startImageVideo:path:width:height:fps:engine:resolve:reject:)
-  public func startImageVideo(
+  /// Validates media ownership before executing a decoded RTC command on the UI thread.
+  ///
+  /// Resolves the Promise with the RTC operation's JSON result; rejects failures with an SDK error
+  /// code.
+  ///
+  /// - Parameters:
+  ///   - token: The media ownership identifier; only the current valid owner may modify resources.
+  ///   - request: The RTC operation and parameters decoded and validated from a JavaScript request.
+  ///   - resolve: The React Native Promise completion callback.
+  ///   - reject: The React Native Promise failure callback.
+  @MainActor
+  @objc(rtcCommand:request:resolve:reject:)
+  public func rtcCommand(
     _ token: String,
-    path: String,
-    width: Double,
-    height: Double,
-    fps: Double,
-    engine: ByteRTCVideo?,
+    request: String,
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    let promise = XmaxNativePromise(resolve: resolve, reject: reject)
-
+    let promise = XmaxNativePromise(
+      resolve: resolve,
+      reject: reject
+    )
     gate.xmaxWithLock {
       guard isActive(token).boolValue else {
-        promise.reject("Media engine is not active", code: "CANCELLED")
+        promise.reject(
+          "Media lease is unavailable",
+          code: "CANCELLED"
+        )
         return
       }
-
-      guard XmaxImageVideoFormat.isValid(width: width, height: height, fps: fps) else {
-        promise.reject("Invalid image video format")
-        return
+      do {
+        guard let data = request.data(using: .utf8),
+          let command = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+          throw XmaxNativeFailure(message: "Invalid RTC command")
+        }
+        if command["operation"] as? String == "open" { rtc = XmaxAgoraEngine() }
+        if command["operation"] as? String == "startImage" {
+          guard let engine = rtc.engine else {
+            throw XmaxNativeFailure(message: "RTC engine is unavailable")
+          }
+          imageVideo.start(
+            engine: engine,
+            path: command["path"] as? String ?? "",
+            width: (command["width"] as? NSNumber)?.intValue ?? 0,
+            height: (command["height"] as? NSNumber)?.intValue ?? 0,
+            fps: (command["fps"] as? NSNumber)?.intValue ?? 0,
+            active: { [weak self] in self?.isActive(token).boolValue == true },
+            promise: promise
+          )
+          return
+        }
+        if ["pause", "close"].contains(command["operation"] as? String ?? "") { imageVideo.stop() }
+        let value = try rtc.execute(
+          owner: token,
+          request: command,
+          emit: { [weak self] in self?.eventSink?($0) }
+        )
+        promise.resolve(value)
+      } catch {
+        promise.reject(
+          "RTC operation failed",
+          code: "RTC_ERROR",
+          error: error
+        )
       }
-
-      // Recreating the singleton with a nil delegate removes RN's SEI callbacks.
-      guard let engine else {
-        promise.reject("RTC engine is unavailable")
-        return
-      }
-
-      imageVideo.start(
-        engine: engine,
-        path: path,
-        width: Int(width),
-        height: Int(height),
-        fps: Int(fps),
-        active: { [weak self] in self?.isActive(token).boolValue == true },
-        promise: promise
-      )
     }
   }
 
-  /// Updates frame metadata within the active owner's gate before JS sends its room command.
-  @objc(setImageVideoTask:taskID:)
-  public func setImageVideoTask(_ token: String, taskID: String) -> NSNumber {
-    gate.xmaxWithLock {
-      guard owner == token else { return false }
-      guard taskID.isEmpty || isActive(token).boolValue else { return false }
-      return NSNumber(value: imageVideo.setTask(taskID))
-    }
+  /// Registers an existing video container after validating its native mount identifier.
+  ///
+  /// - Parameters:
+  ///   - view: The native video container whose mount identifier has been validated by the runtime.
+  ///   - nativeID: The native mount identity excluding removed or recycled views.
+  @MainActor
+  @objc(registerVideoSurface:nativeID:)
+  public func registerVideoSurface(
+    _ view: UIView,
+    nativeID: String
+  ) {
+    rtc.register(
+      view,
+      id: nativeID
+    )
   }
 
-  /// Cancels frame delivery and pending image decoding only for the matching owner.
-  /// Must run before the caller destroys the RTC engine; repeated calls are safe.
-  @objc(stopImageVideo:)
-  public func stopImageVideo(_ token: String) {
-    gate.xmaxWithLock {
-      if owner == token {
-        imageVideo.stop()
-      }
-    }
-  }
+  /// Removes only the specified video container's native registration.
+  ///
+  /// - Parameter nativeID: The native mount identity excluding removed or recycled views.
+  @MainActor
+  @objc(unregisterVideoSurface:)
+  public func unregisterVideoSurface(
+    _ nativeID: String
+  ) { rtc.unregister(nativeID) }
 }

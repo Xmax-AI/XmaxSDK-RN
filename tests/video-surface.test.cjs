@@ -13,7 +13,7 @@ function fixture() {
     valid: true,
     confirmed: false,
     rtc: {
-      bind: (...args) => calls.push(['bind', ...args]),
+      bind: (...args) => { calls.push(['bind', ...args]); },
       unbind: (...args) => calls.push(['unbind', ...args]),
       onEvent: listener => {
         listeners.add(listener);
@@ -50,7 +50,7 @@ test('mount and the content-mode effect bind a canvas only once', () => {
 });
 
 for (const first of ['rendered', 'confirmed']) {
-  test(`remote fade waits for both signals when ${first} arrives first`, () => {
+  test(`remote display waits for both signals when ${first} arrives first`, () => {
     const { surface, record, displayed, emit, calls } = fixture();
     surface.start('fill');
     if (first === 'rendered') emit();
@@ -109,6 +109,42 @@ test('a failed canvas bind cannot reveal even a synchronously reported frame', (
   };
   surface.start('fill');
   surface.refresh();
+  assert.deepEqual(displayed, []);
+  surface.dispose();
+});
+
+
+test('native binding acknowledgment gates preview and ignores retired completions', async () => {
+  const { surface, record, emit, displayed } = fixture();
+  let resolve, previews = 0;
+  record.onPreviewReady = () => { previews++; };
+  record.confirmed = true;
+  record.rtc.bind = () => new Promise(ready => { resolve = ready; });
+  surface.start('fit');
+  emit();
+  assert.deepEqual(displayed, []);
+  assert.equal(previews, 0);
+  resolve();
+  await Promise.resolve();
+  assert.equal(previews, 1);
+  assert.deepEqual(displayed, [true]);
+  surface.setContentMode('fill');
+  surface.dispose();
+  resolve();
+  await Promise.resolve();
+  assert.equal(previews, 1);
+});
+
+test('async native binding failures reach the owner without revealing the result', async () => {
+  const { surface, record, emit, displayed } = fixture();
+  const failures = [];
+  record.confirmed = true;
+  record.onBindingFailure = error => failures.push(error);
+  record.rtc.bind = () => Promise.reject(new Error('native canvas missing'));
+  surface.start('fit');
+  emit();
+  await Promise.resolve();
+  assert.equal(failures.length, 1);
   assert.deepEqual(displayed, []);
   surface.dispose();
 });

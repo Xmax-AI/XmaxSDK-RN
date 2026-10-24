@@ -38,6 +38,8 @@ import {
  * submits its remote path. Touch animation starts through its own preparation callback.
  */
 export function RealtimeControlPanel({
+  faceRestoration = false,
+  onFaceRestorationChange,
   initialCategoryID = 'charx',
   bottomInset,
   apiKey,
@@ -53,6 +55,9 @@ export function RealtimeControlPanel({
   connected,
   canSubmit,
 }: {
+  /** Face restoration changes a generation option, independently of the selected reference. */
+  faceRestoration?: boolean;
+  onFaceRestorationChange?: (enabled: boolean) => void;
   /** Initial tab only; selecting it does not start generation or reset later user choices. */
   initialCategoryID?: RealtimeCategory['id'];
   /** Keeps reference thumbnails and prompt controls above the home indicator. */
@@ -401,6 +406,24 @@ export function RealtimeControlPanel({
 
   return (
     <View style={[styles.panel, { paddingBottom: bottomInset + 10 }]}>
+      {onFaceRestorationChange && (
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{
+            checked: faceRestoration,
+            disabled: !canSubmit,
+          }}
+          disabled={!canSubmit}
+          onPress={() => onFaceRestorationChange(!faceRestoration)}
+          style={styles.faceButton}
+        >
+          <Text
+            style={[styles.faceLabel, faceRestoration && styles.faceSelected]}
+          >
+            {t('realtime.faceRestoration')} {faceRestoration ? '✓' : ''}
+          </Text>
+        </Pressable>
+      )}
       <View style={styles.categoryRow}>
         <Pressable
           accessibilityRole="button"
@@ -671,6 +694,13 @@ const styles = StyleSheet.create({
   submit: { backgroundColor: '#FF2E88' },
   submitIcon: { width: 11, height: 12, tintColor: '#FFF' },
   disabled: { opacity: 0.2 },
+  faceButton: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  faceLabel: { color: '#888', fontSize: 12 },
+  faceSelected: { color: '#8EF0C8' },
   pressed: { opacity: 0.7, transform: [{ scale: 0.94 }] },
   editorOverlay: { flex: 1, justifyContent: 'flex-end' },
   editorBackdrop: { flex: 1 },

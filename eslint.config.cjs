@@ -38,6 +38,12 @@ module.exports = [
       ],
     },
   },
+  {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    rules: {
+      'lines-between-class-members': ['error', 'always'],
+    },
+  },
   // UUID encoding and the public logging bitmask intentionally use bitwise operations.
   {
     files: ['src/Foundation/Runtime/RuntimeInfo.ts', 'src/Core/XmaxClient.ts'],

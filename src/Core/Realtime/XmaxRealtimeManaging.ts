@@ -1,5 +1,18 @@
+//
+//  XmaxRealtimeManaging.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import type {
   RealtimeConfiguration,
+  RealtimeCameraPreset,
+  RealtimeQualityLevel,
+  RealtimeVideoFormat,
   RealtimeState,
   RealtimeReason,
   RealtimeOperationOptions,
@@ -9,196 +22,389 @@ import type {
   RealtimeContext,
   RealtimeNetworkQuality,
   RealtimePerformanceAlarm,
+  UplinkVideoStatistics,
+  DownlinkVideoStatistics,
 } from '../../Service/Realtime/RealtimeTypes';
 
 /**
- * Receives the current state when registered, then subsequent state changes.
+ * A handler that receives the current state on registration and subsequent changes.
+ *
+ * @param state The current realtime state.
  */
-export type RealtimeStateListener = (state: RealtimeState) => void;
+export type RealtimeStateListener = (
+  state: RealtimeState
+) => void;
 
 /**
- * Receives the latest uplink and downlink quality reported by RTC.
+ * A handler for RTC uplink and downlink network quality.
+ *
+ * @param quality The current uplink and downlink network quality.
  */
 export type RealtimeNetworkQualityListener = (
   quality: RealtimeNetworkQuality,
 ) => void;
 
 /**
- * Receives device performance warnings and recovery notifications.
+ * A handler for encoder performance limitations and recovery.
+ *
+ * @param alarm The performance status and suggested encoding format.
  */
 export type RealtimePerformanceAlarmListener = (
   alarm: RealtimePerformanceAlarm,
 ) => void;
 
 /**
- * Controls one realtime camera or image session and its generation lifecycle.
+ * A handler for uplink statistics; clearing local publication delivers null.
  *
- * Obtain an instance from XmaxClient.createRealtimeManager(). Listeners use
- * replacement semantics; pass null to clear a listener. Call close() when
- * the owning screen is finished with the manager.
+ * @param statistics The video statistics snapshot, or null when the corresponding stream is
+ *   cleared.
+ */
+export type UplinkVideoStatisticsListener = (
+  statistics: UplinkVideoStatistics | null,
+) => void;
+
+/**
+ * A handler for subscribed result statistics; clearing the result stream delivers null.
  *
- * Cancellable operations accept an optional AbortSignal. Cancellation of initial
- * generation releases its connection; cancellation of a context update preserves
- * the existing generation. Disconnect/close always finish cleanup and cannot be
- * cancelled. Overlapping operations reject instead of silently queuing.
+ * @param statistics The video statistics snapshot, or null when the corresponding stream is
+ *   cleared.
+ */
+export type DownlinkVideoStatisticsListener = (
+  statistics: DownlinkVideoStatistics | null,
+) => void;
+
+/**
+ * An interface for local media, realtime connections, and video generation.
+ *
+ * Obtain an instance from XmaxClient.createRealtimeManager(). Each listener setter retains one
+ * handler; null removes it. Close the manager when the screen finishes using it.
+ *
+ * Cancellable operations accept AbortSignal. Cancelling initial generation releases its connection;
+ * cancelling a condition update preserves generation. Disconnect and close finish cleanup and are
+ * not cancellable. Overlapping operations are rejected rather than queued.
  */
 export interface XmaxRealtimeManaging {
+
   /**
-   * The immutable model configuration used by this manager.
+   * The immutable realtime configuration.
    */
   readonly options: Readonly<RealtimeConfiguration>;
 
   /**
-   * The latest processed state snapshot. Updated before the state listener
-   * runs.
+   * The latest state snapshot, committed before listener notification.
    */
   readonly currentState: RealtimeState;
 
   /**
-   * The local preview volume. The camera route has no local audio playback and
-   * returns 0.
+   * The resolved camera format, or null without camera input. Transport quality does not change it.
+   */
+  readonly currentCameraVideoFormat: RealtimeVideoFormat | null;
+
+  /**
+   * The preset matching the camera's media dimensions.
+   */
+  readonly currentCameraPreset: RealtimeCameraPreset | null;
+
+  /**
+   * The applied uplink level, or null before connection completes or after disconnection begins.
+   */
+  readonly uplinkQualityLevel: RealtimeQualityLevel | null;
+
+  /**
+   * The submitted downlink level. Received dimensions may change after this value changes.
+   */
+  readonly downlinkQualityLevel: RealtimeQualityLevel | null;
+
+  /**
+   * Updates a ready, disconnected camera stream while preserving its track and view bindings. A
+   * preset changes dimensions while preserving frame rate, bitrate, and encoder preference.
+   *
+   * @param format The complete target format or camera resolution preset.
+   * @param options The operation's cancellation options.
+   */
+  updateCameraFormat(
+    format: RealtimeVideoFormat | RealtimeCameraPreset,
+    options?: RealtimeOperationOptions,
+  ): Promise<void>;
+
+  /**
+   * Changes uplink encoding quality during generation. Automatic adaptation remains enabled;
+   * failure retains the prior level.
+   *
+   * @param level The requested uplink quality level, from l1 to l5.
+   * @param options The operation's cancellation options.
+   */
+  setUplinkQualityLevel(
+    level: RealtimeQualityLevel,
+    options?: RealtimeOperationOptions,
+  ): Promise<void>;
+
+  /**
+   * Changes downlink quality during generation. The level updates after signal submission; received
+   * dimensions may change later.
+   *
+   * @param level The requested downlink quality level, from l1 to l5.
+   * @param options The operation's cancellation options.
+   */
+  setDownlinkQualityLevel(
+    level: RealtimeQualityLevel,
+    options?: RealtimeOperationOptions,
+  ): Promise<void>;
+
+  /**
+   * The local preview volume; camera input does not play local audio, so this is always 0.
    */
   readonly localAudioVolume: number;
 
   /**
-   * The remote playback volume, from 0 to 1. Camera and image creation reset it
-   * to 0. Set a different volume after creating the local stream.
+   * The remote playback volume, from 0 to 1. Creating camera or image input resets it to 0; set
+   * playback volume after local stream creation.
    */
   readonly remoteAudioVolume: number;
 
   /**
-   * Replaces the state listener and immediately delivers currentState. Pass
-   * null to clear it.
+   * Sets the state listener and immediately delivers currentState; null removes it.
+   *
+   * Completes after replacing the listener and delivering state; listener exceptions are isolated.
+   *
+   * @param listener The replacement listener, or null to remove it.
    */
-  setStateListener(listener: RealtimeStateListener | null): Promise<void>;
+  setStateListener(
+    listener: RealtimeStateListener | null
+  ): Promise<void>;
 
   /**
-   * Replaces the RTC network-quality listener. Pass null to clear it.
+   * Sets the network quality listener; null removes it.
+   *
+   * @param listener The replacement listener, or null to remove it.
    */
   setNetworkQualityListener(
     listener: RealtimeNetworkQualityListener | null,
   ): Promise<void>;
 
   /**
-   * Replaces the performance listener without changing encoding settings. Pass
-   * null to clear it.
+   * Sets the performance listener without changing encoder settings; null removes it.
+   *
+   * @param listener The replacement listener, or null to remove it.
    */
   setPerformanceAlarmListener(
     listener: RealtimePerformanceAlarmListener | null,
   ): Promise<void>;
 
   /**
-   * Validates a volume between 0 and 1. The current camera route has no local
-   * audio playback.
-   */
-  setLocalAudioVolume(volume: number): Promise<void>;
-
-  /**
-   * Sets remote playback volume between 0 (muted) and 1 (full volume).
-   */
-  setRemoteAudioVolume(volume: number): Promise<void>;
-
-  /**
-   * Requests camera permission and starts local capture. State becomes Preparing;
-   * after the first valid frame and a preview binding it becomes Ready.
+   * Sets the uplink statistics listener; disconnecting or closing delivers null.
    *
-   * Defaults to the front camera at the model's default format, with the
-   * microphone disabled. Stop the current local stream before creating another one.
-   * Empty model buckets resize dimensions using pixel bounds and alignment;
-   * nonempty buckets reject unsupported dimensions before requesting permission.
+   * Immediately delivers null when no connection is active.
+   *
+   * @param listener The replacement listener, or null to remove it.
+   */
+  setUplinkVideoStatisticsListener(
+    listener: UplinkVideoStatisticsListener | null,
+  ): Promise<void>;
+
+  /**
+   * Sets the result statistics listener for the selected result account.
+   *
+   * Immediately delivers null when generation is inactive.
+   *
+   * @param listener The replacement listener, or null to remove it.
+   */
+  setDownlinkVideoStatisticsListener(
+    listener: DownlinkVideoStatisticsListener | null,
+  ): Promise<void>;
+
+  /**
+   * Validates local volume without enabling camera audio playback.
+   *
+   * Rejects invalid values; valid values do not enable local audio playback.
+   *
+   * @param volume The playback volume, from 0 for mute to 1 for maximum.
+   */
+  setLocalAudioVolume(
+    volume: number
+  ): Promise<void>;
+
+  /**
+   * Sets remote playback volume from 0 for mute to 1 for maximum.
+   *
+   * Completes after applying volume; rejects invalid values or native RTC failures.
+   *
+   * @param volume The playback volume, from 0 for mute to 1 for maximum.
+   */
+  setRemoteAudioVolume(
+    volume: number
+  ): Promise<void>;
+
+  /**
+   * Requests camera permission and starts capture in Preparing state. The state becomes Ready after
+   * capture and preview binding are ready.
+   *
+   * Defaults to the front camera, the model format, and no microphone. Stop the current input
+   * before replacement. Unsupported dimensions are rejected before permission requests for models
+   * with fixed formats.
+   *
+   * @param options The camera position, video format, microphone, and cancellation settings.
+   * @returns The manager-owned camera stream; rejects unsupported settings, denied permissions, or
+   *   cancellation.
    */
   createLocalCameraStream(
     options?: CameraStreamOptions,
   ): Promise<RealtimeMediaStream>;
 
   /**
-   * Stops local camera capture after disconnect(). Does nothing if the active
-   * input is an image. Use close() to interrupt ongoing work and release all resources.
+   * Stops capture after disconnect(). Image input is unchanged. Use close() to cancel pending work
+   * and release all resources.
+   *
+   * Completes after camera release; rejects if connected, cancelled, or cleanup fails. Other input
+   * types are unchanged.
+   *
+   * @param options The operation's cancellation options; manager lifecycle cancellation still
+   *   applies when no signal is provided.
    */
-  stopLocalCameraStream(options?: RealtimeOperationOptions): Promise<void>;
+  stopLocalCameraStream(
+    options?: RealtimeOperationOptions
+  ): Promise<void>;
 
   /**
-   * Prepares a local image and continuously publishes it as video when connected.
+   * Creates a continuous video frame stream from a local image file.
    *
-   * Uses an orientation-corrected, center-cropped private copy for both RTC and
-   * local preview. No camera or microphone permission is requested. Disconnect
-   * and stop the current input before creating another. The caller retains
-   * ownership of the original file; this manager owns the prepared copy.
+   * Uses a private, orientation-corrected copy retaining the image aspect ratio for RTC and local
+   * preview. No camera or microphone permission is requested. Disconnect and stop the current input
+   * before replacement. Your app owns the original; the manager owns the copy.
+   *
+   * @param options The local image URL, encoding settings, frame rate, and cancellation signal;
+   *   dimensions are resolved from the file.
+   * @returns The manager-owned image stream after its copy and frame source are prepared.
    */
   createLocalImageStream(
     options: ImageStreamOptions,
   ): Promise<RealtimeMediaStream>;
 
   /**
-   * Stops the image source and removes its prepared copy after disconnect().
-   * Does nothing if the active input is a camera. Use close() to interrupt preparation.
+   * Stops image frames and deletes the copy after disconnect(). Camera input is unchanged. Use
+   * close() to interrupt preparation.
+   *
+   * Completes after stopping frames and removing the copy; rejects if connected, cancelled, or
+   * cleanup fails. Other input types are unchanged.
+   *
+   * @param options The operation's cancellation options; manager lifecycle cancellation still
+   *   applies when no signal is provided.
    */
-  stopLocalImageStream(options?: RealtimeOperationOptions): Promise<void>;
+  stopLocalImageStream(
+    options?: RealtimeOperationOptions
+  ): Promise<void>;
 
   /**
-   * Switches the camera while preserving the local video-track object.
+   * Switches between cameras while preserving the local video track.
    *
-   * If generation is active, restarts its task with the cached context after
-   * the camera switches. The room connection is retained on success.
+   * During generation, switching restarts the task with cached conditions and retains the room on
+   * success.
+   *
+   * @param options The operation's cancellation options; manager lifecycle cancellation still
+   *   applies when no signal is provided.
+   * @returns The existing camera stream after switching.
    */
   switchCamera(
     options?: RealtimeOperationOptions,
   ): Promise<RealtimeMediaStream>;
 
   /**
-   * Creates a session and joins RTC using a local stream owned by this manager.
+   * Establishes a realtime connection using a local stream created by this manager.
    *
-   * Returns the remote stream without starting generation. Mount its video
-   * track before calling startGeneration() so rendering can be observed.
+   * Returns the result stream without starting generation. Bind its track before calling
+   * startGeneration().
+   *
+   * @param options The manager-owned local stream and cancellation signal.
    */
   connect(
     options: RealtimeOperationOptions & {
+
+      /**
+       * An active local stream created by this manager.
+       */
       localStream: RealtimeMediaStream;
     },
   ): Promise<RealtimeMediaStream>;
 
   /**
-   * Interrupts pending realtime work and closes the session and room.
+   * Cancels realtime work and closes the session and room.
    *
-   * Keeps local media and returns to Ready, or Idle when none remains.
-   * An optional reason is delivered with the final state. Preparing local media
-   * is unaffected when no connection operation is active.
+   * Retains local media and returns to Ready, or Idle without local media. Final state includes the
+   * termination reason. An inactive connection does not interrupt unrelated local preparation.
+   *
+   * Completes after remote cleanup while retaining local media. Concurrent calls share cleanup.
+   *
+   * @param options The termination reason; defaults to normal disconnection.
    */
-  disconnect(options?: { reason?: RealtimeReason }): Promise<void>;
+  disconnect(
+    options?: {
+
+      /**
+       * The reason reported in the final state.
+       */
+      reason?: RealtimeReason;
+    }
+  ): Promise<void>;
 
   /**
-   * Interrupts pending work and releases the session, RTC and local media.
+   * Cancels operations and releases the session, RTC, and local media.
    *
-   * Finishes in Idle with a termination reason. Repeated calls share the
-   * in-progress cleanup. The manager remains reusable and retains its business
-   * listeners. Independent storage tasks are
-   * unaffected.
+   * Completes in Idle with the termination reason. Concurrent calls share cleanup; the manager and
+   * app listeners remain reusable. Independent storage tasks are unaffected.
    */
   close(): Promise<void>;
 
   /**
-   * Connects the supplied local stream if needed, then starts or updates
-   * generation.
+   * Connects local media if needed and starts generation or updates conditions.
    *
-   * The first generation requires context. Omitted or null context reuses the
-   * last successful context. Returns the remote stream.
+   * Initial generation requires context. Omitted or null context reuses the connection's last
+   * successful conditions; disconnect and close clear that cache. This overload returns the result
+   * stream.
+   *
+   * @param options The local stream, generation conditions, face restoration, and cancellation
+   *   settings.
+   * @returns The manager-owned result stream after task confirmation.
    */
   startGeneration(
     options: RealtimeOperationOptions & {
+
+      /**
+       * An active local stream created by this manager.
+       */
       localStream: RealtimeMediaStream;
+
+      /**
+       * The generation prompt and reference image location.
+       */
       context?: RealtimeContext | null;
+
+      /**
+       * Whether to restore the source face for this request; defaults to false.
+       */
+      faceRestoration?: boolean;
     },
   ): Promise<RealtimeMediaStream>;
 
   /**
-   * Starts or updates generation on an existing connection.
+   * Starts generation or updates conditions on an existing connection.
    *
-   * A new task waits for a matching task confirmation; context updates reuse
-   * the task and complete after sending the update. Returns no stream.
+   * New tasks wait for the result account to publish in the target room. Updates reuse the task and
+   * complete after signal submission.
+   *
+   * @param options The generation conditions, face restoration, and cancellation settings.
    */
   startGeneration(
     options?: RealtimeOperationOptions & {
+
+      /**
+       * The generation prompt and reference image location.
+       */
       context?: RealtimeContext | null;
+
+      /**
+       * Whether to restore the source face for this request; defaults to false.
+       */
+      faceRestoration?: boolean;
     },
   ): Promise<void>;
 }

@@ -13,7 +13,7 @@ compiled.require = name => name === '@xmaxai/react-native-sdk'
 compiled._compile(ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
-const { ConfigurationStore, parseBitrateOverride, parseGenerationBitrate, apiBaseURLForEndpoint, environmentForEndpoint } = compiled.exports;
+const { ConfigurationStore, parseBitrateOverride, apiBaseURLForEndpoint, environmentForEndpoint } = compiled.exports;
 
 // Model the pinned iOS helper: any present cloudSync NSNumber enables sync,
 // including @NO. This is the native boundary the in-memory store tests omit.
@@ -176,7 +176,7 @@ test('initial read is coalesced and input cannot race hydration', async () => {
   store.selectEndpoint('china');
   gate.resolve();
   await loading;
-  assert.equal(reads, 9);
+  assert.equal(reads, 7);
   assert.equal(store.getSnapshot().endpoint, 'global');
   assert.equal(store.getSnapshot().keys.china, 'stored');
 });
@@ -246,24 +246,38 @@ test('failed language writes keep the newest preference for retry', async () => 
 });
 
 
-test('model selection persists independently of keys and unsupported values fall back to X2.1 Preview', async () => {
-  const disk = storage({ china: 'cn-fixture', global: 'global-fixture' });
+test('X2.1 model selection keeps the service environment and credentials independent', async () => {
+  const disk = storage({ china: 'cn-fixture', global: 'global-fixture', environment: 'global' });
   const store = new ConfigurationStore(disk);
   await store.load();
-  assert.equal(store.getSnapshot().model, 'x2.1-preview');
-  store.selectModel('x2.0-pro');
-  assert.equal(store.getSnapshot().model, 'x2.1-preview', 'X2.0 Pro is not offered by XLab');
-  store.selectModel('x2.0');
+  assert.equal(store.getSnapshot().model, 'x2.1');
+  store.selectModel('x2.1');
+  assert.equal(store.getSnapshot().endpoint, 'global');
+  store.selectEndpoint('china');
+  assert.equal(store.getSnapshot().model, 'x2.1');
+  store.selectModel('obsolete-model');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().model, 'x2.0');
+  assert.equal(reloaded.getSnapshot().model, 'x2.1');
+  assert.equal(reloaded.getSnapshot().endpoint, 'china');
   assert.deepEqual(reloaded.getSnapshot().keys, { china: 'cn-fixture', global: 'global-fixture' });
-  for (const unsupported of ['obsolete-model', 'x2.0-pro']) {
-    disk.values.set('model', unsupported);
-    const fallback = new ConfigurationStore(disk);
-    await fallback.load();
-    assert.equal(fallback.getSnapshot().model, 'x2.1-preview');
+});
+
+test('legacy regional models migrate to X2.1 and only supply a missing environment', async () => {
+  for (const [model, environment, expected] of [
+    ['x2.1.1-preview-us', undefined, 'global'],
+    ['x2.1.1-preview-cn', undefined, 'china'],
+    ['x2.1.1-preview-us', 'china', 'china'],
+    ['x2.1.1-preview-cn', 'global', 'global'],
+    ['obsolete-model', 'global', 'global'],
+  ]) {
+    const disk = storage({ model, ...(environment ? { environment } : {}), global: 'saved' });
+    const store = new ConfigurationStore(disk);
+    await store.load();
+    assert.equal(store.getSnapshot().model, 'x2.1');
+    assert.equal(store.getSnapshot().endpoint, expected);
+    assert.equal(store.getSnapshot().keys.global, 'saved');
   }
 });
 
@@ -285,40 +299,10 @@ test('endpoint selection persists with its own key slot and obsolete values fall
 });
 
 test('endpoints resolve their API base URL and SDK environment', () => {
-  assert.equal(apiBaseURLForEndpoint('china'), 'https://api.xmaxai.com/open/api/v1');
+  assert.equal(apiBaseURLForEndpoint('china'), 'https://cloud.xmax.22duck.cn/open/api/v1');
   assert.equal(apiBaseURLForEndpoint('global'), 'https://api.xmax.ai/open/api/v1');
   assert.equal(environmentForEndpoint('global'), 'global');
   assert.equal(environmentForEndpoint('china'), 'china');
-});
-
-test('downlink bitrate inputs persist independently of the uplink pair', async () => {
-  const disk = storage(), store = new ConfigurationStore(disk);
-  await store.load();
-  assert.equal(store.getSnapshot().downMinBitrate, '');
-  assert.equal(store.getSnapshot().downMaxBitrate, '');
-  store.setBitrate('downMinBitrate', '2000');
-  store.setBitrate('downMaxBitrate', '6000');
-  store.setBitrate('minBitrate', '1000');
-  await nextTurn();
-  const reloaded = new ConfigurationStore(disk);
-  await reloaded.load();
-  assert.equal(reloaded.getSnapshot().downMinBitrate, '2000');
-  assert.equal(reloaded.getSnapshot().downMaxBitrate, '6000');
-  assert.equal(reloaded.getSnapshot().minBitrate, '1000');
-  assert.equal(reloaded.getSnapshot().maxBitrate, '');
-});
-
-test('generation bitrate parsing enforces the server range', () => {
-  assert.equal(parseGenerationBitrate('', ''), null);
-  assert.equal(parseGenerationBitrate(' ', ' '), null);
-  assert.deepEqual(parseGenerationBitrate('2000', '6000'), { minimum: 2000, maximum: 6000 });
-  assert.deepEqual(parseGenerationBitrate('100', '10000'), { minimum: 100, maximum: 10000 });
-  assert.equal(parseGenerationBitrate('99', '6000'), 'invalid');
-  assert.equal(parseGenerationBitrate('0', '6000'), 'invalid');
-  assert.equal(parseGenerationBitrate('2000', '10001'), 'invalid');
-  assert.equal(parseGenerationBitrate('6000', '2000'), 'invalid');
-  assert.equal(parseGenerationBitrate('2000', ''), 'invalid');
-  assert.equal(parseGenerationBitrate('abc', '6000'), 'invalid');
 });
 
 test('bitrate inputs persist across reloads and empty values delete their slots', async () => {
@@ -354,4 +338,13 @@ test('bitrate override parsing requires a complete valid range or empty input', 
   assert.equal(parseBitrateOverride('20.5', '4000'), 'invalid');
   assert.equal(parseBitrateOverride('4000', '2000'), 'invalid');
   assert.equal(parseBitrateOverride('0', '0'), 'invalid');
+});
+
+
+test('hydration preserves the explicit service environment when a legacy model disagrees', async () => {
+  const disk = storage({ model: 'x2.1.1-preview-us', environment: 'china', china: 'cn', global: 'us' });
+  const store = new ConfigurationStore(disk);
+  await store.load();
+  assert.equal(store.getSnapshot().endpoint, 'china');
+  assert.equal(store.getSnapshot().keys.global, 'us');
 });

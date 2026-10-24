@@ -21,15 +21,6 @@ react {
 }
 dependencies {
   implementation 'com.facebook.react:react-android'
-  implementation 'com.volcengine:VolcEngineRTC:3.58.1.55100'
-  implementation 'com.volcengine:VolcApiEngine:1.6.6'
-  // Resolve the already autolinked peer by package identity, including aliased installs.
-  def rtcPeer = rootProject.subprojects.find { candidate ->
-    def manifest = new File(candidate.projectDir, '../package.json')
-    manifest.exists() && new groovy.json.JsonSlurper().parse(manifest).name == '@volcengine/react-native-rtc'
-  }
-  if (rtcPeer == null) throw new GradleException('Autolink @volcengine/react-native-rtc before building XmaxSDK')
-  implementation project(rtcPeer.path)
+  implementation 'io.agora.rtc:full-sdk:4.6.4'
   testImplementation 'junit:junit:4.13.2'
-  testImplementation 'com.alibaba:fastjson:1.2.79'
 }

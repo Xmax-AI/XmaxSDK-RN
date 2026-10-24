@@ -80,24 +80,16 @@ test('API success, malformed JSON and transport failures retain their original r
   capture(0);
 });
 
-test('RTC statistics read only supported platform getters and stay lazy when disabled', () => {
-  const poison = new Proxy({}, { get() { throw new Error('should not read disabled statistics'); } });
+test('RTC statistics are lazy and log measured SDK-owned metrics only', () => {
+  const poison = new Proxy({}, { get() { throw new Error('disabled statistics read'); } });
   capture(0);
   assert.doesNotThrow(() => RtcStatsLogger.local(poison));
-  assert.doesNotThrow(() => RtcStatsLogger.remote(poison, 'ios'));
+  assert.doesNotThrow(() => RtcStatsLogger.remote(poison));
   const logs = capture(2);
-  const video = { width: 736, height: 1312, videoLossRate: 0.01, receivedKBitrate: 1000, decoderOutputFrameRate: 24,
-    stallCount: 0, stallDuration: 0, e2eDelay: 100, rtt: 30 };
-  Object.defineProperty(video, 'android_rendererOutputFrameRate', { get() { throw new Error('unsupported Android getter'); } });
-  video.ios_renderOutputFrameRate = 23;
-  RtcStatsLogger.remote({ videoStats: video }, 'ios');
-  const stats = { cpuAppUsage: 0.2, cpuCores: 6, memoryUsage: 40, memoryRatio: 1, totalMemoryRatio: 30 };
-  Object.defineProperty(stats, 'android_cpuTotalUsage', { get() { throw new Error('unsupported Android getter'); } });
-  RtcStatsLogger.system(stats, 'ios');
-  assert.equal(logs.length, 2);
+  RtcStatsLogger.remote({ width: 800, height: 1500, decodeFrameRate: 24, renderFrameRate: 23, bitrateKbps: 1000, packetLossPercent: 1, endToEndDelayMs: 100 });
+  assert.equal(logs.length, 1);
   assert.match(logs[0].message, /23 fps/);
   assert.match(logs[0].message, /1%/);
-  assert.match(logs[1].message, /System unavailable/);
   capture(0);
 });
 

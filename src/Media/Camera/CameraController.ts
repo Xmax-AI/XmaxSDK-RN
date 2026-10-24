@@ -1,3 +1,14 @@
+//
+//  CameraController.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
+import { cameraPresetSize } from './CameraPreset';
 import type { RtcManager } from '../../Foundation/RTC/RtcManager';
 import { ensureActive, abortable } from '../../Foundation/Runtime/Async';
 import { invalid } from '../../Foundation/Errors/XmaxError';
@@ -9,32 +20,67 @@ import {
 import {
   CameraPosition,
   realtimeModelSpecifications,
+  RealtimeMediaSource,
   type CameraStreamOptions,
   type RealtimeMediaStream,
   type RealtimeModel,
+  type RealtimeVideoFormat,
 } from '../../Service/Realtime/RealtimeTypes';
-import {
-  resolveBitrates,
-  validateVideoFormat,
-} from '../../Stream/Encoding/EncodingController';
+import { EncodingController } from '../../Stream/Encoding/EncodingController';
+import { validateVideoFormat } from '../../Stream/Encoding/EncodingBitratePolicy';
 
 /**
- * Owns local camera capture and updates the existing track when the camera
- * switches.
+ * A controller that manages camera capture and updates the existing track when switching cameras.
  */
 export class CameraController {
+
+  /**
+   * The currently held local camera stream.
+   */
   stream: RealtimeMediaStream | null = null;
+
+  /**
+   * Whether the current camera stream publishes microphone audio.
+   */
   useMicrophone = false;
+
+  /**
+   * The service for calculating camera dimensions and default encoding settings for the current
+   * model.
+   */
   private readonly media: MediaService;
 
+  /**
+   * Creates a camera controller sharing the RTC engine and rendering registry.
+   *
+   * @param rtc The RTC manager for media configuration and room events.
+   * @param render The render controller for stream and video-track bindings.
+   * @param model The generation model defining media constraints and supported formats.
+   */
   constructor(
+    /**
+     * The RTC manager for media configuration and room events.
+     */
     private readonly rtc: RtcManager,
+
+    /**
+     * The render controller for stream and video-track bindings.
+     */
     private readonly render: RenderController,
     model: RealtimeModel,
   ) {
     this.media = new MediaService(model);
   }
 
+  /**
+   * Requests camera permission, configures encoding, and starts capture. The returned track is
+   * owned by this controller.
+   *
+   * @param options The camera position, video format, microphone, and cancellation settings.
+   * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+   * @returns The camera stream after capture starts; its track must then be mounted to bind the
+   *   preview.
+   */
   async create(
     options: CameraStreamOptions,
     signal: AbortSignal,
@@ -44,17 +90,33 @@ export class CameraController {
         'Stop the current local camera stream before creating a new one',
       );
 
+    if (options.videoFormat !== undefined && options.preset !== undefined)
+      throw invalid('Specify either videoFormat or preset');
+    const spec = realtimeModelSpecifications[this.media.model];
+    const presetSize =
+      options.preset !== undefined ? cameraPresetSize(options.preset) : null;
     const requested =
       options.videoFormat ??
-      realtimeModelSpecifications[this.media.model].defaultCameraVideoFormat;
+      (presetSize
+        ? spec.supportedVideoFormats.find(
+            format =>
+              format.width === presetSize.width &&
+              format.height === presetSize.height,
+          )
+        : spec.defaultCameraVideoFormat);
+    if (!requested)
+      throw invalid('Camera preset is not supported by this model');
     const position = options.position ?? CameraPosition.front;
 
     validateVideoFormat(requested);
     const format = Object.freeze({
       ...requested,
-      ...this.media.resolveModelInputSize(requested),
+      ...this.media.resolveMediaSize(
+        requested,
+        RealtimeMediaSource.camera
+      ),
     });
-    const bitrates = resolveBitrates(format);
+    const bitrates = EncodingController.bitrates(format);
 
     if (!Object.values(CameraPosition).includes(position))
       throw invalid('Invalid camera position');
@@ -75,10 +137,18 @@ export class CameraController {
         bitrates.maximum,
       );
       ensureActive(signal);
-      await this.rtc.startCamera(format, position, signal);
+      await this.rtc.startCamera(
+        format,
+        position,
+        signal
+      );
       ensureActive(signal);
       this.useMicrophone = options.useMicrophone ?? false;
-      this.stream = this.render.create(true, format, position);
+      this.stream = this.render.create(
+        true,
+        format,
+        position
+      );
 
       return this.stream;
     } catch (error) {
@@ -87,7 +157,15 @@ export class CameraController {
     }
   }
 
-  async switch(signal: AbortSignal): Promise<RealtimeMediaStream> {
+  /**
+   * Switches the camera position and updates the existing local track binding.
+   *
+   * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+   * @returns The original local stream with its camera position updated.
+   */
+  async switch(
+    signal: AbortSignal
+  ): Promise<RealtimeMediaStream> {
     if (!this.stream) throw invalid('Create a local camera stream first');
 
     const binding = this.render.requireLocal(this.stream);
@@ -104,6 +182,62 @@ export class CameraController {
     return this.stream;
   }
 
+  /**
+   * Updates camera capture and encoding in place while preserving the stream, track, and preview
+   * binding.
+   *
+   * @param requested The target media format; dimensions must match a format supported by the
+   *   model.
+   * @param signal The operation's cancellation signal.
+   */
+  async updateVideoFormat(
+    requested: RealtimeVideoFormat,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.stream) throw invalid('Create a local camera stream first');
+    const binding = this.render.requireLocal(this.stream);
+    validateVideoFormat(requested);
+    const format = Object.freeze({
+      ...requested,
+      ...this.media.resolveMediaSize(
+        requested,
+        RealtimeMediaSource.camera
+      ),
+    });
+    const bitrates = EncodingController.bitrates(format);
+    ensureActive(signal);
+
+    await this.rtc.updateCameraFormat(
+      format,
+      bitrates.minimum,
+      bitrates.maximum,
+    );
+    if (signal.aborted && binding.valid) {
+      // If cancellation occurs after native configuration succeeds, restores the previous media format before reporting cancellation.
+      const previous = binding.format;
+      const budget = EncodingController.bitrates(previous);
+      try {
+        await this.rtc.updateCameraFormat(
+          previous,
+          budget.minimum,
+          budget.maximum,
+        );
+      } catch (error) {
+        await this.close();
+        throw error;
+      }
+    }
+    ensureActive(signal);
+    if (!binding.valid) throw invalid('Camera stream is no longer active');
+    binding.format = format;
+    refreshBinding(binding);
+  }
+
+  /**
+   * Invalidates the camera track and releases native camera and RTC resources.
+   *
+   * Completes after resource release; concurrent calls share cleanup.
+   */
   async close(): Promise<void> {
     this.stream = null;
     this.useMicrophone = false;

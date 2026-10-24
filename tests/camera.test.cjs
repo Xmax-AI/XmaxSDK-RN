@@ -18,16 +18,13 @@ const {
   RealtimeSessionService,
 } = require('../lib/commonjs/Service/Realtime/RealtimeSessionService');
 const { ApiService } = require('../lib/commonjs/Service/Network/ApiService');
-const {
-  matchesTaskSEI,
-} = require('../lib/commonjs/Stream/Room/TaskConfirmation');
 const { roomEvent } = require('../lib/commonjs/Stream/Room/RoomEvent');
 const {
   taskIDFromUUID,
 } = require('../lib/commonjs/Foundation/Runtime/RuntimeInfo');
 const {
   resolveBitrates,
-} = require('../lib/commonjs/Stream/Encoding/EncodingController');
+} = require('../lib/commonjs/Stream/Encoding/EncodingBitratePolicy');
 const runtime = {
   platform: 'ios',
   os_version: '26.6',
@@ -60,84 +57,17 @@ function response(data, status = 200, success = true) {
   });
 }
 
-test('model dimensions match fixtures and the iOS pixel bounds', () => {
+test('current model cameras require a bucket while images retain their aspect ratio', () => {
   const service = new MediaService();
-  for (const [input, expected] of [
-    [
-      [640, 480],
-      [896, 672],
-    ],
-    [
-      [1920, 1080],
-      [1504, 832],
-    ],
-    [
-      [1010, 770],
-      [1024, 768],
-    ],
-    [
-      [832, 1472],
-      [832, 1472],
-    ],
-  ])
-    assert.deepEqual(
-      service.resolveModelInputSize({ width: input[0], height: input[1] }),
-      { width: expected[0], height: expected[1] },
-    );
-  for (const [width, height] of [
-    [799, 751],
-    [1130, 1130],
-    [1450, 1450],
-    [3840, 2160],
-    [2160, 3840],
-    [1, 1000000],
-    [1000000, 1],
-    [100, 100],
-  ]) {
-    const out = service.resolveModelInputSize({ width, height });
-    assert(
-      out.width * out.height >= 600000 && out.width * out.height <= 1280000,
-    );
-    assert.equal(out.width % 32, 0);
-    assert.equal(out.height % 32, 0);
-  }
-  assert.throws(
-    () => service.resolveModelInputSize({ width: NaN, height: 1 }),
-    { code: 'INVALID_CONFIGURATION' },
-  );
-  assert.deepEqual(resolveBitrates({ width: 640, height: 480, fps: 15 }), {
-    minimum: 500,
-    maximum: 1000,
-  });
-  assert.deepEqual(resolveBitrates({ width: 1920, height: 1080, fps: 30 }), {
-    minimum: 3150,
-    maximum: 6300,
-  });
+  assert.deepEqual(service.resolveMediaSize({ width: 1200, height: 1600 }, 'image'), { width: 1200, height: 1600 });
+  assert.throws(() => service.resolveMediaSize({ width: 1200, height: 1600 }, 'camera'), { code: 'INVALID_CONFIGURATION' });
+  assert.deepEqual(service.resolveGenerationSize({ width: 1200, height: 1600 }), { width: 1152, height: 1536 });
+  assert.deepEqual(service.resolveMediaSize({ width: 640, height: 480 }, 'image'), { width: 640, height: 480 });
+  assert.deepEqual(service.resolveTargetSize({ width: 1200, height: 1600 }, { width: 900, height: 900 }), { width: 672, height: 896 });
+  assert.deepEqual(resolveBitrates({ width: 640, height: 480, fps: 15 }), { minimum: 100, maximum: 600 });
 });
 
-for (const model of ['x2.0-pro', 'x2.1-preview']) {
-test(`nonempty model buckets require exact dimensions before rounding or resizing (${model})`, () => {
-  const { realtimeModelSpecifications } = require('../lib/commonjs/Service/Realtime/RealtimeTypes');
-  assert.deepEqual(realtimeModelSpecifications['x2.0'].resolutionBuckets, []);
-  const pro = new MediaService(model);
-  for (const size of [{ width: 1024, height: 1920 }, { width: 1920, height: 1024 }]) {
-    assert.deepEqual(pro.resolveModelInputSize(size), size);
-  }
-  for (const [width, height] of [
-    [640, 480], [512, 960], [2048, 3840], [1024, 1024],
-    [1920, 1080], [1023.9, 1920], [1024, 1919.9],
-    [0, 1920], [NaN, 1920], [Infinity, 1920],
-  ]) {
-    assert.throws(() => pro.resolveModelInputSize({ width, height }), error => {
-      assert.equal(error.code, 'INVALID_CONFIGURATION');
-      assert.match(error.message, /1024×1920, 1920×1024/);
-      return true;
-    });
-  }
-});
-}
-
-test('RN task IDs carry their platform through room commands, tracks and SEI confirmation', () => {
+test('RN task IDs carry their platform through room commands and normalized tracks', () => {
   const { tracksEvent } = require('../lib/commonjs/Stream/Room/RoomEvent');
   const base = 'task-ABEiM0RVZneImaq7zN3u_w';
   for (const platform of ['ios', 'android']) {
@@ -148,23 +78,14 @@ test('RN task IDs carry their platform through room commands, tracks and SEI con
       assert.equal(payload.uid, id);
       assert.equal(payload.runtime.platform, platform);
     }
-    assert.equal(JSON.parse(tracksEvent('user-1', id, [{ x: 1, y: 2 }])).uid, id);
-    for (const message of [id, `${id}&index=0`, ` ${id}&index=42\n`, base, `${base}&index=42`]) {
-      assert(matchesTaskSEI(id, message), message);
-    }
-    // Query metadata does not change task identity, matching the native iOS SDK.
-    assert(matchesTaskSEI(id, `${base}?index=42`));
-    assert(matchesTaskSEI(id, `${base}?os=ios&index=42`));
-    for (const wrong of ['', `${base}other?os=rn-${platform}&index=42`, 'task-other', `${base}&index=`, `${base}&index=-1`, `${base}&index=4x`]) {
-      assert.equal(matchesTaskSEI(id, wrong), false, wrong);
-    }
+    assert.equal(JSON.parse(tracksEvent('user-1', id, [{ x: 0.1, y: 0.2 }])).uid, id);
+
   }
 });
 
 test('task IDs reject invalid UUIDs and unsupported platforms', () => {
   assert.throws(() => taskIDFromUUID('not-a-uuid', 'ios'), /Invalid runtime UUID/);
   assert.throws(() => taskIDFromUUID('00112233-4455-6677-8899-aabbccddeeff', 'web'), /Unsupported runtime platform/);
-  assert.equal(matchesTaskSEI('', ''), false);
 });
 
 test('interrupt cancels confirmation promptly, cleanup runs once, operation gate reopens', async () => {
@@ -199,7 +120,7 @@ test('session parser cleans up allocated sessions with invalid RTC data', async 
       return method === 'POST' ? { sessionUid: 'orphan', modelExtra: {} } : {};
     },
   });
-  await assert.rejects(service.createSession('x2.0'), {
+  await assert.rejects(service.createSession('x2.1'), {
     code: 'SESSION_ERROR',
   });
   assert.deepEqual(calls, [
@@ -219,13 +140,13 @@ test('API uses X-Api-Key and runtime headers, unwraps envelope, handles HTTP bus
       return response({ sessionUid: 's' });
     },
   );
-  assert.deepEqual(await api.request('POST', '/session', { model: 'x2.0' }), {
+  assert.deepEqual(await api.request('POST', '/session', { model: 'x2.1' }), {
     sessionUid: 's',
   });
   assert.equal(request.url, 'https://example.invalid/session');
   assert.equal(request.init.headers['X-Api-Key'], 'test-api-key');
   assert.equal(request.init.headers['X-Platform'], 'ios');
-  assert.equal(request.init.body, '{"model":"x2.0"}');
+  assert.equal(request.init.body, '{"model":"x2.1"}');
   const failing = new ApiService(
     'key',
     'https://example.invalid',
@@ -282,6 +203,7 @@ mock.module('react-native', {
   },
 });
 class FakeRtc {
+  discardTracks() {}
   static instances = [];
   runtime = runtime;
   listeners = new Set();
@@ -300,7 +222,12 @@ class FakeRtc {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+  publishedStreams = [];
   emit(event) {
+    if (event.type === 'publication') {
+      this.publishedStreams = this.publishedStreams.filter(stream => stream.roomID !== event.stream.roomID || stream.userID !== event.stream.userID);
+      if (event.published) this.publishedStreams.push(event.stream);
+    }
     for (const listener of [...this.listeners]) listener(event);
   }
   permissionCalls = 0;
@@ -314,6 +241,7 @@ class FakeRtc {
     this.camera = true;
   }
   configureEncoding(format, minimum, maximum) { this.encoding = { format, minimum, maximum }; }
+  async updateCameraFormat(format, minimum, maximum) { this.configureEncoding(format, minimum, maximum); }
   beginImageTask() {}
   endImageTask() {}
   configureImageSource() { this.imageSourceConfigured = true; }
@@ -321,11 +249,13 @@ class FakeRtc {
   async join() {
     this.joins++;
   }
-  send(message) {
+  async send(message) {
     this.packets.push(JSON.parse(message));
   }
   setRemoteAudioVolume(value) { this.volume = value; }
-  leave() {}
+  async leave() { this.publishedStreams = []; }
+  async readPreference() { return "null"; }
+  async writePreference() {}
   stopLocalCapture() { this.camera = false; this.imagePath = null; }
   async close() {
     this.camera = false;
@@ -356,17 +286,17 @@ const {
   XmaxRealtimeManager,
 } = require('../lib/commonjs/Core/Realtime/XmaxRealtimeManager');
 const config = { apiKey: 'test-key', environment: 'china', loggerOptions: 0 };
-const createManager = () => new XmaxRealtimeManager(config, { model: 'x2.0' });
+const createManager = () => new XmaxRealtimeManager(config, { model: 'x2.1' });
 
-for (const model of ['x2.0-pro', 'x2.1-preview']) {
+for (const model of ['x2.1']) {
 test(`camera validates buckets before permission and preserves accepted dimensions and fps (${model})`, async () => {
   const manager = new XmaxRealtimeManager(config, { model });
   const rtc = FakeRtc.instances.at(-1);
   try {
     for (const videoFormat of [
       { width: 640, height: 480, fps: 24 },
-      { width: 1024, height: 1920, fps: 0 },
-      { width: 1024, height: 1918, fps: 24 },
+      { width: 1080, height: 1920, fps: 0 },
+      { width: 1080, height: 1918, fps: 24 },
     ]) {
       await assert.rejects(manager.createLocalCameraStream({ videoFormat }), {
         code: 'INVALID_CONFIGURATION',
@@ -375,11 +305,11 @@ test(`camera validates buckets before permission and preserves accepted dimensio
     assert.equal(rtc.permissionCalls, 0);
     assert.equal(rtc.camera, false);
     const defaultStream = await manager.createLocalCameraStream();
-    assert.deepEqual(defaultStream.videoTrack.videoFormat, { width: 1024, height: 1920, fps: 30 });
+    assert.deepEqual(defaultStream.videoTrack.videoFormat, { width: 1080, height: 1920, fps: 30 });
     await manager.stopLocalCameraStream();
     for (const videoFormat of [
-      { width: 1024, height: 1920, fps: 15 },
-      { width: 1920, height: 1024, fps: 30 },
+      { width: 1080, height: 1920, fps: 15 },
+      { width: 1920, height: 1080, fps: 30 },
     ]) {
       const local = await manager.createLocalCameraStream({ videoFormat });
       assert.deepEqual(local.videoTrack.videoFormat, videoFormat);
@@ -389,57 +319,23 @@ test(`camera validates buckets before permission and preserves accepted dimensio
     await manager.close();
   }
 
-  const flexible = createManager();
-  try {
-    const defaultStream = await flexible.createLocalCameraStream();
-    assert.deepEqual(defaultStream.videoTrack.videoFormat, { width: 832, height: 1472, fps: 30 });
-    await flexible.stopLocalCameraStream();
-    const local = await flexible.createLocalCameraStream({
-      videoFormat: { width: 640, height: 480, fps: 15 },
-    });
-    assert.deepEqual(local.videoTrack.videoFormat, { width: 896, height: 672, fps: 15 });
-  } finally {
-    await flexible.close();
-  }
+
 });
 }
 
-for (const model of ['x2.0-pro', 'x2.1-preview']) {
-test(`image buckets reject unsupported explicit and source sizes before preparation (${model})`, async t => {
+for (const model of ['x2.1']) {
+test(`image source keeps its aspect ratio independently of generation buckets (${model})`, async t => {
   const manager = new XmaxRealtimeManager(config, { model });
-  const images = FakeImages.instances.at(-1), rtc = FakeRtc.instances.at(-1);
-  try {
-    for (const videoFormat of [
-      undefined,
-      { width: 640, height: 480, fps: 24 },
-      { width: 1023.9, height: 1920, fps: 24 },
-      { width: 1024, height: 1920, fps: 0 },
-    ]) {
-      await assert.rejects(manager.createLocalImageStream({ fileURL: '/image.jpg', videoFormat }), {
-        code: 'INVALID_CONFIGURATION',
-      });
-    }
-    assert.equal(images.prepared.length, 0);
-    assert.equal(rtc.imagePath, null);
-    for (const videoFormat of [
-      { width: 1024, height: 1920, fps: 15 },
-      { width: 1920, height: 1024, fps: 30 },
-    ]) {
-      const local = await manager.createLocalImageStream({ fileURL: '/image.jpg', videoFormat });
-      assert.deepEqual(local.videoTrack.videoFormat, videoFormat);
-      assert.deepEqual(images.prepared.at(-1), videoFormat);
-      await manager.stopLocalImageStream();
-    }
-    t.mock.method(images, 'size', async () => ({ width: 1920, height: 1024 }));
-    const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' });
-    assert.deepEqual(local.videoTrack.videoFormat, { width: 1920, height: 1024, fps: 30 });
-  } finally {
-    await manager.close();
-  }
+  t.after(() => manager.close());
+  const images = FakeImages.instances.at(-1);
+  t.mock.method(images, 'size', async () => ({ width: 1200, height: 1600 }));
+  const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' });
+  assert.deepEqual(local.videoTrack.videoFormat, { width: 1200, height: 1600, fps: 30 });
+  assert.equal(FakeRtc.instances.at(-1).permissionCalls, 0);
 });
 }
 
-test('client accepts Pro and Preview and sends their model values to the session API', async t => {
+test('client accepts X2.1 and sends its model value to the session API', async t => {
   const configured = [], nativeLogs = [];
   // Storage native modules are unrelated to realtime model selection.
   mock.module(require.resolve('../lib/commonjs/Foundation/Storage/StorageManager.js'), {
@@ -464,15 +360,15 @@ test('client accepts Pro and Preview and sends their model values to the session
     if (init.method === 'POST') requests.push(JSON.parse(init.body));
     return response(init.method === 'POST' ? sessionPayload : {});
   });
-  for (const model of [RealtimeModel.x2_0_pro, RealtimeModel.x2_1_preview]) {
+  for (const model of [RealtimeModel.x2_1]) {
     const manager = client.createRealtimeManager({ model });
     try {
       const media = client.createMediaService(model);
       assert.equal(media.model, model);
-      assert.deepEqual(media.resolveModelInputSize({ width: 1024, height: 1920 }), {
-        width: 1024, height: 1920,
+      assert.deepEqual(media.resolveMediaSize({ width: 1080, height: 1920 }, 'camera'), {
+        width: 1080, height: 1920,
       });
-      assert.equal(client.createMediaService().model, 'x2.0');
+      assert.equal(client.createMediaService().model, 'x2.1');
       const local = await manager.createLocalCameraStream();
       await manager.connect({ localStream: local });
       assert.deepEqual(requests.at(-1), { model });
@@ -486,11 +382,11 @@ test('client accepts Pro and Preview and sends their model values to the session
       await manager.close();
     }
   }
-  assert.deepEqual(requests, [{ model: 'x2.0-pro' }, { model: 'x2.1-preview' }]);
+  assert.deepEqual(requests, [{ model: 'x2.1' }]);
 });
 
 for (const environment of ['china', 'global']) {
-  for (const model of ['x2.0', 'x2.0-pro', 'x2.1-preview']) {
+  for (const model of ['x2.1']) {
     test(`${environment} ${model} keeps create, heartbeat and close on its session backend`, async t => {
       const requests = [];
       t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -507,11 +403,7 @@ for (const environment of ['china', 'global']) {
       } finally {
         await manager.close();
       }
-      const base = environment === 'china'
-        ? 'https://cloud.xmax.22duck.cn/open/api/v1'
-        : model === 'x2.1-preview'
-          ? 'https://api.xmax.ai/open/api/v1'
-          : 'https://api.xmax.cloud/open/api/v1';
+      const base = environment === 'global' ? 'https://api.xmax.ai/open/api/v1' : 'https://cloud.xmax.22duck.cn/open/api/v1';
       assert.deepEqual(requests, [
         { method: 'POST', url: `${base}/session`, body: JSON.stringify({ model }) },
         { method: 'PUT', url: `${base}/session/session-1/heartbeat`, body: undefined },
@@ -613,7 +505,7 @@ test(`XLab rapid replacement reaches C after cancelling A (transport honors abor
   const packet = rtc.packets.find(value => value.event === 'start');
   assert.equal(packet.params.prompt, 'C');
   assert.deepEqual(requests, honorsCancellation ? ['POST', 'POST'] : ['POST', 'DELETE', 'POST']);
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: packet.uid });
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: packet.uid });
   await Promise.all([a, b, c]);
   await start('D');
   assert.equal(posts, 2, 'A finished generation reuses its connection');
@@ -626,7 +518,7 @@ test(`XLab rapid replacement reaches C after cancelling A (transport honors abor
 });
 }
 
-test('generation requires task + room + bot SEI, updates reuse task, disconnect preserves camera', async t => {
+test('generation waits for its room and bot publication, updates reuse task, disconnect preserves camera', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, init) =>
     response(init.method === 'POST' ? sessionPayload : {}),
   );
@@ -649,14 +541,13 @@ test('generation requires task + room + bot SEI, updates reuse task, disconnect 
   const id = rtc.packets.find(p => p.event === 'start').uid;
   assert.match(id, /^task-[A-Za-z0-9_-]{22}\?os=rn-ios$/);
   const emit = (message, roomID = 'room-1', userID = 'bot-1') =>
-    rtc.emit({ type: 'sei', stream: { roomID, userID }, message });
+    rtc.emit({ type: 'publication', published: true, stream: { roomID, userID }, message });
   rtc.emit({
     type: 'decoded',
     stream: { roomID: 'room-1', userID: 'bot-1' },
-    width: 832,
-    height: 1472,
+    width: 1080,
+    height: 1920,
   });
-  emit('wrong');
   emit(id, 'old-room');
   emit(id, 'other-user');
   await nextTurn();
@@ -673,7 +564,9 @@ test('generation requires task + room + bot SEI, updates reuse task, disconnect 
   assert.equal(change.uid, id);
   assert.deepEqual(change.params, {
     model: 'default',
-    size: [832, 1472],
+    size: [1080, 1920],
+    target_size: [864, 1536],
+    face_replace: false,
     prompt: '油画',
   });
   const sameTrack = local.videoTrack;
@@ -731,7 +624,7 @@ test('failed condition update retains task and cached prompt, switch failure rel
   const id = rtc.packets.find(p => p.event === 'start').uid;
   assert.match(id, /^task-[A-Za-z0-9_-]{22}\?os=rn-ios$/);
   rtc.emit({
-    type: 'sei',
+    type: 'publication', published: true,
     stream: { roomID: 'room-1', userID: 'bot-1' },
     message: id,
   });
@@ -743,7 +636,7 @@ test('failed condition update retains task and cached prompt, switch failure rel
         code: XmaxErrorCode.rtcError,
         message: 'delivery failed',
       });
-    originalSend(message);
+    return originalSend(message);
   });
   await assert.rejects(
     manager.startGeneration({ context: { prompt: 'failed' } }),
@@ -757,7 +650,7 @@ test('failed condition update retains task and cached prompt, switch failure rel
   const next = rtc.packets.filter(p => p.event === 'start').at(-1);
   assert.equal(next.params.prompt, 'original');
   rtc.emit({
-    type: 'sei',
+    type: 'publication', published: true,
     stream: { roomID: 'room-1', userID: 'bot-1' },
     message: next.uid,
   });
@@ -857,7 +750,7 @@ test('image pipeline uses prepared dimensions/path, no camera permissions, and c
   const manager = createManager();
   const local = await manager.createLocalImageStream({ fileURL: 'file:///original.heic' });
   const rtc = FakeRtc.instances.at(-1), images = FakeImages.instances.at(-1);
-  assert.deepEqual(local.videoTrack.videoFormat, { width: 1024, height: 768, fps: 30 });
+  assert.deepEqual(local.videoTrack.videoFormat, { width: 808, height: 616, fps: 30 });
   assert.equal(local.videoTrack.position, null);
   assert.equal(rtc.imagePath, '/cache/prepared image.jpg');
   assert.equal(rtc.imageSourceConfigured, true);
@@ -871,9 +764,9 @@ test('image pipeline uses prepared dimensions/path, no camera permissions, and c
   const generation = manager.startGeneration({ context: { prompt: 'animate', referencePath: 'https://example.test/ref.jpg' } });
   await nextTurn();
   const start = rtc.packets.find(p => p.event === 'start');
-  assert.deepEqual(start.params.size, [1024, 768]);
+  assert.deepEqual(start.params.size, [1536, 1152]);
   assert.equal(start.params.ref_image_path, 'https://example.test/ref.jpg');
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
   await generation;
   await assert.rejects(manager.switchCamera(), { code: 'INVALID_CONFIGURATION' });
   await assert.rejects(manager.stopLocalImageStream(), { code: 'INVALID_CONFIGURATION' });
@@ -891,52 +784,22 @@ test('image pipeline uses prepared dimensions/path, no camera permissions, and c
   await manager.close();
 });
 
-test('downlink bitrate limits ride on the start event only and are validated', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) =>
-    response(init.method === 'POST' ? sessionPayload : {}),
-  );
+test('generation sends face restoration and preserved-image canvas padding', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => init.method === 'POST' ? response(sessionPayload) : response({}));
   const manager = createManager();
-  const local = await manager.createLocalCameraStream();
+  const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' });
   const rtc = FakeRtc.instances.at(-1);
-  await manager.connect({ localStream: local });
-  const generation = manager.startGeneration({
-    context: { prompt: 'animate', minimumBitrate: 3000, maximumBitrate: 8000 },
-  });
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'Portrait' }, faceRestoration: true });
   await nextTurn();
-  const start = rtc.packets.find(p => p.event === 'start');
-  assert.equal(start.params.min_bitrate, 3000);
-  assert.equal(start.params.max_bitrate, 8000);
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
-  await generation;
-  await manager.startGeneration({
-    context: { prompt: 'next', minimumBitrate: 1000, maximumBitrate: 2000 },
-  });
-  const change = rtc.packets.find(p => p.event === 'change_condition');
-  assert.equal(change.params.min_bitrate, undefined, 'Context updates must not re-send downlink limits');
-  assert.equal(change.params.max_bitrate, undefined);
-  await manager.startGeneration({
-    context: { prompt: 'plain' },
-  });
-  const cleared = rtc.packets.filter(p => p.event === 'change_condition').at(-1);
-  assert.equal(cleared.params.min_bitrate, undefined);
-  await manager.close();
-});
-
-test('invalid downlink bitrate rejects before any start packet is sent', async () => {
-  const manager = createManager();
-  const local = await manager.createLocalCameraStream();
-  const rtc = FakeRtc.instances.at(-1);
-  for (const context of [
-    { prompt: 'x', minimumBitrate: 99 },
-    { prompt: 'x', maximumBitrate: 10001 },
-    { prompt: 'x', minimumBitrate: 3000, maximumBitrate: 2000 },
-    { prompt: 'x', minimumBitrate: 2000.5 },
-  ])
-    await assert.rejects(
-      manager.startGeneration({ localStream: local, context }),
-      { code: 'INVALID_CONFIGURATION' },
-    );
-  assert.equal(rtc.packets.find(p => p.event === 'start'), undefined);
+  const start = rtc.packets.find(packet => packet.event === 'start');
+  assert.equal(start.params.face_replace, true);
+  assert.equal(start.params.padding, 'contain');
+  assert.equal(start.session_uid, start.uid);
+  assert.equal(start.params.min_bitrate, 100);
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  await manager.startGeneration({ faceRestoration: false });
+  assert.equal(rtc.packets.at(-1).params.face_replace, false);
   await manager.close();
 });
 
@@ -970,7 +833,7 @@ test('image RTC failure removes only prepared copy, invalid fps never prepares',
   assert.deepEqual(images.removed, ['file:///cache/prepared%20image.jpg']);
   rtc.startImage.mock.restore();
   const local = await manager.createLocalImageStream({ fileURL: '/image.jpg', videoFormat: { width: 641, height: 481, fps: 15 } });
-  assert.deepEqual(local.videoTrack.videoFormat, { width: 896, height: 672, fps: 15 });
+  assert.deepEqual(local.videoTrack.videoFormat, { width: 808, height: 616, fps: 15 });
   await manager.close();
 });
 
@@ -996,7 +859,7 @@ test('disconnect waits for native overlay hiding before stop signal and room rel
   const starting = manager.startGeneration({ context: { prompt: 'animate' } });
   await nextTurn();
   const start = rtc.packets.find(packet => packet.event === 'start');
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: start.uid });
   await starting;
   const { videoBinding } = require('../lib/commonjs/Render/RenderController');
   const record = videoBinding(remote.videoTrack);
@@ -1226,7 +1089,7 @@ test('normal close hides remote and sends stop before destroying the shared RTC 
   const pending = manager.startGeneration({ context: { prompt: 'test' } });
   await nextTurn();
   const id = rtc.packets.find(packet => packet.event === 'start').uid;
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: id });
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: id });
   await pending;
   const hidden = defer(), order = [];
   videoBinding(remote.videoTrack).hideBeforeRelease.add(async () => { await hidden.promise; order.push('hidden'); });
@@ -1234,7 +1097,7 @@ test('normal close hides remote and sends stop before destroying the shared RTC 
   t.mock.method(rtc, 'send', message => {
     assert.equal(rtc.closed, false, 'No signalling after engine destruction');
     if (JSON.parse(message).event === 'stop') order.push('stop');
-    send(message);
+    return send(message);
   });
   t.mock.method(rtc, 'close', async () => { order.push('close'); await close(); });
   const closing = manager.close();
@@ -1246,9 +1109,9 @@ test('normal close hides remote and sends stop before destroying the shared RTC 
   assert.deepEqual(manager.currentState.reason, { type: 'normal' });
 });
 
-for (const size of [{ width: 1024, height: 1920 }, { width: 1920, height: 1024 }]) {
+for (const size of [{ width: 1080, height: 1920 }, { width: 1920, height: 1080 }]) {
   test(`Pro image input preserves its ${size.width}x${size.height} bucket through preparation and RTC`, async t => {
-    const manager = new XmaxRealtimeManager(config, { model: 'x2.0-pro' });
+    const manager = new XmaxRealtimeManager(config, { model: 'x2.1' });
     t.after(() => manager.close());
     const images = FakeImages.instances.at(-1), rtc = FakeRtc.instances.at(-1);
     const format = { ...size, fps: 30 };
@@ -1261,15 +1124,14 @@ for (const size of [{ width: 1024, height: 1920 }, { width: 1920, height: 1024 }
     assert.deepEqual(local.videoTrack.videoFormat, format);
     assert.equal(manager.currentState.connectionState, 'Ready');
     await manager.stopLocalImageStream();
-    // An explicit supported bucket can also be used to crop a differently sized source.
+    // Encoder overrides must not crop the original image to a model canvas.
     t.mock.method(images, 'size', async () => ({ width: 800, height: 600 }));
     const cropped = await manager.createLocalImageStream({ fileURL: 'file:///photo.jpg', videoFormat: format });
-    assert.deepEqual(cropped.videoTrack.videoFormat, format);
-    assert.deepEqual(images.prepared.at(-1), format);
+    assert.deepEqual(cropped.videoTrack.videoFormat, { width: 800, height: 600, fps: 30 });
+    assert.deepEqual(images.prepared.at(-1), { width: 800, height: 600, fps: 30 });
     await manager.stopLocalImageStream();
-    const preparations = images.prepared.length;
-    await assert.rejects(manager.createLocalImageStream({ fileURL: 'file:///photo.jpg' }), { code: 'INVALID_CONFIGURATION' });
-    assert.equal(images.prepared.length, preparations, 'Unsupported dimensions must fail at model validation, before native preparation');
+    const preserved = await manager.createLocalImageStream({ fileURL: 'file:///photo.jpg' });
+    assert.deepEqual(preserved.videoTrack.videoFormat, { width: 800, height: 600, fps: 30 });
   });
 }
 
@@ -1383,12 +1245,13 @@ test('cancelling a condition update preserves generation and late cancellation c
   const start = manager.startGeneration({ localStream: local, context: { prompt: 'first' } });
   await nextTurn();
   const id = rtc.packets.find(packet => packet.event === 'start').uid;
-  rtc.emit({ type: 'sei', stream: { roomID: 'room-1', userID: 'bot-1' }, message: id });
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' }, message: id });
   const remote = await start;
   const abort = new AbortController(), send = rtc.send.bind(rtc);
   const mocked = t.mock.method(rtc, 'send', message => {
-    send(message);
+    const delivery = send(message);
     if (JSON.parse(message).event === 'change_condition') abort.abort();
+    return delivery;
   });
   await assert.rejects(manager.startGeneration({ context: { prompt: 'second' }, signal: abort.signal }), { code: 'CANCELLED' });
   assert.equal(manager.currentState.connectionState, 'Generating');
@@ -1487,16 +1350,16 @@ for (const code of ['MEDIA_ERROR', 'CANCELLED']) {
 test('explicit bitrate limits use iOS defaults only for omitted sides and validate the final range', () => {
   const base = { width: 640, height: 480, fps: 15 };
   for (const [settings, expected] of [
-    [{ minimumBitrate: 0 }, { minimum: 0, maximum: 1000 }],
-    [{ maximumBitrate: 600 }, { minimum: 500, maximum: 600 }],
-    [{ minimumBitrate: null, maximumBitrate: null }, { minimum: 500, maximum: 1000 }],
+    [{ minimumBitrate: 0 }, { minimum: 0, maximum: 600 }],
+    [{ maximumBitrate: 600 }, { minimum: 100, maximum: 600 }],
+    [{ minimumBitrate: null, maximumBitrate: null }, { minimum: 100, maximum: 600 }],
     [{ minimumBitrate: 0, maximumBitrate: 400 }, { minimum: 0, maximum: 400 }],
     [{ minimumBitrate: 700, maximumBitrate: 700 }, { minimum: 700, maximum: 700 }],
   ]) assert.deepEqual(resolveBitrates({ ...base, ...settings }), expected);
   for (const settings of [
     { minimumBitrate: -1 }, { minimumBitrate: NaN }, { minimumBitrate: 0.5 },
     { maximumBitrate: 0 }, { maximumBitrate: Infinity }, { maximumBitrate: 2.5 },
-    { minimumBitrate: 1001 }, { maximumBitrate: 499 },
+    { minimumBitrate: 601 }, { maximumBitrate: 99 },
     { minimumBitrate: 1000, maximumBitrate: 999 }, { encoderPreference: 'invalid' },
   ]) assert.throws(() => resolveBitrates({ ...base, ...settings }), { code: 'INVALID_CONFIGURATION' });
 });
@@ -1505,13 +1368,13 @@ for (const source of ['camera', 'image']) {
   test(`${source}: resizing preserves explicit encoding, and creating media resets remote volume to zero`, async t => {
     const manager = createManager();
     t.after(() => manager.close());
-    const requested = { width: 640, height: 480, fps: 15,
+    const requested = { width: 1080, height: 1920, fps: 15,
       minimumBitrate: 0, maximumBitrate: 3000, encoderPreference: 'maintainQuality' };
     await manager.setRemoteAudioVolume(0.8);
     const stream = source === 'camera'
       ? await manager.createLocalCameraStream({ videoFormat: requested })
       : await manager.createLocalImageStream({ fileURL: '/image.jpg', videoFormat: requested });
-    const expected = { ...requested, width: 896, height: 672 };
+    const expected = source === 'camera' ? requested : { ...requested, width: 808, height: 616 };
     assert.deepEqual(stream.videoTrack.videoFormat, expected);
     const rtc = FakeRtc.instances.at(-1);
     assert.deepEqual(rtc.encoding, { format: expected, minimum: 0, maximum: 3000 });
@@ -1539,3 +1402,300 @@ for (const source of ['camera', 'image']) {
     assert.equal(images.prepared.length, 0);
   });
 }
+
+test('statistics follow the connected lifecycle and measured remote dimensions keep track identity', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const manager = createManager(), up = [], down = [];
+  t.after(() => manager.close());
+  await manager.setUplinkVideoStatisticsListener(value => up.push(value));
+  await manager.setDownlinkVideoStatisticsListener(value => down.push(value));
+  const local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
+  const remote = await manager.connect({ localStream: local });
+  rtc.emit({ type: 'uplinkStatistics', statistics: { width: 816, height: 1530, bitrateKbps: 600 } });
+  rtc.emit({ type: 'downlinkStatistics', statistics: { width: 800, height: 1500 } });
+  assert.equal(up.at(-1).width, 816);
+  assert.deepEqual(down, [null]);
+  const pending = manager.startGeneration({ context: { prompt: 'portrait' } });
+  await nextTurn();
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  const track = remote.videoTrack;
+  rtc.emit({ type: 'decoded', stream: { roomID: 'room-1', userID: 'bot-1' }, width: 800, height: 1500 });
+  rtc.emit({ type: 'downlinkStatistics', statistics: { width: 800, height: 1500 } });
+  assert.equal(remote.videoTrack, track);
+  assert.equal(track.videoFormat.width, 800);
+  assert.equal(down.at(-1).height, 1500);
+  assert.equal(local.videoTrack.videoFormat.width, 1080);
+  await manager.disconnect();
+  assert.equal(up.at(-1), null);
+  assert.equal(down.at(-1), null);
+});
+
+test('adaptive changes adjust only transport sizes and reuse the active room and task', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const manager = createManager(), local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
+  t.after(() => manager.close());
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  await nextTurn();
+  const start = rtc.packets.find(packet => packet.event === 'start');
+  assert.deepEqual(start.params.size, [1080, 1920]);
+  assert.deepEqual(start.params.target_size, [864, 1536]);
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  for (let index = 0; index < 3; index++) {
+    rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Bad' } });
+    await nextTurn();
+  }
+  const target = rtc.packets.find(packet => packet.event === 'change_target_size');
+  assert.deepEqual(target.params.target_size, [684, 1216]);
+  assert.equal(target.uid, start.uid);
+  assert.equal(rtc.joins, 1);
+  assert.equal(rtc.encoding.format.width, 702);
+  assert.equal(local.videoTrack.videoFormat.width, 1080);
+});
+
+const { RealtimeCameraPreset, RealtimeQualityLevel, realtimeModelSpecifications } = require('../lib/commonjs/Service/Realtime/RealtimeTypes');
+
+async function readyCamera(t, options) {
+  const manager = createManager();
+  t.after(() => manager.close());
+  const local = await manager.createLocalCameraStream(options);
+  videoBinding(local.videoTrack).onPreviewReady();
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  return { manager, local, rtc: FakeRtc.instances.at(-1) };
+}
+
+async function generatingCamera(t) {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const fixture = await readyCamera(t);
+  const pending = fixture.manager.startGeneration({ localStream: fixture.local, context: { prompt: 'portrait' } });
+  await nextTurn();
+  fixture.rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  return fixture;
+}
+
+test('all five camera presets use model frame rates and match the public current preset', async t => {
+  assert.deepEqual(realtimeModelSpecifications['x2.1'].supportedVideoFormats, [
+    { width: 1920, height: 1080, fps: 30 }, { width: 1080, height: 1920, fps: 30 },
+    { width: 1408, height: 1408, fps: 30 }, { width: 1152, height: 1536, fps: 30 },
+    { width: 1536, height: 1152, fps: 30 },
+  ]);
+  for (const preset of Object.values(RealtimeCameraPreset)) {
+    const { manager, local, rtc } = await readyCamera(t, { preset });
+    const [width, height] = preset.split('x').map(Number);
+    assert.deepEqual(manager.currentCameraVideoFormat, { width, height, fps: 30 });
+    assert.equal(manager.currentCameraPreset, preset);
+    assert.equal(local.videoTrack.videoFormat, manager.currentCameraVideoFormat);
+    assert.equal(rtc.encoding.minimum, 500);
+    await manager.close();
+  }
+});
+
+test('camera format updates require ready disconnected camera and preserve stream identity and settings', async t => {
+  const manager = createManager();
+  t.after(() => manager.close());
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408), { code: 'INVALID_CONFIGURATION' });
+  const local = await manager.createLocalCameraStream({ videoFormat: { width: 1080, height: 1920, fps: 15, minimumBitrate: 0, maximumBitrate: 3000, encoderPreference: 'maintainQuality' } });
+  const track = local.videoTrack, rtc = FakeRtc.instances.at(-1), binding = videoBinding(track);
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408), { code: 'INVALID_CONFIGURATION' });
+  binding.onPreviewReady();
+  const version = binding.version;
+  let updates = 0;
+  t.mock.method(rtc, 'updateCameraFormat', async (format, minimum, maximum) => {
+    updates++;
+    assert.equal(manager.currentCameraVideoFormat.width, 1080, 'Public metadata changes only after native acknowledgment');
+    assert.equal(format.width, 1408);
+    assert.equal(minimum, 0);
+    assert.equal(maximum, 3000);
+  });
+  await manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408);
+  assert.deepEqual(manager.currentCameraVideoFormat, { width: 1408, height: 1408, fps: 15, minimumBitrate: 0, maximumBitrate: 3000, encoderPreference: 'maintainQuality' });
+  assert.equal(manager.currentCameraPreset, RealtimeCameraPreset.resolution1408x1408);
+  assert.equal(local.videoTrack, track);
+  assert.equal(videoBinding(track), binding);
+  assert.equal(binding.version, version + 1);
+  assert.equal(rtc.permissionCalls, 1);
+  assert.equal(rtc.closes, 0);
+  assert.equal(updates, 1);
+  await assert.rejects(manager.updateCameraFormat({ width: 640, height: 480, fps: 30 }), { code: 'INVALID_CONFIGURATION' });
+  assert.equal(updates, 1);
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  await manager.connect({ localStream: local });
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1080x1920), { code: 'INVALID_CONFIGURATION' });
+  assert.equal(manager.currentCameraPreset, RealtimeCameraPreset.resolution1408x1408);
+  assert.equal(updates, 1);
+});
+
+test('full format updates replace all camera settings and failed native updates retain the acknowledged format', async t => {
+  const { manager, local, rtc } = await readyCamera(t);
+  const requested = { width: 1536, height: 1152, fps: 24, minimumBitrate: 0, maximumBitrate: 4000, encoderPreference: 'auto' };
+  await manager.updateCameraFormat(requested);
+  assert.deepEqual(manager.currentCameraVideoFormat, requested);
+  const previous = manager.currentCameraVideoFormat;
+  t.mock.method(rtc, 'updateCameraFormat', async () => { throw new Error('Capture configuration rejected'); });
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408));
+  assert.equal(manager.currentCameraVideoFormat, previous);
+  assert.equal(local.videoTrack.videoFormat, previous);
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.equal(rtc.camera, true);
+});
+
+test('cancelled camera changes restore the native configuration before rejecting and preserve old metadata', async t => {
+  const { manager, local, rtc } = await readyCamera(t), gate = defer(), calls = [], abort = new AbortController();
+  const previous = local.videoTrack.videoFormat;
+  t.mock.method(rtc, 'updateCameraFormat', async format => {
+    calls.push(format);
+    if (calls.length === 1) await gate.promise;
+  });
+  const pending = manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408, { signal: abort.signal });
+  const rejected = assert.rejects(pending, { code: 'CANCELLED' });
+  await nextTurn();
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1152x1536), { code: 'INVALID_CONFIGURATION' });
+  abort.abort();
+  gate.resolve();
+  await rejected;
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], previous);
+  assert.equal(manager.currentCameraVideoFormat, previous);
+  assert.equal(manager.currentState.connectionState, 'Ready');
+});
+
+test('image inputs expose no camera format and cannot update camera presets', async t => {
+  const manager = createManager();
+  t.after(() => manager.close());
+  await manager.createLocalImageStream({ fileURL: '/image.jpg' });
+  assert.equal(manager.currentCameraVideoFormat, null);
+  assert.equal(manager.currentCameraPreset, null);
+  await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408), { code: 'INVALID_CONFIGURATION' });
+});
+
+test('quality getters follow connection state and setters require active generation', async t => {
+  const { manager, local } = await readyCamera(t);
+  assert.equal(manager.uplinkQualityLevel, null);
+  assert.equal(manager.downlinkQualityLevel, null);
+  await assert.rejects(manager.setUplinkQualityLevel(RealtimeQualityLevel.l1), { code: 'INVALID_CONFIGURATION' });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  await manager.connect({ localStream: local });
+  assert.equal(manager.uplinkQualityLevel, RealtimeQualityLevel.l2);
+  assert.equal(manager.downlinkQualityLevel, RealtimeQualityLevel.l2);
+  await assert.rejects(manager.setDownlinkQualityLevel(RealtimeQualityLevel.l1), { code: 'INVALID_CONFIGURATION' });
+  await manager.disconnect();
+  assert.equal(manager.uplinkQualityLevel, null);
+  assert.equal(manager.downlinkQualityLevel, null);
+});
+
+test('manual quality changes reuse the room/task and never mutate camera capture metadata', async t => {
+  const { manager, local, rtc } = await generatingCamera(t), track = local.videoTrack, format = track.videoFormat, taskID = manager.currentState.taskID, writes = [];
+  t.mock.method(rtc, 'writePreference', async (key, value) => writes.push({ key, ...JSON.parse(value) }));
+  for (const level of [1, 3, 5, 2]) {
+    await manager.setUplinkQualityLevel(level);
+    assert.equal(manager.uplinkQualityLevel, level);
+    await manager.setDownlinkQualityLevel(level);
+    assert.equal(manager.downlinkQualityLevel, level);
+    assert.equal(local.videoTrack, track);
+    assert.equal(track.videoFormat, format);
+  }
+  assert.equal(manager.currentState.taskID, taskID);
+  assert.equal(rtc.joins, 1);
+  assert.equal(rtc.packets.filter(packet => packet.event === 'start').length, 1);
+  assert.equal(rtc.packets.findLast(packet => packet.event === 'change_target_size').uid, taskID);
+  assert.deepEqual(writes.map(write => write.key), [false, true, false, true, false, true, false, true].map(down => `quality.x2.1.${down ? 'down' : 'up'}`));
+  const before = rtc.packets.length;
+  for (const level of [0, 6, 1.5, NaN]) await assert.rejects(manager.setDownlinkQualityLevel(level), { code: 'INVALID_CONFIGURATION' });
+  assert.equal(rtc.packets.length, before);
+});
+
+test('failed manual encoding and signals preserve the active quality level and do not save history', async t => {
+  const { manager, rtc } = await generatingCamera(t), writes = [];
+  t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+  const encoding = t.mock.method(rtc, 'configureEncoding', async () => { throw new Error('Encoder rejected'); });
+  await assert.rejects(manager.setUplinkQualityLevel(1));
+  assert.equal(manager.uplinkQualityLevel, 2);
+  encoding.mock.restore();
+  const send = t.mock.method(rtc, 'send', async () => { throw new Error('Signal rejected'); });
+  await assert.rejects(manager.setDownlinkQualityLevel(1));
+  assert.equal(manager.downlinkQualityLevel, 2);
+  assert.equal(manager.currentState.connectionState, 'Generating');
+  assert.deepEqual(writes, []);
+  send.mock.restore();
+});
+
+test('close while a quality update is pending rejects its late completion without saving a new tier', async t => {
+  const { manager, local, rtc } = await generatingCamera(t), gate = defer(), writes = [];
+  t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+  t.mock.method(rtc, 'configureEncoding', async () => gate.promise);
+  const pending = manager.setUplinkQualityLevel(1);
+  const rejected = assert.rejects(pending, { code: 'CANCELLED' });
+  await nextTurn();
+  const closing = manager.close();
+  assert.equal(manager.uplinkQualityLevel, null);
+  assert.equal(manager.downlinkQualityLevel, null);
+  gate.resolve();
+  await Promise.all([closing, rejected]);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+  assert.equal(local.videoTrack.videoFormat, null);
+  assert.deepEqual(writes, []);
+});
+
+for (const downlink of [false, true]) {
+  test(`cancelled ${downlink ? 'downlink' : 'uplink'} changes restore the acknowledged configuration in a retained session`, async t => {
+    const { manager, rtc } = await generatingCamera(t), gate = defer(), abort = new AbortController(), writes = [], submitted = [];
+    const previous = rtc.encoding;
+    t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+    const override = downlink
+      ? t.mock.method(rtc, 'send', async message => { submitted.push(JSON.parse(message)); if (submitted.length === 1) await gate.promise; })
+      : t.mock.method(rtc, 'configureEncoding', async (...args) => { submitted.push(args); if (submitted.length === 1) await gate.promise; rtc.encoding = { format: args[0], minimum: args[1], maximum: args[2] }; });
+    const pending = downlink ? manager.setDownlinkQualityLevel(1, { signal: abort.signal }) : manager.setUplinkQualityLevel(1, { signal: abort.signal });
+    const rejected = assert.rejects(pending, { code: 'CANCELLED' });
+    await nextTurn();
+    abort.abort();
+    gate.resolve();
+    await rejected;
+    assert.equal(submitted.length, 2);
+    if (downlink) assert.deepEqual(submitted[1].params.target_size, [864, 1536]);
+    else assert.deepEqual(rtc.encoding, previous);
+    assert.equal(manager.uplinkQualityLevel, 2);
+    assert.equal(manager.downlinkQualityLevel, 2);
+    assert.equal(manager.currentState.connectionState, 'Generating');
+    assert.deepEqual(writes, []);
+    override.mock.restore();
+  });
+}
+
+test('failed cancellation rollback releases the broken camera and allows a new preview', async t => {
+  const { manager, rtc } = await readyCamera(t), gate = defer(), abort = new AbortController();
+  let calls = 0;
+  const override = t.mock.method(rtc, 'updateCameraFormat', async () => {
+    if (++calls === 1) await gate.promise;
+    else throw new Error('Unable to restore camera');
+  });
+  const pending = manager.updateCameraFormat(RealtimeCameraPreset.resolution1408x1408, { signal: abort.signal });
+  const rejected = assert.rejects(pending, { code: 'CANCELLED' });
+  await nextTurn();
+  abort.abort(); gate.resolve();
+  await rejected;
+  assert.equal(manager.currentState.connectionState, 'Idle');
+  assert.equal(manager.currentCameraVideoFormat, null);
+  override.mock.restore();
+  const next = await manager.createLocalCameraStream();
+  assert.equal(next.videoTrack.videoFormat.width, 1080);
+});
+
+test('invalid camera presets and conflicting creation options reject before requesting permissions', async t => {
+  const manager = createManager();
+  t.after(() => manager.close());
+  const rtc = FakeRtc.instances.at(-1);
+  for (const preset of ['', 'invalid', null]) await assert.rejects(manager.createLocalCameraStream({ preset }), { code: 'INVALID_CONFIGURATION' });
+  await assert.rejects(manager.createLocalCameraStream({ preset: RealtimeCameraPreset.resolution1408x1408, videoFormat: { width: 1080, height: 1920, fps: 30 } }), { code: 'INVALID_CONFIGURATION' });
+  assert.equal(rtc.permissionCalls, 0);
+});
+
+test('unrecoverable native camera configuration errors retire the track and release media', async t => {
+  const { manager, local, rtc } = await readyCamera(t);
+  rtc.emit({ type: 'error', scope: 'all', error: new XmaxError({ code: XmaxErrorCode.rtcError, message: 'Camera configuration could not be restored' }) });
+  await nextTurn();
+  assert.equal(manager.currentState.connectionState, 'Idle');
+  assert.equal(local.videoTrack.videoFormat, null);
+  assert.equal(rtc.camera, false);
+});

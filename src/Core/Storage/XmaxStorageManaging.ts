@@ -1,158 +1,191 @@
+//
+//  XmaxStorageManaging.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 /**
- * A byte-based transfer progress snapshot. Unknown totals and fractions are
- * null.
+ * Byte-based transfer progress. Total size and fraction are null when the total is unknown.
  */
 export interface StorageProgress {
+
   /**
-   * The number of bytes transferred so far.
+   * The number of bytes transferred.
    */
   readonly completedUnitCount: number;
 
   /**
-   * The total byte count, or null when the transport has not provided it.
+   * The total number of bytes.
    */
   readonly totalUnitCount: number | null;
 
   /**
-   * The completed fraction between 0 and 1, or null when the total is unknown.
+   * The completed fraction, from 0 to 1.
    */
   readonly fractionCompleted: number | null;
 }
 
 /**
- * Receives progress for one operation. Callback exceptions do not fail the
- * transfer.
+ * A transfer progress handler whose exceptions do not interrupt the transfer.
+ *
+ * @param progress The current transfer progress.
  */
-export type XmaxStorageProgressHandler = (progress: StorageProgress) => void;
+export type XmaxStorageProgressHandler = (
+  progress: StorageProgress
+) => void;
 
 /**
- * The remote location and object metadata returned by a successful upload.
+ * The remote location and metadata of an uploaded file.
  */
 export interface XmaxUploadedFile {
+
   /**
-   * The remote URL. A safety-checked upload returns the URL supplied by the
-   * check.
+   * The remote file URL, or the safety service's approved URL for checked uploads.
    */
   readonly url: string;
 
   /**
-   * The object key assigned under the prefix returned by the credential
-   * service.
+   * The object key within the credential-authorized directory.
    */
   readonly objectKey: string;
 
   /**
-   * The ETag returned by COS, or null when the response does not include one.
+   * The ETag returned by COS, or null if absent.
    */
   readonly etag: string | null;
 }
 
 /**
- * The local file and byte count returned after a download completes.
+ * The location and size of a downloaded file.
  */
 export interface XmaxDownloadedFile {
+
   /**
-   * The destination file URL supplied by the caller.
+   * The destination file URL supplied by your app.
    */
   readonly fileURL: string;
 
   /**
-   * The size of the completed local file in bytes.
+   * The number of saved bytes.
    */
   readonly byteCount: number;
 }
 
 /**
- * Options for uploading a readable local image or video file.
+ * Options for uploading a local image or video.
  */
 export interface UploadFileOptions {
+
   /**
-   * An absolute file:// URL. Copy content:// or photo-library assets to a
-   * readable file first.
+   * An absolute file:// URL. Copy content:// or photo-library assets to a readable local file
+   * first.
    */
   readonly fileURL: string;
 
   /**
-   * The media MIME type. Inferred from the filename when omitted or null.
+   * The media MIME type; inferred from the filename when omitted or null.
    */
   readonly contentType?: string | null;
 
   /**
-   * Receives transfer progress. Reaching 1 does not mean an image safety check
-   * has completed.
+   * The transfer progress handler. A fraction of 1 does not imply that a safety check has
+   * completed.
    */
   readonly progress?: XmaxStorageProgressHandler | null;
 
   /**
-   * Cancels only this upload, including a pending safety check. Optional.
-   * This is the RN equivalent of cancelling the calling Swift Task.
+   * Cancels this upload and its safety check without affecting other tasks.
    */
   readonly signal?: AbortSignal;
 }
 
 /**
- * Options for downloading a remote file into the application sandbox.
+ * Options for downloading a remote file into the app sandbox.
  */
 export interface DownloadFileOptions {
+
   /**
-   * The HTTP or HTTPS URL to download. Upload credentials are not requested.
+   * The HTTP or HTTPS URL to download.
    */
   readonly remoteURL: string;
 
   /**
-   * A writable file:// URL. A complete download atomically replaces any
-   * existing file.
+   * A writable file:// URL, atomically replaced when downloading succeeds.
    */
   readonly destinationURL: string;
 
   /**
-   * Receives byte progress until the operation finishes or is cancelled.
+   * The download progress handler. Notifications stop after completion or cancellation.
    */
   readonly progress?: XmaxStorageProgressHandler | null;
 
   /**
-   * Cancels only this operation and cleans up its temporary file. Optional.
+   * Cancels this download and removes its temporary file without affecting other tasks.
    */
   readonly signal?: AbortSignal;
 }
 
 /**
- * Uploads and downloads image or video files using independent operations.
+ * An interface for uploading and downloading media files.
  *
- * Obtain an instance from XmaxClient.createStorageManager(). Each operation
- * accepts its own progress callback and optional AbortSignal.
+ * Obtain an instance from XmaxClient.createStorageManager(). Progress and cancellation are
+ * configured per task.
  */
 export interface XmaxStorageManaging {
-  /**
-   * Uploads an image using temporary COS credentials without running a safety
-   * check.
-   */
-  uploadImage(options: UploadFileOptions): Promise<XmaxUploadedFile>;
 
   /**
-   * Uploads an image, then requests an explicit safety check.
+   * Uploads an image using temporary COS credentials without a safety check.
    *
-   * Rejects with UNSAFE_IMAGE if the image is rejected by the service.
+   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @returns The uploaded image URL, object key, and available ETag.
+   */
+  uploadImage(
+    options: UploadFileOptions
+  ): Promise<XmaxUploadedFile>;
+
+  /**
+   * Uploads an image and checks its content before returning.
+   *
+   * A rejected safety check reports UNSAFE_IMAGE.
+   *
+   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @returns The approved image URL and upload metadata.
    */
   uploadImageWithSafetyCheck(
     options: UploadFileOptions,
   ): Promise<XmaxUploadedFile>;
 
   /**
-   * Uploads a video file using temporary COS credentials. Does not start RTC
-   * video input.
+   * Uploads a video using temporary COS credentials.
+   *
+   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @returns The uploaded video URL, object key, and available ETag.
    */
-  uploadVideo(options: UploadFileOptions): Promise<XmaxUploadedFile>;
+  uploadVideo(
+    options: UploadFileOptions
+  ): Promise<XmaxUploadedFile>;
 
   /**
-   * Downloads an image and atomically replaces the destination only after
-   * success.
+   * Downloads an image and atomically replaces the destination on success.
+   *
+   * @param options The remote URL, destination, progress handler, and cancellation signal.
+   * @returns The saved image URL and byte count.
    */
-  downloadImage(options: DownloadFileOptions): Promise<XmaxDownloadedFile>;
+  downloadImage(
+    options: DownloadFileOptions
+  ): Promise<XmaxDownloadedFile>;
 
   /**
-   * Downloads a video and atomically replaces the destination only after
-   * success.
+   * Downloads a video and atomically replaces the destination on success.
+   *
+   * @param options The remote URL, destination, progress handler, and cancellation signal.
+   * @returns The saved video URL and byte count.
    */
-  downloadVideo(options: DownloadFileOptions): Promise<XmaxDownloadedFile>;
+  downloadVideo(
+    options: DownloadFileOptions
+  ): Promise<XmaxDownloadedFile>;
 }

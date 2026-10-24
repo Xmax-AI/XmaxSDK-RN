@@ -14,17 +14,17 @@ const frame = (x, y = 50) => ({ points: [{ x, y }], viewportSize: size, contentM
 test('maps fit/fill, portrait/landscape and mirrored published pixels without a second transform', () => {
   assert.deepEqual(displayedFrame(size, { width: 200, height: 100 }, 'fit'), { x: 0, y: 25, width: 100, height: 50 });
   assert.equal(mapInteractionPoint({ x: 50, y: 20 }, size, { width: 200, height: 100 }, 'fit'), null);
-  assert.deepEqual(mapInteractionPoint({ x: 100, y: 75 }, size, { width: 200, height: 100 }, 'fit'), { x: 199, y: 99 });
-  assert.deepEqual(mapInteractionPoint({ x: 0, y: 50 }, size, { width: 200, height: 100 }, 'fill'), { x: 50, y: 50 });
-  assert.deepEqual(mapInteractionPoint({ x: 50, y: 0 }, size, { width: 100, height: 200 }, 'fill'), { x: 50, y: 50 });
-  assert.deepEqual(mapInteractionPoint({ x: 20, y: 40 }, size, size, 'fit'), { x: 20, y: 40 });
+  assert.deepEqual(mapInteractionPoint({ x: 100, y: 75 }, size, { width: 200, height: 100 }, 'fit'), { x: 1, y: 1 });
+  assert.deepEqual(mapInteractionPoint({ x: 0, y: 50 }, size, { width: 200, height: 100 }, 'fill'), { x: 0.25, y: 0.5 });
+  assert.deepEqual(mapInteractionPoint({ x: 50, y: 0 }, size, { width: 100, height: 200 }, 'fill'), { x: 0.5, y: 0.25 });
+  assert.deepEqual(mapInteractionPoint({ x: 20, y: 40 }, size, size, 'fit'), { x: 0.2, y: 0.4 });
   for (const bad of [NaN, Infinity, -Infinity]) assert.equal(mapInteractionPoint({ x: bad, y: 1 }, size, size, 'fit'), null);
   assert.equal(displayedFrame({ width: 0, height: 100 }, size, 'fill'), null);
 });
 
 test('tracks payload matches iOS and has no runtime or OS suffix', () => {
-  assert.deepEqual(JSON.parse(tracksEvent('user', 'task-123', [{ x: 2, y: 3 }, { x: 99, y: 0 }])), {
-    event: 'tracks', tracks: [[2, 3], [99, 0]], user_id: 'user', uid: 'task-123',
+  assert.deepEqual(JSON.parse(tracksEvent('user', 'task-123', [{ x: 0.2, y: 0.3 }, { x: 0.99, y: 0 }])), {
+    event: 'tracks', tracks: [[0.2, 0.3], [0.99, 0]], user_id: 'user', uid: 'task-123', session_uid: 'task-123',
   });
 });
 
@@ -43,7 +43,7 @@ test('interaction coalesces slow delivery and discards old tasks and cancelled v
   controller.submitInteraction(frame(3), generation);
   release();
   await tick();
-  assert.deepEqual(sends.map(send => send.points[0].x), [1, 3]);
+  assert.deepEqual(sends.map(send => send.points[0].x), [0.01, 0.03]);
   controller.submitInteraction(frame(4), generation);
   controller.stopInteraction();
   controller.startInteraction('b', format);
@@ -54,7 +54,7 @@ test('interaction coalesces slow delivery and discards old tasks and cancelled v
   assert.equal(sends.length, 2);
   controller.submitInteraction(frame(7), generation);
   await tick();
-  assert.deepEqual(sends.at(-1), { task: 'b', points: [{ x: 7, y: 50 }] });
+  assert.deepEqual(sends.at(-1), { task: 'b', points: [{ x: 0.07, y: 0.5 }] });
 });
 
 test('failed sample is dropped without disabling the active task', async () => {
@@ -122,7 +122,7 @@ test('custom renderer failures do not change sampling or prevent timer cleanup',
   assert.equal(samples, 2);
 });
 
-test('generation activates interaction only after SEI and stops it before network teardown', async () => {
+test('generation activates interaction only after result-stream confirmation and stops it before network teardown', async () => {
   let confirm;
   const events = [];
   const interaction = new InteractionController(() => {});

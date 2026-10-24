@@ -1,4 +1,15 @@
-import { XmaxLogger } from '../Foundation/Logging/XmaxLogger';
+//
+//  StreamController.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
+import { QualityController } from './Quality/QualityController';
+import { EncodingController } from './Encoding/EncodingController';
 import type { RtcManager, RemoteStream } from '../Foundation/RTC/RtcManager';
 import type {
   RealtimeContext,
@@ -7,23 +18,61 @@ import type {
 import { waitFor } from '../Foundation/Runtime/Async';
 import { RoomController } from './Room/RoomController';
 import { invalid } from '../Foundation/Errors/XmaxError';
-import { matchesTaskSEI } from './Room/TaskConfirmation';
+import type { GenerationParameters } from './Room/RoomEvent';
 
 /**
- * Sends generation commands and waits for matching task, room and bot
- * confirmation.
+ * Coordinates RTC rooms, media streams, encoding, and quality.
  */
 export class StreamController {
-  constructor(
-    private readonly rtc: RtcManager,
-    readonly room: RoomController,
-  ) {}
 
+  /**
+   * The connection's transport quality policy and history.
+   */
+  readonly quality: QualityController;
+
+  /**
+   * The controller that applies video formats to the RTC uplink encoder.
+   */
+  readonly encoding: EncodingController;
+
+  /**
+   * Creates a signaling and transport configuration controller.
+   *
+   * @param rtc The RTC manager for encoder configuration and room events.
+   * @param room The room controller for connection and generation signaling.
+   */
+  constructor(
+    /**
+     * The RTC manager for media configuration and room events.
+     */
+    private readonly rtc: RtcManager,
+
+    /**
+     * The room controller for connection and signaling.
+     */
+    readonly room: RoomController,
+  ) {
+    this.quality = new QualityController(rtc);
+    this.encoding = new EncodingController(rtc);
+  }
+
+  /**
+   * Submits a start signal and waits for publication by the expected result account and room.
+   *
+   * @param taskID The generation task identifier for signaling and interaction messages.
+   * @param format The dimensions, frame rate, and bitrate bounds, in pixels, fps, and kbps.
+   * @param context The prompt and reference image location; reusable operations retain the last
+   *   successful conditions when omitted.
+   * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+   * @param options The returned dimensions, face restoration, and input-containment settings.
+   * @returns The confirmed remote stream identity after signal submission and expected publication.
+   */
   async beginGeneration(
     taskID: string,
     format: RealtimeVideoFormat,
     context: RealtimeContext,
     signal: AbortSignal,
+    options: GenerationParameters = {},
   ): Promise<RemoteStream> {
     const connection = this.room.connection;
 
@@ -31,54 +80,108 @@ export class StreamController {
 
     return waitFor<RemoteStream>(
       (resolve, reject) => {
-        const off = this.rtc.onEvent(event => {
-          if (event.type === 'error') {
-            reject(event.error);
-            return;
-          }
-          if (
-            event.type !== 'sei' ||
-            event.stream.roomID !== connection.roomID ||
-            (connection.botName && event.stream.userID !== connection.botName)
-          )
-            return;
-          // Task identity excludes platform and frame-index query metadata.
-          if (!matchesTaskSEI(taskID, event.message)) return;
-
-          XmaxLogger.stream.info(
-            'Generation task confirmed by matching room/bot SEI',
+        let sent = false;
+        const confirm = () => {
+          if (!sent) return;
+          const remote = this.rtc.publishedStreams.find(
+            stream =>
+              stream.roomID === connection.roomID &&
+              (!connection.botName || stream.userID === connection.botName),
           );
-          resolve(event.stream);
+          if (remote) resolve(remote);
+        };
+        const off = this.rtc.onEvent(event => {
+          if (event.type === 'error') reject(event.error);
+          else if (event.type === 'publication' && event.published) confirm();
         });
-
-        try {
-          this.rtc.beginImageTask(taskID);
-          this.room.send('start', taskID, format, context);
-        } catch (error) {
-          reject(error);
-        }
+        void this.room
+          .send(
+          'start',
+          taskID,
+          format,
+          context,
+          options
+        )
+          .then(
+          () => {
+            sent = true;
+            confirm();
+          },
+          reject
+        );
 
         return off;
       },
       signal,
       30000,
       'Generation confirmation',
-    ).catch(error => {
-      this.rtc.endImageTask(taskID);
-      throw error;
-    });
+    );
   }
 
+  /**
+   * Updates conditions while retaining the room and task identifier.
+   *
+   * Completes after native transport accepts the signal; rejects if disconnected or submission
+   * fails.
+   *
+   * @param taskID The generation task identifier for signaling and interaction messages.
+   * @param format The dimensions, frame rate, and bitrate bounds, in pixels, fps, and kbps.
+   * @param context The prompt and reference image location; reusable operations retain the last
+   *   successful conditions when omitted.
+   * @param options The returned dimensions, face restoration, and input-containment settings.
+   */
   updateGeneration(
     taskID: string,
     format: RealtimeVideoFormat,
     context: RealtimeContext,
-  ): void {
-    this.room.send('change_condition', taskID, format, context);
+    options: GenerationParameters = {},
+  ): Promise<void> {
+    return this.room.send(
+      'change_condition',
+      taskID,
+      format,
+      context,
+      options
+    );
   }
 
-  stopGeneration(taskID: string): void {
-    this.rtc.endImageTask(taskID);
-    if (this.room.connection) this.room.send('stop', taskID);
+  /**
+   * Updates only returned dimensions while preserving the room and task.
+   *
+   * Completes after submitting the size signal; no signal is sent without an active task.
+   *
+   * @param taskID The generation task identifier for signaling and interaction messages.
+   * @param targetSize The returned frame dimensions, in pixels.
+   */
+  changeTargetSize(
+    taskID: string,
+    targetSize: import('../Service/Realtime/RealtimeTypes').MediaSize,
+  ): Promise<void> {
+    return this.room.send(
+      'change_target_size',
+      taskID,
+      undefined,
+      undefined,
+      {
+        targetSize,
+      }
+    );
+  }
+
+  /**
+   * Stops task interactions and sends a stop signal without leaving the room.
+   *
+   * Discards pending interactions and submits stop; sends nothing after room exit.
+   *
+   * @param taskID The generation task identifier for signaling and interaction messages.
+   */
+  async stopGeneration(
+    taskID: string
+  ): Promise<void> {
+    this.rtc.discardTracks(taskID);
+    if (this.room.connection) await this.room.send(
+      'stop',
+      taskID
+    );
   }
 }

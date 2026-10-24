@@ -1,3 +1,13 @@
+//
+//  RealtimeCoordinator.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import {
   cancelledError,
   invalid,
@@ -12,8 +22,13 @@ import {
 } from '../../Service/Realtime/RealtimeTypes';
 import type { RealtimeStateListener } from './XmaxRealtimeManaging';
 
-/** Cleanup distinguishes a connection from the complete local media lifecycle. */
+/**
+ * The resources released when disconnecting or closing local media.
+ */
 export type TerminationScope = 'connection' | 'all';
+/**
+ * Operation categories used to prevent overlapping resource changes.
+ */
 type OperationKind =
   | 'media'
   | 'connection'
@@ -21,60 +36,193 @@ type OperationKind =
   | 'cameraSwitch'
   | 'configuration';
 
-/** An operation may commit state only while its lease is current. */
+/**
+ * A lease that permits only the current operation to commit state.
+ */
 export interface RealtimeOperation {
+
+  /**
+   * The operation's cancellation signal.
+   */
   readonly signal: AbortSignal;
+
+  /**
+   * Throws if the operation has been cancelled or replaced.
+   */
   ensureCurrent(): void;
-  setFailureScope(scope: TerminationScope): void;
+
+  /**
+   * Sets the resource scope released after operation failure.
+   *
+   * @param scope Whether to release the connection alone or all local and remote media.
+   */
+  setFailureScope(
+    scope: TerminationScope
+  ): void;
 }
 
+/**
+ * An admitted operation and its cancellation and cleanup state.
+ */
 interface Operation {
+
+  /**
+   * The operation category used for mutual exclusion.
+   */
   kind: OperationKind;
+
+  /**
+   * The controller that cancels this operation.
+   */
   controller: AbortController;
+
+  /**
+   * The shared Promise for operation completion.
+   */
   completion: Promise<unknown>;
+
+  /**
+   * The cleanup scope on failure; null preserves existing resources.
+   */
   failureScope: TerminationScope | null;
+
+  /**
+   * The original terminal error, retained instead of a subsequent cancellation error.
+   */
   terminalError: XmaxError | null;
+
+  /**
+   * The shared cleanup task.
+   */
   termination: Promise<void> | null;
+
+  /**
+   * Whether this operation has published Preparing state.
+   */
   preparationStarted: boolean;
 }
 
+/**
+ * A shared cleanup request and its final-state information.
+ */
 interface Termination {
+
+  /**
+   * The resources released by this cleanup.
+   */
   scope: TerminationScope;
+
+  /**
+   * The reason reported in the final state.
+   */
   reason: RealtimeReason;
+
+  /**
+   * The server session identifier.
+   */
   sessionID: string | null;
+
+  /**
+   * The currently admitted operation.
+   */
   operation: Operation | null;
+
+  /**
+   * The shared Promise for operation completion.
+   */
   completion: Promise<void>;
 }
 
-/** Owns state commits, operation admission and coalesced lifecycle termination. */
+/**
+ * A coordinator for realtime operation admission, state commitment, and resource cleanup.
+ */
 export class RealtimeCoordinator {
+
+  /**
+   * The immutable lifecycle state snapshot.
+   */
   private state: RealtimeState = Object.freeze({
     connectionState: RealtimeConnectionState.idle,
     sessionID: null,
     taskID: null,
     reason: null,
   });
+
+  /**
+   * The state change handler.
+   */
   private listener: RealtimeStateListener | null = null;
+
+  /**
+   * The currently admitted operation.
+   */
   private operation: Operation | null = null;
+
+  /**
+   * The shared cleanup task.
+   */
   private termination: Termination | null = null;
 
+  /**
+   * Creates a lifecycle coordinator.
+   */
   constructor(
-    private readonly cleanup: (scope: TerminationScope) => Promise<void>,
+    /**
+     * Releases the resources in the requested scope.
+     *
+     * @param scope The connection or complete media scope to release.
+     */
+    private readonly cleanup: (
+      scope: TerminationScope
+    ) => Promise<void>,
+
+    /**
+     * Determines whether reusable local media remains.
+     */
     private readonly hasLocalMedia: () => boolean,
+
+    /**
+     * Reads the most recently allocated server session identifier.
+     */
     private readonly lastSessionID: () => string | null = () => null,
+
+    /**
+     * Pauses local capture immediately; final release waits for the active operation.
+     */
     private readonly pauseLocalCapture: () => void = () => {},
   ) {}
 
+  /**
+   * Defers adaptation while an operation or cleanup is active.
+   */
+  get isBusy(): boolean {
+    return this.operation !== null || this.termination !== null;
+  }
+
+  /**
+   * The immutable connection, session, task, and termination snapshot.
+   *
+   * @returns The lifecycle snapshot committed before listener notification.
+   */
   get currentState(): RealtimeState {
     return this.state;
   }
 
-  setStateListener(listener: RealtimeStateListener | null): void {
+  /**
+   * Replaces the state listener and immediately delivers the current state; null removes it.
+   *
+   * @param listener The replacement listener, or null to remove it.
+   */
+  setStateListener(
+    listener: RealtimeStateListener | null
+  ): void {
     this.listener = listener;
     this.notify(listener);
   }
 
-  /** Camera capture already has a valid frame when its local track is created. */
+  /**
+   * Marks an attached local camera preview as ready.
+   */
   localPreviewDidBecomeReady(): void {
     if (
       !this.termination &&
@@ -86,10 +234,19 @@ export class RealtimeCoordinator {
       });
   }
 
-  /** Rejects overlapping work; configuration failures preserve the running generation. */
+  /**
+   * Rejects overlapping operations. Configuration validation failures preserve active generation.
+   *
+   * @param kind The operation's mutual-exclusion category.
+   * @param action The work performed under this operation's cancellation and ownership lease.
+   * @param signal The operation's cancellation signal.
+   * @returns The valid operation result; rejects for overlap, cancellation, or failure.
+   */
   run<T>(
     kind: OperationKind,
-    action: (token: RealtimeOperation) => Promise<T>,
+    action: (
+      token: RealtimeOperation
+    ) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
     if (signal?.aborted) return Promise.reject(cancelledError());
@@ -126,12 +283,16 @@ export class RealtimeCoordinator {
     const cancel = () => {
       if (this.operation === entry) entry.controller.abort();
     };
-    signal?.addEventListener('abort', cancel, { once: true });
+    signal?.addEventListener(
+      'abort',
+      cancel,
+      { once: true }
+    );
     const body = Promise.resolve().then(() => {
       token.ensureCurrent();
       return action(token);
     });
-    // Termination waits for the body, never the caller's promise that waits for termination.
+    // Cleanup waits for the operation body, not the caller Promise that itself awaits cleanup.
     entry.completion = body.then(
       () => {},
       () => {},
@@ -180,11 +341,22 @@ export class RealtimeCoordinator {
           );
         throw entry.terminalError ?? failure;
       })
-      .finally(() => signal?.removeEventListener('abort', cancel));
+      .finally(() => signal?.removeEventListener(
+        'abort',
+        cancel
+      ));
   }
 
-  /** Commits a snapshot only on behalf of the current operation. */
-  commit(state: RealtimeState, token: RealtimeOperation): void {
+  /**
+   * Commits state only while the operation lease remains current.
+   *
+   * @param state The state snapshot to commit or deliver.
+   * @param token The operation lease that must remain current at commitment.
+   */
+  commit(
+    state: RealtimeState,
+    token: RealtimeOperation
+  ): void {
     token.ensureCurrent();
     if (
       state.connectionState === RealtimeConnectionState.preparing &&
@@ -194,8 +366,16 @@ export class RealtimeCoordinator {
     this.setState(state);
   }
 
-  /** Disconnect leaves an unrelated local preparation operation running. */
-  disconnect(reason: RealtimeReason = { type: 'normal' }): Promise<void> {
+  /**
+   * Disconnects without interrupting unrelated local media preparation.
+   *
+   * Completes after remote cleanup while retaining local media. Concurrent calls share cleanup.
+   *
+   * @param reason The final termination reason; defaults to normal disconnection.
+   */
+  disconnect(
+    reason: RealtimeReason = { type: 'normal' }
+  ): Promise<void> {
     if (
       !this.termination &&
       (!this.operation || this.operation.kind === 'media') &&
@@ -206,17 +386,29 @@ export class RealtimeCoordinator {
       ].includes(this.state.connectionState)
     )
       return Promise.resolve();
-    return this.terminate('connection', reason);
+    return this.terminate(
+      'connection',
+      reason
+    );
   }
 
-  /** Starts cleanup promptly, joins repeated requests and allows close to expand its scope. */
+  /**
+   * Starts shared cleanup; close may expand the scope to all resources.
+   *
+   * The shared task completing after resource release and final-state delivery.
+   *
+   * @param scope Whether to release the connection alone or all local and remote media.
+   * @param reason The final termination reason; defaults to normal disconnection.
+   */
   terminate(
     scope: TerminationScope,
     reason: RealtimeReason = { type: 'normal' },
   ): Promise<void> {
     const existing = this.termination;
     if (existing) {
-      // A late room error must not replace an explicit disconnect/close reason.
+      /**
+       * Late room errors must not replace a user-initiated termination reason.
+       */
       if (
         scope === 'all' &&
         reason.type === 'failure' &&
@@ -245,7 +437,9 @@ export class RealtimeCoordinator {
     };
     this.termination = pending;
     pending.completion = Promise.resolve().then(async () => {
-      // Never tear down the engine or room concurrently with an operation using it.
+      /**
+       * Wait for active resource users before destroying the room or engine.
+       */
       await pending.operation?.completion;
       let cleanedScope: TerminationScope;
       do {
@@ -268,7 +462,9 @@ export class RealtimeCoordinator {
         taskID: null,
         reason: pending.reason,
       };
-      // Release admission before notifying so a terminal listener may start new work.
+      /**
+       * Release admission before notification so a final-state listener can start new work.
+       */
       if (this.operation === pending.operation) this.operation = null;
       this.termination = null;
       this.setState(next);
@@ -292,7 +488,9 @@ export class RealtimeCoordinator {
     return pending.completion;
   }
 
-  /** Stops producers promptly; final resource destruction waits for operation completion. */
+  /**
+   * Pauses frame production immediately and defers destruction until active work completes.
+   */
   private pauseCapture(): void {
     try {
       this.pauseLocalCapture();
@@ -303,7 +501,14 @@ export class RealtimeCoordinator {
     }
   }
 
-  private setState(state: RealtimeState): void {
+  /**
+   * Publishes a new snapshot only when observable state changes.
+   *
+   * @param state The state snapshot to commit or deliver.
+   */
+  private setState(
+    state: RealtimeState
+  ): void {
     const previous = this.state;
     if (
       previous.connectionState === state.connectionState &&
@@ -322,7 +527,14 @@ export class RealtimeCoordinator {
     this.notify(this.listener);
   }
 
-  private notify(listener: RealtimeStateListener | null): void {
+  /**
+   * Delivers state without propagating listener exceptions.
+   *
+   * @param listener The state change handler.
+   */
+  private notify(
+    listener: RealtimeStateListener | null
+  ): void {
     try {
       listener?.(this.state);
     } catch {

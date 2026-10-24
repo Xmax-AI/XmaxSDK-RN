@@ -5,10 +5,7 @@ import type { XLabLanguage } from '../localization/Localization';
 export type XLabApiEndpoint = 'china' | 'global';
 
 /** Models offered by XLab; persisted selections outside this list fall back to the default. */
-export const xlabModels: readonly RealtimeModel[] = [
-  RealtimeModel.x2_0,
-  RealtimeModel.x2_1_preview,
-];
+export const xlabModels: readonly RealtimeModel[] = [RealtimeModel.x2_1];
 
 /** Maps an endpoint to the SDK environment used when creating clients. */
 export function environmentForEndpoint(
@@ -19,11 +16,11 @@ export function environmentForEndpoint(
     : XmaxEnvironment.china;
 }
 
-/** Resolves the explicit API base URL for an endpoint, bypassing SDK environment routing. */
+/** Displays the realtime API URL for a service region; SDK services resolve their own backends. */
 export function apiBaseURLForEndpoint(endpoint: XLabApiEndpoint): string {
   return endpoint === 'global'
     ? 'https://api.xmax.ai/open/api/v1'
-    : 'https://api.xmaxai.com/open/api/v1';
+    : 'https://cloud.xmax.22duck.cn/open/api/v1';
 }
 
 /** Separate secure-storage slots; no shared API Key fallback between endpoints. */
@@ -33,16 +30,10 @@ export type ConfigurationField =
   | 'language'
   | 'model'
   | 'minBitrate'
-  | 'maxBitrate'
-  | 'downMinBitrate'
-  | 'downMaxBitrate';
+  | 'maxBitrate';
 
-/** Persisted raw bitrate fields, uplink and downlink (server push) pairs. */
-export type BitrateField =
-  | 'minBitrate'
-  | 'maxBitrate'
-  | 'downMinBitrate'
-  | 'downMaxBitrate';
+/** Persisted upload bitrate fields. Return-video budgets are automatic. */
+export type BitrateField = 'minBitrate' | 'maxBitrate';
 
 /** Minimal persistence boundary, implemented by the host's secure storage. */
 export interface ConfigurationStorage {
@@ -60,9 +51,6 @@ export interface SavedConfiguration {
   /** Raw kbps input preserved as typed; empty keeps SDK bitrate defaults. */
   readonly minBitrate: string;
   readonly maxBitrate: string;
-  /** Raw downlink (server push) kbps input; empty keeps server defaults. */
-  readonly downMinBitrate: string;
-  readonly downMaxBitrate: string;
   readonly loaded: boolean;
   readonly saving: boolean;
   /** Localized at render time so an existing failure follows language changes. */
@@ -78,11 +66,9 @@ export class ConfigurationStore {
     keys: { china: '', global: '' },
     endpoint: 'china',
     language: 'system',
-    model: RealtimeModel.x2_1_preview,
+    model: RealtimeModel.x2_1,
     minBitrate: '',
     maxBitrate: '',
-    downMinBitrate: '',
-    downMaxBitrate: '',
     loaded: false,
     saving: false,
     error: null,
@@ -125,8 +111,6 @@ export class ConfigurationStore {
           model,
           minBitrate,
           maxBitrate,
-          downMinBitrate,
-          downMaxBitrate,
         ] = await Promise.all([
           this.storage.read('china'),
           this.storage.read('global'),
@@ -135,20 +119,24 @@ export class ConfigurationStore {
           this.storage.read('model'),
           this.storage.read('minBitrate'),
           this.storage.read('maxBitrate'),
-          this.storage.read('downMinBitrate'),
-          this.storage.read('downMaxBitrate'),
         ]);
 
+        const selectedModel =
+          xlabModels.find(supported => supported === model) ??
+          RealtimeModel.x2_1;
+        // Preserve an explicit environment; old regional model values only supply a missing environment.
+        const selectedEndpoint =
+          endpoint === 'global' || endpoint === 'china'
+            ? endpoint
+            : model === 'x2.1.1-preview-us'
+            ? 'global'
+            : 'china';
         this.publish({
           keys: { china: china ?? '', global: global ?? '' },
-          endpoint: endpoint === 'global' ? 'global' : 'china',
-          model:
-            xlabModels.find(supported => supported === model) ??
-            RealtimeModel.x2_1_preview,
+          endpoint: selectedEndpoint,
+          model: selectedModel,
           minBitrate: minBitrate ?? '',
           maxBitrate: maxBitrate ?? '',
-          downMinBitrate: downMinBitrate ?? '',
-          downMaxBitrate: downMaxBitrate ?? '',
           language:
             language === 'zh-Hans' || language === 'en' ? language : 'system',
           loaded: true,
@@ -188,9 +176,7 @@ export class ConfigurationStore {
 
   /** Persists the model for future entries without modifying an active route. */
   selectModel(model: RealtimeModel): void {
-    if (!this.state.loaded || model === this.state.model) return;
-    if (!xlabModels.includes(model)) return;
-
+    if (!this.state.loaded || !xlabModels.includes(model)) return;
     this.publish({ model });
     this.enqueue('model', model);
   }
@@ -267,21 +253,4 @@ export function parseBitrateOverride(
   if (hi <= 0 || lo > hi) return 'invalid';
 
   return { minimum: lo, maximum: hi };
-}
-
-/**
- * Parses downlink (server push) kbps inputs for a new generation task. Both
- * empty keeps server defaults; otherwise both must be integers within the
- * server's [100, 10000] Kbps range with minimum not above maximum.
- */
-export function parseGenerationBitrate(
-  minBitrate: string,
-  maxBitrate: string,
-): BitrateOverride | null | 'invalid' {
-  const parsed = parseBitrateOverride(minBitrate, maxBitrate);
-
-  if (parsed === null || parsed === 'invalid') return parsed;
-  if (parsed.minimum < 100 || parsed.maximum > 10000) return 'invalid';
-
-  return parsed;
 }

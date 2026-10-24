@@ -1,7 +1,15 @@
-import './Foundation/RTC/RtcTypeCompatibility';
+//
+//  index.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
 
 /**
- * Version metadata for the installed Xmax React Native SDK.
+ * Version information for XmaxSDK React Native.
  */
 export const XmaxSDKInfo = Object.freeze({ version: '1.0.4' });
 
@@ -18,6 +26,8 @@ export type {
   RealtimeStateListener,
   RealtimeNetworkQualityListener,
   RealtimePerformanceAlarmListener,
+  UplinkVideoStatisticsListener,
+  DownlinkVideoStatisticsListener,
 } from './Core/Realtime/XmaxRealtimeManaging';
 
 export * from './Service/Realtime/RealtimeTypes';

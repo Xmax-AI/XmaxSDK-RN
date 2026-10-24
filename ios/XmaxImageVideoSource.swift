@@ -1,31 +1,63 @@
+//
+//  XmaxImageVideoSource.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import CoreMedia
 import CoreVideo
 import Foundation
 import ImageIO
-@preconcurrency import VolcEngineRTC
+@preconcurrency import AgoraRtcKit
 
-/// Repeats immutable image pixels on a serial worker queue.
-///
-/// The shared runtime lock protects generation, the timer, and every SDK submission.
-/// Pixel data stays native and remains alive while scheduled frames reference it.
+/// A source that decodes and repeatedly sends image frames on a serial native queue with a new
+/// timestamp per frame. Submission stops when resources are released.
 final class XmaxImageVideoSource: @unchecked Sendable {
-  /// Shared with the runtime so a frame cannot be submitted during engine destruction.
+
+  /// The resource lock shared by media startup, frame submission, and release.
   private let gate: NSRecursiveLock
+
+  /// The serial queue for image decoding and scheduled frame submission.
   private let worker = DispatchQueue(label: "ai.xmax.image-video")
 
-  /// Accessed only while holding gate; cancellation also invalidates queued callbacks.
+  /// The scheduled frame task, cleared before the native engine is destroyed.
   private var timer: DispatchSourceTimer?
-  private var generation: UInt = 0
-  private var task = XmaxImageFrameTask()
 
-  /// Uses the runtime's lock to coordinate startup, frame submission, and shutdown.
-  init(gate: NSRecursiveLock) {
+  /// The source revision used to reject stale decoding results and scheduled tasks after stopping.
+  private var generation: UInt = 0
+
+  /// Creates an image frame source using a shared resource lock.
+  ///
+  /// - Parameter gate: The runtime resource lock that prevents frame submission from overlapping
+  ///   engine destruction.
+  init(
+    gate: NSRecursiveLock
+  ) {
     self.gate = gate
   }
 
-  /// Starts the frame source only if decoding completes within the same active lease.
+  /// Decodes a prepared image and schedules repeated frame submission only while resource ownership
+  /// remains valid.
+  ///
+  /// Completes after decoding and frame scheduling; failures reject the Promise with an SDK error
+  /// code.
+  ///
+  /// - Parameters:
+  ///   - engine: The RTC engine that reports events or receives frames.
+  ///   - path: The absolute path of the SDK-owned image copy.
+  ///   - width: The width, in pixels.
+  ///   - height: The height, in pixels.
+  ///   - fps: The frame rate, in fps.
+  ///   - active: The check that determines whether decoding or frame submission still belongs to
+  ///     the current foreground media owner.
+  ///   - promise: The React Native Promise resolved or rejected when the asynchronous native
+  ///     operation completes.
   func start(
-    engine: ByteRTCVideo,
+    engine: AgoraRtcEngineKit,
     path: String,
     width: Int,
     height: Int,
@@ -33,6 +65,17 @@ final class XmaxImageVideoSource: @unchecked Sendable {
     active: @escaping @Sendable () -> Bool,
     promise: XmaxNativePromise
   ) {
+    guard
+      XmaxImageVideoFormat.isValid(
+        width: Double(width),
+        height: Double(height),
+        fps: Double(fps)
+      )
+    else {
+      promise.reject("Invalid image video format")
+      return
+    }
+
     let token = gate.xmaxWithLock {
       stop()
 
@@ -44,36 +87,41 @@ final class XmaxImageVideoSource: @unchecked Sendable {
         let pixels: CVPixelBuffer
 
         do {
-          pixels = try Self.decode(path: path, width: width, height: height)
+          pixels = try Self.decode(
+            path: path,
+            width: width,
+            height: height
+          )
         } catch {
-          promise.reject(error.localizedDescription, error: error)
+          promise.reject(
+            error.localizedDescription,
+            error: error
+          )
           return
         }
 
         self.gate.xmaxWithLock {
           guard token == self.generation, active() else {
-            promise.reject("Image source was cancelled", code: "CANCELLED")
+            promise.reject(
+              "Image source was cancelled",
+              code: "CANCELLED"
+            )
             return
           }
 
           let push = { [weak self] in
-            guard let self, let seiData = self.task.nextData() else { return }
-
-            let frame = ByteRTCVideoFrame()
-            frame.format = Int32(ByteRTCVideoPixelFormat.cvPixelBuffer.rawValue)
+            guard self != nil else { return }
+            let frame = AgoraVideoFrame()
+            frame.format = 12
             frame.textureBuf = pixels
-            frame.width = Int32(width)
+            frame.strideInPixels = Int32(width)
             frame.height = Int32(height)
-            frame.rotation = ByteRTCVideoRotation(rawValue: 0)!
+            frame.rotation = 0
             frame.time = CMClockGetTime(CMClockGetHostTimeClock())
-            // RTC 3.58 names the frame's SEI payload extendedData.
-            frame.extendedData = seiData
-
-            // Rejected frames do not prevent startup or the next scheduled push.
             _ = engine.pushExternalVideoFrame(frame)
           }
 
-          // Delivery waits for a generation task; the local preview uses RN Image.
+          // Native frame submission and the local React Native Image preview share the same prepared image.
           push()
 
           let interval = DispatchTimeInterval.nanoseconds(1_000_000_000 / fps)
@@ -93,13 +141,19 @@ final class XmaxImageVideoSource: @unchecked Sendable {
 
                 push()
 
-                // Match Android's delay after each completed submission.
-                self.timer?.schedule(deadline: .now() + interval, leeway: .milliseconds(1))
+                // Schedules the next frame after the previous native submission completes to prevent overlapping submissions.
+                self.timer?.schedule(
+                  deadline: .now() + interval,
+                  leeway: .milliseconds(1)
+                )
               }
             }
           }
 
-          timer.schedule(deadline: .now() + interval, leeway: .milliseconds(1))
+          timer.schedule(
+            deadline: .now() + interval,
+            leeway: .milliseconds(1)
+          )
           timer.resume()
 
           promise.resolve()
@@ -108,35 +162,46 @@ final class XmaxImageVideoSource: @unchecked Sendable {
     }
   }
 
-  /// Empty task IDs pause delivery; repeating an ID preserves its frame sequence.
-  func setTask(_ taskID: String) -> Bool {
-    gate.xmaxWithLock {
-      guard taskID.isEmpty || timer != nil else { return false }
-      task.set(taskID)
-      return true
-    }
-  }
-
-  /// Invalidates pending decoding and cancels delivery before the engine is destroyed.
+  /// Stops scheduled frame submission and invalidates pending decoding results before engine
+  /// release.
   func stop() {
     gate.xmaxWithLock {
-      task.set("")
       generation &+= 1
       timer?.cancel()
       timer = nil
     }
   }
 
-  /// Draws the complete prepared JPEG into a single upright, immutable BGRA buffer.
-  private static func decode(path: String, width: Int, height: Int) throws -> CVPixelBuffer {
+  /// Decodes the complete upright image at the target dimensions into an immutable pixel buffer.
+  ///
+  /// - Parameters:
+  ///   - path: The absolute path of the SDK-owned image copy.
+  ///   - width: The width, in pixels.
+  ///   - height: The height, in pixels.
+  ///
+  /// - Returns: The immutable native pixel buffer containing the complete upright image.
+  ///
+  /// - Throws: An operation error caused by invalid parameters or unavailable native resources.
+  private static func decode(
+    path: String,
+    width: Int,
+    height: Int
+  ) throws -> CVPixelBuffer {
     let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
 
     guard
       url.deletingLastPathComponent().path
         == XmaxImageManager.directory.resolvingSymlinksInPath().path,
       url.pathExtension == "jpg",
-      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+      let source = CGImageSourceCreateWithURL(
+        url as CFURL,
+        nil
+      ),
+      let image = CGImageSourceCreateImageAtIndex(
+        source,
+        0,
+        nil
+      ),
       image.width == width, image.height == height
     else {
       throw XmaxNativeFailure(
@@ -161,12 +226,18 @@ final class XmaxImageVideoSource: @unchecked Sendable {
         &output
       ) == kCVReturnSuccess,
       let pixels = output,
-      CVPixelBufferLockBaseAddress(pixels, []) == kCVReturnSuccess
+      CVPixelBufferLockBaseAddress(
+        pixels,
+        []
+      ) == kCVReturnSuccess
     else {
       throw XmaxNativeFailure(message: "Unable to allocate image video pixels")
     }
     defer {
-      CVPixelBufferUnlockBaseAddress(pixels, [])
+      CVPixelBufferUnlockBaseAddress(
+        pixels,
+        []
+      )
     }
 
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -183,7 +254,15 @@ final class XmaxImageVideoSource: @unchecked Sendable {
     else {
       throw XmaxNativeFailure(message: "Unable to prepare image video pixels")
     }
-    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    context.draw(
+      image,
+      in: CGRect(
+        x: 0,
+        y: 0,
+        width: width,
+        height: height
+      )
+    )
 
     return pixels
   }

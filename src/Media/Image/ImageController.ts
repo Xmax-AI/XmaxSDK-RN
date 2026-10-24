@@ -1,3 +1,13 @@
+//
+//  ImageController.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { ImageManager } from '../../Foundation/Media/ImageManager';
 import type { RtcManager } from '../../Foundation/RTC/RtcManager';
 import { ensureActive } from '../../Foundation/Runtime/Async';
@@ -6,30 +16,74 @@ import type { RenderController } from '../../Render/RenderController';
 import { MediaService } from '../../Service/Media/MediaService';
 import {
   realtimeModelSpecifications,
+  RealtimeMediaSource,
   type ImageStreamOptions,
   type RealtimeMediaStream,
   type RealtimeModel,
 } from '../../Service/Realtime/RealtimeTypes';
-import { resolveBitrates } from '../../Stream/Encoding/EncodingController';
+import { EncodingController } from '../../Stream/Encoding/EncodingController';
 
 /**
- * Owns a prepared image and its static RTC source. The original file belongs
- * to the caller. Late preparation results are removed after cancellation.
+ * Coordinates image decoding, repeated frame delivery, and preview.
+ *
+ * The original file remains caller-owned; copies prepared after cancellation are deleted.
  */
 export class ImageController {
+
+  /**
+   * The currently held local image stream.
+   */
   stream: RealtimeMediaStream | null = null;
+
+  /**
+   * The URL of the SDK-owned image copy.
+   */
   private fileURL: string | null = null;
+
+  /**
+   * The service for calculating aspect-preserving dimensions and model pixel limits before image
+   * preparation.
+   */
   private readonly media: MediaService;
 
+  /**
+   * Creates an image input controller for native image preparation and RTC frame submission.
+   *
+   * @param rtc The RTC manager for media configuration and room events.
+   * @param render The render controller for stream and video-track bindings.
+   * @param model The generation model defining media constraints and supported formats.
+   * @param images The image metadata and copy management service; defaults to a native image
+   *   service.
+   */
   constructor(
+    /**
+     * The RTC manager for media configuration and room events.
+     */
     private readonly rtc: RtcManager,
+
+    /**
+     * The render controller for stream and video-track bindings.
+     */
     private readonly render: RenderController,
     model: RealtimeModel,
+
+    /**
+     * The service for image metadata, copy preparation, and cache cleanup.
+     */
     private readonly images = new ImageManager(),
   ) {
     this.media = new MediaService(model);
   }
 
+  /**
+   * Prepares an upright private image copy and starts repeated native frame submission. Copies
+   * completed after cancellation are removed.
+   *
+   * @param options The local image URL, encoding settings, frame rate, and cancellation signal;
+   *   dimensions are resolved from the file.
+   * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
+   * @returns The local image stream after the native frame scheduler is ready.
+   */
   async create(
     options: ImageStreamOptions,
     signal: AbortSignal,
@@ -54,30 +108,42 @@ export class ImageController {
 
       const format = {
         ...requested,
-        ...this.media.resolveModelInputSize(requested ?? size),
+        ...this.media.resolveMediaSize(
+          size,
+          RealtimeMediaSource.image
+        ),
         fps,
       };
 
-      const bitrates = resolveBitrates(format);
-      prepared = await this.images.prepare(options.fileURL, format);
+      const bitrates = EncodingController.bitrates(format);
+      prepared = await this.images.prepare(
+        options.fileURL,
+        format
+      );
       ensureActive(signal);
       await this.rtc.open(signal);
       ensureActive(signal);
 
-      this.rtc.configureImageSource();
+      await this.rtc.configureImageSource();
       await this.rtc.configureEncoding(
         format,
         bitrates.minimum,
         bitrates.maximum,
       );
       ensureActive(signal);
-      // RN's URL.pathname only parses HTTP URLs; native preparation returns a file URL.
+      // Decodes the copied file URL before passing its absolute path to native frame submission.
       await this.rtc.startImage(
         decodeURIComponent(prepared.slice('file://'.length)),
         format,
       );
       ensureActive(signal);
-      this.stream = this.render.create(true, format, null, null, prepared);
+      this.stream = this.render.create(
+        true,
+        format,
+        null,
+        null,
+        prepared
+      );
       this.fileURL = prepared;
 
       return this.stream;
@@ -91,6 +157,11 @@ export class ImageController {
     }
   }
 
+  /**
+   * Stops native image frame submission, invalidates the local track, and deletes the copy.
+   *
+   * Completes after resource release; concurrent calls share cleanup.
+   */
   async close(): Promise<void> {
     const fileURL = this.fileURL;
 
@@ -98,7 +169,7 @@ export class ImageController {
     this.stream = null;
     this.render.invalidate(true);
 
-    // Detach the vendor's image source before deleting the file it may still read.
+    // Detaches the image source before deleting a file it may still be reading.
     try {
       await this.rtc.close();
     } finally {

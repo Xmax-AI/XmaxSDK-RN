@@ -1,9 +1,28 @@
+//
+//  ApiLogger.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 
-/** Logs API timing and allowlisted response metadata without copying sensitive response text. */
+/**
+ * Logs request durations and safe response metadata without copying sensitive content.
+ */
 export class ApiLogger {
-  /** Counts UTF-8 response bytes without relying on a browser TextEncoder global. */
-  static byteLength(text: string): number {
+
+  /**
+   * Calculates UTF-8 response size without browser TextEncoder.
+   *
+   * @param text The text used for safe metadata extraction or byte-length calculation.
+   */
+  static byteLength(
+    text: string
+  ): number {
     let bytes = 0;
 
     for (const character of text) {
@@ -14,8 +33,15 @@ export class ApiLogger {
     return bytes;
   }
 
-  /** Limits paths to SDK endpoint structure; query strings and identifiers stay private. */
-  static path(path: string): string {
+  /**
+   * Retains only SDK endpoint structure, excluding query parameters and resource identities.
+   *
+   * @param path The request path relative to the API root.
+   * @returns The filtered API path without credentials or user query content.
+   */
+  static path(
+    path: string
+  ): string {
     return path
       .split('?')[0]!
       .split('/')
@@ -36,7 +62,17 @@ export class ApiLogger {
       .join('/');
   }
 
-  /** Captures HTTP status, actual body size and safe API envelope fields on failure. */
+  /**
+   * Logs HTTP status, measured response size, and permitted business response fields.
+   *
+   * @param method The HTTP request method.
+   * @param path The request path relative to the API root.
+   * @param status The HTTP response status.
+   * @param bytes The UTF-8 packet or response byte count.
+   * @param duration The request duration, in milliseconds.
+   * @param successful Whether both HTTP and business responses succeeded.
+   * @param code The SDK or service error code for this operation.
+   */
   static response(
     method: string,
     path: string,
@@ -61,7 +97,15 @@ export class ApiLogger {
     else XmaxLogger.api.error(message);
   }
 
-  /** Logs transport/parse failures using SDK codes, never backend or fetch error messages. */
+  /**
+   * Logs transport and parsing failure using SDK codes without backend or fetch error content.
+   *
+   * @param method The HTTP request method.
+   * @param path The request path relative to the API root.
+   * @param duration The request duration, in milliseconds.
+   * @param code The SDK or service error code for this operation.
+   * @param status The HTTP response status.
+   */
   static failure(
     method: string,
     path: string,

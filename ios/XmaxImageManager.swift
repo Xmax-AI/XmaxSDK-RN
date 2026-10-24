@@ -1,32 +1,63 @@
+//
+//  XmaxImageManager.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import Foundation
 import ImageIO
 @preconcurrency import UIKit
 
-/// Decodes local images and owns their prepared cache files; pixels never cross JS.
-///
-/// Decoding and disk I/O run on worker queues. The lock protects cache ownership
-/// against invalidation, so a late preparation cannot leave an orphaned file.
+/// A service that reads image metadata and manages private upright copies without deleting
+/// caller-owned originals.
 final class XmaxImageManager: @unchecked Sendable {
-  /// Protects owned and invalidated; image decoding does not hold this lock.
+
+  /// The lock protecting image copy ownership and invalidation state.
   private let gate = NSRecursiveLock()
+
+  /// The image copy paths created and eligible for cleanup by this service.
   private var owned = Set<URL>()
+
+  /// Whether the native resource manager has been permanently invalidated.
   private var invalidated = false
 
-  /// The only directory where this component may create or remove prepared images.
+  /// The private cache directory containing only SDK image copies.
   static var directory: URL {
-    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("xmax-images", isDirectory: true)
+    FileManager.default.urls(
+      for: .cachesDirectory,
+      in: .userDomainMask
+    )[0]
+    .appendingPathComponent(
+      "xmax-images",
+      isDirectory: true
+    )
   }
 
-  /// Accepts local file URLs and absolute paths; remote URLs are rejected.
-  private static func localURL(_ value: String) -> URL? {
+  /// Validates a local file URL or absolute path before reading native image metadata.
+  ///
+  /// - Parameter value: The readable local file URL, absolute path, or supported content URI.
+  ///
+  /// - Returns: The validated absolute local file URL.
+  private static func localURL(
+    _ value: String
+  ) -> URL? {
     let url = value.hasPrefix("/") ? URL(fileURLWithPath: value) : URL(string: value)
 
     return url?.isFileURL == true ? url : nil
   }
 
-  /// Opens ImageIO without eagerly caching the original full-resolution pixels.
-  private static func source(_ value: String) -> CGImageSource? {
+  /// Opens a validated native image source without modifying the caller's original file.
+  ///
+  /// - Parameter value: The readable local file URL, absolute path, or supported content URI.
+  ///
+  /// - Returns: The native image source opened from the local file.
+  private static func source(
+    _ value: String
+  ) -> CGImageSource? {
     guard let url = localURL(value) else {
       return nil
     }
@@ -37,12 +68,28 @@ final class XmaxImageManager: @unchecked Sendable {
     )
   }
 
-  /// Reads oriented dimensions without fully decoding the original image.
-  func info(_ fileURL: String, promise: XmaxNativePromise) {
+  /// Asynchronously reads orientation-corrected dimensions without transferring image pixels to
+  /// JavaScript.
+  ///
+  /// Resolves the Promise with JSON containing orientation-corrected dimensions; rejects failures
+  /// with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The readable local file URL; your app retains ownership of the original.
+  ///   - promise: The React Native Promise resolved or rejected when the asynchronous native
+  ///     operation completes.
+  func info(
+    _ fileURL: String,
+    promise: XmaxNativePromise
+  ) {
     DispatchQueue.global(qos: .userInitiated).async {
       autoreleasepool {
         guard let source = Self.source(fileURL),
-          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let properties = CGImageSourceCopyPropertiesAtIndex(
+            source,
+            0,
+            nil
+          ) as? [CFString: Any],
           let width = properties[kCGImagePropertyPixelWidth] as? Int,
           let height = properties[kCGImagePropertyPixelHeight] as? Int,
           width > 0, height > 0
@@ -57,19 +104,42 @@ final class XmaxImageManager: @unchecked Sendable {
 
         do {
           let data = try JSONSerialization.data(withJSONObject: size)
-          promise.resolve(String(decoding: data, as: UTF8.self))
+          promise.resolve(
+            String(
+              decoding: data,
+              as: UTF8.self
+            )
+          )
         } catch {
-          promise.reject("Unable to read local image dimensions", error: error)
+          promise.reject(
+            "Unable to read local image dimensions",
+            error: error
+          )
         }
       }
     }
   }
 
-  /// Applies EXIF orientation and the requested centered crop to a private JPEG.
-  func prepare(_ fileURL: String, width: Double, height: Double, promise: XmaxNativePromise) {
+  /// Creates a private upright JPEG at the target dimensions and records ownership for subsequent
+  /// cleanup.
+  ///
+  /// Resolves the Promise with the private JPEG URL; rejects failures with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The readable local file URL; your app retains ownership of the original.
+  ///   - width: The width, in pixels.
+  ///   - height: The height, in pixels.
+  ///   - promise: The React Native Promise resolved or rejected when the asynchronous native
+  ///     operation completes.
+  func prepare(
+    _ fileURL: String,
+    width: Double,
+    height: Double,
+    promise: XmaxNativePromise
+  ) {
     DispatchQueue.global(qos: .userInitiated).async {
       autoreleasepool {
-        // Model buckets and pixel bounds are resolved by MediaService before preparation.
+        // MediaService must calculate model format and pixel limits before preparation.
         guard width.isFinite, height.isFinite, width > 0, height > 0,
           width.rounded(.down) == width, height.rounded(.down) == height
         else {
@@ -88,7 +158,12 @@ final class XmaxImageManager: @unchecked Sendable {
           kCGImageSourceShouldCacheImmediately: true,
           kCGImageSourceThumbnailMaxPixelSize: 4096,
         ]
-        guard let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        guard
+          let decoded = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+          )
         else {
           promise.reject("Unable to decode local image")
           return
@@ -108,12 +183,22 @@ final class XmaxImageManager: @unchecked Sendable {
         format.opaque = true
 
         let renderer = UIGraphicsImageRenderer(
-          size: CGSize(width: width, height: height),
+          size: CGSize(
+            width: width,
+            height: height
+          ),
           format: format
         )
         let data = renderer.jpegData(withCompressionQuality: 0.95) { context in
           UIColor.black.setFill()
-          context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+          context.fill(
+            CGRect(
+              x: 0,
+              y: 0,
+              width: width,
+              height: height
+            )
+          )
           image.draw(in: target)
         }
 
@@ -124,10 +209,16 @@ final class XmaxImageManager: @unchecked Sendable {
             at: Self.directory,
             withIntermediateDirectories: true
           )
-          try data.write(to: output, options: .atomic)
+          try data.write(
+            to: output,
+            options: .atomic
+          )
         } catch {
           try? FileManager.default.removeItem(at: output)
-          promise.reject("Unable to save prepared image", error: error)
+          promise.reject(
+            "Unable to save prepared image",
+            error: error
+          )
           return
         }
 
@@ -146,8 +237,19 @@ final class XmaxImageManager: @unchecked Sendable {
     }
   }
 
-  /// Removes only prepared SDK JPEGs; a missing file is already considered released.
-  func remove(_ fileURL: String, promise: XmaxNativePromise) {
+  /// Deletes only image copies owned by this service; an already absent copy is treated as
+  /// successfully removed.
+  ///
+  /// Completes after copy cleanup; failures reject the Promise with an SDK error code.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The SDK-owned private image copy URL returned by image preparation.
+  ///   - promise: The React Native Promise resolved or rejected when the asynchronous native
+  ///     operation completes.
+  func remove(
+    _ fileURL: String,
+    promise: XmaxNativePromise
+  ) {
     DispatchQueue.global(qos: .utility).async {
       guard let url = Self.localURL(fileURL)?.resolvingSymlinksInPath(),
         url.deletingLastPathComponent().path == Self.directory.resolvingSymlinksInPath().path,
@@ -162,9 +264,12 @@ final class XmaxImageManager: @unchecked Sendable {
       } catch let error as NSError
         where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError
       {
-        // Removal is idempotent.
+        // An already deleted file is treated as successfully removed.
       } catch {
-        promise.reject("Unable to remove prepared image", error: error)
+        promise.reject(
+          "Unable to remove prepared image",
+          error: error
+        )
         return
       }
 
@@ -178,7 +283,8 @@ final class XmaxImageManager: @unchecked Sendable {
     }
   }
 
-  /// Runs after engine destruction; late preparation deletes its own result.
+  /// Stops native work and releases current resources without cancelling caller-owned file or
+  /// transfer operations.
   func invalidate() {
     gate.xmaxWithLock {
       invalidated = true

@@ -1,27 +1,70 @@
+//
+//  RuntimeInfo.ts
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-RN
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 /**
- * Runtime metadata attached to API requests and room messages.
+ * Runtime metadata attached to API requests and room signaling.
  */
 export interface RuntimeInfo {
+
+  /**
+   * The runtime platform identifier.
+   */
   readonly platform: string;
+
+  /**
+   * The device operating system version.
+   */
   readonly os_version: string;
+
+  /**
+   * The SDK version attached to requests.
+   */
   readonly sdk_version: string;
+
+  /**
+   * The device model reported by the native runtime.
+   */
   readonly device_model: string;
 }
 
 /**
- * Encodes the runtime UUID into the task identifier format expected by the
- * room protocol, including the React Native platform query suffix.
+ * Encodes a UUID as a room task identifier with a React Native platform query parameter.
+ *
+ * @param uuid The function producing unique task, file, or message identifiers.
+ * @param platform The platform identifier attached to task metadata.
+ * @returns The URL-safe generation task identifier with a platform marker.
  */
-export function taskIDFromUUID(uuid: string, platform: string): string {
+export function taskIDFromUUID(
+  uuid: string,
+  platform: string
+): string {
   if (platform !== 'ios' && platform !== 'android')
     throw new Error('Unsupported runtime platform');
 
-  const hex = uuid.replaceAll('-', '');
+  const hex = uuid.replaceAll(
+    '-',
+    ''
+  );
 
   if (!/^[a-f0-9]{32}$/i.test(hex)) throw new Error('Invalid runtime UUID');
 
-  const bytes = Array.from({ length: 16 }, (_, i) =>
-    Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16),
+  const bytes = Array.from(
+    { length: 16 },
+    (_, i) =>
+      Number.parseInt(
+        hex.slice(
+          i * 2,
+          i * 2 + 2
+        ),
+        16
+      ),
   );
   const alphabet =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';

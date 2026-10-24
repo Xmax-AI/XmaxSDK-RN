@@ -1,3 +1,8 @@
+import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
+import type {
+  UplinkVideoStatistics,
+  DownlinkVideoStatistics,
+} from '@xmaxai/react-native-sdk';
 import { errorMessageKey } from '../localization/ErrorMessages';
 import { useLocalization } from '../localization/LocalizationProvider';
 import { RealtimeGenerationOperations } from '../realtime/RealtimeGenerationOperations';
@@ -24,6 +29,8 @@ import {
   XmaxLoggerOption,
   XmaxRealtimeVideo,
   RealtimeModel,
+  RealtimeCameraPreset,
+  type RealtimeQualityLevel,
   VideoContentMode,
   realtimeModelSpecifications,
   type RealtimeContext,
@@ -54,9 +61,8 @@ import type { BitrateOverride } from '../configuration/ConfigurationStore';
  * the top controls and uses fit scaling. Controls retain safe-area padding.
  */
 export function RealtimeScreen({
-  model = RealtimeModel.x2_1_preview,
+  model = RealtimeModel.x2_1,
   bitrate = null,
-  generationBitrate = null,
   apiKey,
   environment,
   baseURL,
@@ -66,12 +72,11 @@ export function RealtimeScreen({
   imageContentType,
   entryReady = true,
 }: {
-  /** Model captured when entering the page; defaults to X2.1 Preview. */
+  /** Model captured when entering the page; defaults to the X2.1 model. */
   model?: RealtimeModel;
   /** Upload kbps limits captured with the model; null keeps SDK defaults. */
   bitrate?: BitrateOverride | null;
-  /** Downlink kbps limits sent with the generation start event. */
-  generationBitrate?: BitrateOverride | null;
+  /** Credential captured for the selected service region. */
   apiKey: string;
   environment: XmaxEnvironment;
   /** Explicit API backend captured when entering the page. */
@@ -86,6 +91,31 @@ export function RealtimeScreen({
   entryReady?: boolean;
 }) {
   const { t } = useLocalization();
+  const faceUpdateVersion = useRef(0);
+  const [faceRestoration, setFaceRestoration] = useState(false);
+  const [statisticsVisible, setStatisticsVisible] = useState(false);
+  const [uplinkStatistics, setUplinkStatistics] =
+    useState<UplinkVideoStatistics | null>(null);
+  const [downlinkStatistics, setDownlinkStatistics] =
+    useState<DownlinkVideoStatistics | null>(null);
+
+  const [cameraPreset, setCameraPreset] = useState<RealtimeCameraPreset | null>(
+    null,
+  );
+  const [presetMenuVisible, setPresetMenuVisible] = useState(false);
+  const [uplinkLevel, setUplinkLevel] = useState<RealtimeQualityLevel | null>(
+    null,
+  );
+  const [downlinkLevel, setDownlinkLevel] =
+    useState<RealtimeQualityLevel | null>(null);
+
+  /** Reads acknowledged camera and transport configuration from the current manager. */
+  const refreshConfiguration = useCallback((realtime: XmaxRealtimeManaging) => {
+    setCameraPreset(realtime.currentCameraPreset ?? null);
+    setUplinkLevel(realtime.uplinkQualityLevel ?? null);
+    setDownlinkLevel(realtime.downlinkQualityLevel ?? null);
+  }, []);
+
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const [landscapeLayout, setLandscapeLayout] = useState<boolean | null>(null);
@@ -176,6 +206,7 @@ export function RealtimeScreen({
         if (alive.current && token === epoch.current) {
           local.current = stream;
           setLocalTrack(stream.videoTrack);
+          refreshConfiguration(realtime);
         }
       } catch (failure) {
         if (token === epoch.current) showError(failure);
@@ -190,7 +221,7 @@ export function RealtimeScreen({
         }
       }
     },
-    [showError, nextOperation, fileURL, model, bitrate],
+    [showError, nextOperation, fileURL, model, bitrate, refreshConfiguration],
   );
 
   useEffect(() => {
@@ -227,10 +258,24 @@ export function RealtimeScreen({
     );
     operations.current = generation;
     manager.current = realtime;
+    void realtime.setUplinkVideoStatisticsListener(value => {
+      if (alive.current && manager.current === realtime) {
+        setUplinkStatistics(value);
+        refreshConfiguration(realtime);
+      }
+    });
+    void realtime.setDownlinkVideoStatisticsListener(value => {
+      if (alive.current && manager.current === realtime) {
+        setDownlinkStatistics(value);
+        refreshConfiguration(realtime);
+      }
+    });
+
     void realtime.setStateListener(value => {
       if (!alive.current || manager.current !== realtime) return;
 
       setState(value);
+      refreshConfiguration(realtime);
       if (value.connectionState === RealtimeConnectionState.idle) {
         local.current = null;
         setLocalTrack(null);
@@ -329,6 +374,7 @@ export function RealtimeScreen({
     baseURL,
     model,
     preview,
+    refreshConfiguration,
     showError,
     nextOperation,
   ]);
@@ -400,16 +446,11 @@ export function RealtimeScreen({
             ...context,
             referencePath: fileURL ? touchReference.current : null,
           };
-        if (generationBitrate)
-          context = {
-            ...context,
-            minimumBitrate: generationBitrate.minimum,
-            maximumBitrate: generationBitrate.maximum,
-          };
         if (signal.aborted || token !== epoch.current) return;
         const remote = await realtime.startGeneration({
           localStream: stream,
           context,
+          faceRestoration,
           signal,
         });
         if (signal.aborted || !alive.current || token !== epoch.current) return;
@@ -488,6 +529,93 @@ export function RealtimeScreen({
     }
   };
 
+  /** Updates an active task without reconnecting; idle changes apply to the next start. */
+  async function changeFaceRestoration(next: boolean) {
+    const realtime = manager.current;
+    if (busy || !realtime) return;
+    const version = ++faceUpdateVersion.current;
+    const previous = faceRestoration;
+    setFaceRestoration(next);
+    if (
+      realtime.currentState.connectionState ===
+      RealtimeConnectionState.generating
+    ) {
+      try {
+        await operations.current?.run(signal =>
+          realtime.startGeneration({ faceRestoration: next, signal }),
+        );
+      } catch (failure) {
+        if (
+          alive.current &&
+          version === faceUpdateVersion.current &&
+          XmaxError.from(failure).code !== XmaxErrorCode.cancelled
+        ) {
+          setFaceRestoration(previous);
+          showError(failure);
+        }
+      }
+    }
+  }
+
+  /** Updates camera dimensions in place while the preview is ready and disconnected. */
+  async function changeCameraPreset(preset: RealtimeCameraPreset) {
+    const realtime = manager.current;
+    if (
+      !realtime ||
+      busy ||
+      mediaBusy.current ||
+      realtime.currentState.connectionState !== RealtimeConnectionState.ready
+    )
+      return;
+    const token = nextOperation();
+    mediaBusy.current = true;
+    setBusy(true);
+    setPresetMenuVisible(false);
+    try {
+      await realtime.updateCameraFormat(preset);
+      if (alive.current && token === epoch.current)
+        refreshConfiguration(realtime);
+    } catch (failure) {
+      if (token === epoch.current) showError(failure);
+    } finally {
+      if (alive.current && token === epoch.current) {
+        mediaBusy.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  /** Applies a manual transport tier through the SDK; subsequent network adaptation remains enabled. */
+  async function changeQualityLevel(
+    level: RealtimeQualityLevel,
+    downlink: boolean,
+  ) {
+    const realtime = manager.current;
+    if (
+      !realtime ||
+      busy ||
+      mediaBusy.current ||
+      realtime.currentState.connectionState !==
+        RealtimeConnectionState.generating
+    )
+      return;
+    const token = nextOperation();
+    mediaBusy.current = true;
+    setBusy(true);
+    try {
+      if (downlink) await realtime.setDownlinkQualityLevel(level);
+      else await realtime.setUplinkQualityLevel(level);
+    } catch (failure) {
+      if (token === epoch.current) showError(failure);
+    } finally {
+      if (alive.current && token === epoch.current) {
+        refreshConfiguration(realtime);
+        mediaBusy.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   const connected = [
     RealtimeConnectionState.connecting,
     RealtimeConnectionState.connected,
@@ -509,7 +637,13 @@ export function RealtimeScreen({
           localTrack={localTrack}
           remoteTrack={remoteTrack}
           videoContentMode={
-            fileURL || (landscapeLayout ?? width > height)
+            fileURL ||
+            (landscapeLayout ?? width > height) ||
+            (cameraPreset !== null &&
+              ![
+                RealtimeCameraPreset.resolution1080x1920,
+                RealtimeCameraPreset.resolution1920x1080,
+              ].includes(cameraPreset))
               ? VideoContentMode.fit
               : VideoContentMode.fill
           }
@@ -532,6 +666,45 @@ export function RealtimeScreen({
           style={styles.backIcon}
         />
       </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('realtime.statistics.title')}
+        accessibilityState={{ selected: statisticsVisible }}
+        onPress={() => setStatisticsVisible(value => !value)}
+        style={[
+          styles.statisticsButton,
+          { top: insets.top + 8, right: insets.right + (fileURL ? 12 : 66) },
+        ]}
+      >
+        <Text style={styles.statisticsLabel}>
+          {t('realtime.statistics.title')}
+        </Text>
+      </Pressable>
+      {statisticsVisible && (
+        <View
+          style={[
+            styles.statisticsPanel,
+            { top: insets.top + 62, right: insets.right + 12 },
+          ]}
+        >
+          <RealtimeStatisticsPanel
+            uplink={uplinkStatistics}
+            downlink={downlinkStatistics}
+            uplinkLevel={uplinkLevel}
+            downlinkLevel={downlinkLevel}
+            canChange={
+              !busy &&
+              state.connectionState === RealtimeConnectionState.generating
+            }
+            onUplinkChange={level => {
+              void changeQualityLevel(level, false);
+            }}
+            onDownlinkChange={level => {
+              void changeQualityLevel(level, true);
+            }}
+          />
+        </View>
+      )}
       {!fileURL && (
         <Pressable
           accessibilityRole="button"
@@ -551,6 +724,48 @@ export function RealtimeScreen({
           <Text style={styles.flipLabel}>{t('realtime.flip')}</Text>
         </Pressable>
       )}
+      {!fileURL && (
+        <View
+          style={[
+            styles.cameraPresetPanel,
+            { top: insets.top + 8, left: insets.left + 66 },
+          ]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('realtime.cameraPreset')}
+            accessibilityState={{ expanded: presetMenuVisible }}
+            disabled={
+              busy || state.connectionState !== RealtimeConnectionState.ready
+            }
+            onPress={() => setPresetMenuVisible(value => !value)}
+            style={styles.cameraPresetButton}
+          >
+            <Text style={styles.statisticsLabel}>
+              {cameraPreset?.replace('x', ' × ') ?? t('realtime.cameraPreset')}
+            </Text>
+          </Pressable>
+          {presetMenuVisible &&
+            !busy &&
+            state.connectionState === RealtimeConnectionState.ready &&
+            Object.values(RealtimeCameraPreset).map(preset => (
+              <Pressable
+                key={preset}
+                accessibilityRole="button"
+                accessibilityState={{ selected: preset === cameraPreset }}
+                style={styles.cameraPresetButton}
+                onPress={() => {
+                  void changeCameraPreset(preset);
+                }}
+              >
+                <Text style={styles.statisticsLabel}>
+                  {preset === cameraPreset ? '✓ ' : ''}
+                  {preset.replace('x', ' × ')}
+                </Text>
+              </Pressable>
+            ))}
+        </View>
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={[
@@ -559,6 +774,10 @@ export function RealtimeScreen({
         ]}
       >
         <RealtimeControlPanel
+          faceRestoration={faceRestoration}
+          onFaceRestorationChange={next => {
+            void changeFaceRestoration(next);
+          }}
           initialCategoryID={fileURL ? 'mox' : 'charx'}
           bottomInset={insets.bottom}
           apiKey={apiKey}
@@ -614,6 +833,13 @@ export function RealtimeScreen({
 }
 
 const styles = StyleSheet.create({
+  cameraPresetPanel: {
+    position: 'absolute',
+    borderRadius: 10,
+    backgroundColor: '#000B',
+    overflow: 'hidden',
+  },
+  cameraPresetButton: { paddingHorizontal: 10, paddingVertical: 10 },
   page: { flex: 1, backgroundColor: '#000' },
   preview: { flex: 1, minHeight: 0, overflow: 'hidden' },
   backButton: {
@@ -651,6 +877,14 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
+  statisticsButton: {
+    position: 'absolute',
+    padding: 10,
+    backgroundColor: '#0007',
+    borderRadius: 12,
+  },
+  statisticsLabel: { color: '#FFF', fontSize: 12 },
+  statisticsPanel: { position: 'absolute' },
   pressed: { opacity: 0.7 },
   bottom: { flexShrink: 0 },
 });
