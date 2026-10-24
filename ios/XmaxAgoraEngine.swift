@@ -451,6 +451,27 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
     event("joined")
   }
 
+  /// Reports successful local video publication for startup timing.
+  ///
+  /// - Parameters:
+  ///   - engine: The RTC engine reporting the publication change.
+  ///   - channelId: The channel containing the local publication.
+  ///   - sourceType: The local video source being published.
+  ///   - oldState: The previous publication state.
+  ///   - newState: The current publication state.
+  ///   - elapseSinceLastState: The state transition interval, in milliseconds.
+  func rtcEngine(
+    _ engine: AgoraRtcEngineKit,
+    didVideoPublishStateChange channelId: String,
+    sourceType: AgoraVideoSourceType,
+    oldState: AgoraStreamPublishState,
+    newState: AgoraStreamPublishState,
+    elapseSinceLastState: Int32
+  ) {
+    guard channelId == roomID, self.engine != nil, newState == .published else { return }
+    event("localPublished")
+  }
+
   /// Reports the string account associated with a remote numeric UID.
   ///
   /// - Parameters:

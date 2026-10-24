@@ -11,10 +11,8 @@
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import type { RemoteStream } from '../../Foundation/RTC/RemoteStream';
 import type { InteractionControlling } from '../../Media/Interaction/InteractionControlling';
-import type {
-  CameraPosition,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { CameraPosition } from '../../Foundation/Media/Camera/CameraPosition';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * The mutable rendering state behind a public video track.

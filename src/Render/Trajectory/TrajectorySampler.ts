@@ -14,10 +14,8 @@ import {
   type InteractionPoint,
   type InteractionFrame,
 } from '../../Media/Interaction/InteractionCoordinateMapper';
-import type {
-  MediaSize,
-  VideoContentMode,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { MediaSize } from '../../Service/Realtime/RealtimeVideoFormat';
+import type { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
 import type {
   TrajectoryEffectRendering,
   TrajectoryPoint,
@@ -318,7 +316,12 @@ export class TrajectorySampler {
     try {
       action();
     } catch {
-      XmaxLogger.interaction.warn('Trajectory renderer callback failed');
+      XmaxLogger.interaction.warn(
+        XmaxLogger.localized(
+          '轨迹渲染回调失败',
+          'Trajectory renderer callback failed',
+        ),
+      );
     }
   }
 }

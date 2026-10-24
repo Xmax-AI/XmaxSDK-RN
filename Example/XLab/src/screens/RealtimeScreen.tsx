@@ -29,7 +29,7 @@ import {
   XmaxLoggerOption,
   XmaxRealtimeVideo,
   RealtimeModel,
-  RealtimeCameraPreset,
+  type RealtimeVideoFormat,
   type RealtimeQualityLevel,
   VideoContentMode,
   realtimeModelSpecifications,
@@ -61,7 +61,7 @@ import type { BitrateOverride } from '../configuration/ConfigurationStore';
  * the top controls and uses fit scaling. Controls retain safe-area padding.
  */
 export function RealtimeScreen({
-  model = RealtimeModel.x2_1,
+  model = RealtimeModel.x2_1_1_preview_cn,
   bitrate = null,
   apiKey,
   environment,
@@ -72,7 +72,7 @@ export function RealtimeScreen({
   imageContentType,
   entryReady = true,
 }: {
-  /** Model captured when entering the page; defaults to the X2.1 model. */
+  /** Model captured when entering the page; defaults to the China X2.1.1 preview model. */
   model?: RealtimeModel;
   /** Upload kbps limits captured with the model; null keeps SDK defaults. */
   bitrate?: BitrateOverride | null;
@@ -99,7 +99,7 @@ export function RealtimeScreen({
   const [downlinkStatistics, setDownlinkStatistics] =
     useState<DownlinkVideoStatistics | null>(null);
 
-  const [cameraPreset, setCameraPreset] = useState<RealtimeCameraPreset | null>(
+  const [cameraFormat, setCameraFormat] = useState<RealtimeVideoFormat | null>(
     null,
   );
   const [presetMenuVisible, setPresetMenuVisible] = useState(false);
@@ -111,7 +111,7 @@ export function RealtimeScreen({
 
   /** Reads acknowledged camera and transport configuration from the current manager. */
   const refreshConfiguration = useCallback((realtime: XmaxRealtimeManaging) => {
-    setCameraPreset(realtime.currentCameraPreset ?? null);
+    setCameraFormat(realtime.currentCameraVideoFormat ?? null);
     setUplinkLevel(realtime.uplinkQualityLevel ?? null);
     setDownlinkLevel(realtime.downlinkQualityLevel ?? null);
   }, []);
@@ -451,7 +451,6 @@ export function RealtimeScreen({
           localStream: stream,
           context,
           faceRestoration,
-          signal,
         });
         if (signal.aborted || !alive.current || token !== epoch.current) return;
         setRemoteTrack(remote.videoTrack);
@@ -541,8 +540,8 @@ export function RealtimeScreen({
       RealtimeConnectionState.generating
     ) {
       try {
-        await operations.current?.run(signal =>
-          realtime.startGeneration({ faceRestoration: next, signal }),
+        await operations.current?.run(() =>
+          realtime.startGeneration({ faceRestoration: next }),
         );
       } catch (failure) {
         if (
@@ -558,7 +557,7 @@ export function RealtimeScreen({
   }
 
   /** Updates camera dimensions in place while the preview is ready and disconnected. */
-  async function changeCameraPreset(preset: RealtimeCameraPreset) {
+  async function changeCameraFormat(format: RealtimeVideoFormat) {
     const realtime = manager.current;
     if (
       !realtime ||
@@ -572,7 +571,10 @@ export function RealtimeScreen({
     setBusy(true);
     setPresetMenuVisible(false);
     try {
-      await realtime.updateCameraFormat(preset);
+      await realtime.updateCameraFormat({
+        ...realtime.currentCameraVideoFormat!,
+        ...format,
+      });
       if (alive.current && token === epoch.current)
         refreshConfiguration(realtime);
     } catch (failure) {
@@ -639,11 +641,7 @@ export function RealtimeScreen({
           videoContentMode={
             fileURL ||
             (landscapeLayout ?? width > height) ||
-            (cameraPreset !== null &&
-              ![
-                RealtimeCameraPreset.resolution1080x1920,
-                RealtimeCameraPreset.resolution1920x1080,
-              ].includes(cameraPreset))
+            (cameraFormat !== null && cameraFormat.width > cameraFormat.height)
               ? VideoContentMode.fit
               : VideoContentMode.fill
           }
@@ -742,28 +740,39 @@ export function RealtimeScreen({
             style={styles.cameraPresetButton}
           >
             <Text style={styles.statisticsLabel}>
-              {cameraPreset?.replace('x', ' × ') ?? t('realtime.cameraPreset')}
+              {cameraFormat
+                ? `${cameraFormat.width} × ${cameraFormat.height}`
+                : t('realtime.cameraPreset')}
             </Text>
           </Pressable>
           {presetMenuVisible &&
             !busy &&
             state.connectionState === RealtimeConnectionState.ready &&
-            Object.values(RealtimeCameraPreset).map(preset => (
-              <Pressable
-                key={preset}
-                accessibilityRole="button"
-                accessibilityState={{ selected: preset === cameraPreset }}
-                style={styles.cameraPresetButton}
-                onPress={() => {
-                  void changeCameraPreset(preset);
-                }}
-              >
-                <Text style={styles.statisticsLabel}>
-                  {preset === cameraPreset ? '✓ ' : ''}
-                  {preset.replace('x', ' × ')}
-                </Text>
-              </Pressable>
-            ))}
+            realtimeModelSpecifications[model].supportedVideoFormats.map(
+              format => (
+                <Pressable
+                  key={`${format.width}x${format.height}`}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    selected:
+                      format.width === cameraFormat?.width &&
+                      format.height === cameraFormat?.height,
+                  }}
+                  style={styles.cameraPresetButton}
+                  onPress={() => {
+                    void changeCameraFormat(format);
+                  }}
+                >
+                  <Text style={styles.statisticsLabel}>
+                    {format.width === cameraFormat?.width &&
+                    format.height === cameraFormat?.height
+                      ? '✓ '
+                      : ''}
+                    {`${format.width} × ${format.height}`}
+                  </Text>
+                </Pressable>
+              ),
+            )}
         </View>
       )}
       <KeyboardAvoidingView

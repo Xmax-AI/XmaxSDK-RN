@@ -78,7 +78,7 @@ test('an injected realtime graph bypasses default native construction and preser
   const before = metadataReads;
   const manager = new XmaxRealtimeManager(
     { apiKey: '', environment: 'china', loggerOptions: 0, baseURL: null },
-    { model: 'x2.1' }, components,
+    { model: 'x2.1.1-preview-cn' }, components,
   );
   assert.equal(metadataReads, before);
   const states = [], uplink = [], downlink = [];

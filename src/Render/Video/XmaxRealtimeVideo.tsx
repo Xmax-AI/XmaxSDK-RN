@@ -21,10 +21,8 @@ import {
 import { findNodeHandle, StyleSheet, View, type ViewProps } from 'react-native';
 import { VideoSurface } from './XmaxVideo';
 import { videoBinding } from './VideoRenderRegistry';
-import {
-  VideoContentMode,
-  type RealtimeVideoTrack,
-} from '../../Service/Realtime/RealtimeTypes';
+import { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
+import type { RealtimeVideoTrack } from '../../Service/Realtime/RealtimeVideoTrack';
 
 /**
  * Properties for local preview with a remote generation overlay.

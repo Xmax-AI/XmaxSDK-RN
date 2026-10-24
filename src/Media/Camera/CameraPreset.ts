@@ -9,10 +9,8 @@
 //
 
 import { invalid } from '../../Foundation/Errors/XmaxError';
-import {
-  RealtimeCameraPreset,
-  type MediaSize,
-} from '../../Service/Realtime/RealtimeTypes';
+import { RealtimeCameraPreset } from '../../Service/Realtime/RealtimeCameraPreset';
+import type { MediaSize } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * Returns the output dimensions of a camera preset, excluding frame rate and bitrate.

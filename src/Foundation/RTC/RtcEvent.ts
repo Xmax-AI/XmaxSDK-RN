@@ -10,12 +10,12 @@
 
 import type { XmaxError } from '../Errors/XmaxError';
 import type { RemoteStream } from './RemoteStream';
+import type { RealtimeNetworkQuality } from '../../Service/Realtime/RealtimeNetworkQuality';
+import type { RealtimePerformanceAlarm } from '../../Service/Realtime/RealtimePerformanceAlarm';
 import type {
-  RealtimeNetworkQuality,
-  RealtimePerformanceAlarm,
   UplinkVideoStatistics,
   DownlinkVideoStatistics,
-} from '../../Service/Realtime/RealtimeTypes';
+} from './VideoStatistics';
 
 /**
  * Normalized RTC events using stable string accounts and measured metrics.
@@ -26,7 +26,7 @@ export type RtcEvent =
       /**
        * The event or result discriminator.
        */
-      type: 'localFrame' | 'captureReady';
+      type: 'localFrame' | 'captureReady' | 'localPublished';
     }
   | {
 

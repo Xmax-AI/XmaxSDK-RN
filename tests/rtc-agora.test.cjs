@@ -242,3 +242,16 @@ test('camera format updates use one native command and are rejected while joined
   await assert.rejects(rtc.updateCameraFormat(next, 500, 3000), { code: 'INVALID_CONFIGURATION' });
   assert.equal(calls.length, joinedCalls);
 });
+
+test('local publication timing events require the current room and native owner', async t => {
+  const rtc = await fixture(t), events = [];
+  rtc.onEvent(event => events.push(event));
+  emit({ type: 'localPublished', roomID: 'old-room' });
+  emit({ type: 'localPublished' }, 'retired-owner');
+  assert.deepEqual(events, []);
+  emit({ type: 'localPublished' });
+  assert.deepEqual(events, [{ type: 'localPublished' }]);
+  await rtc.leave();
+  emit({ type: 'localPublished' });
+  assert.equal(events.length, 1);
+});

@@ -65,7 +65,12 @@ export function RtcVideoSurface(
           })
           .catch(error => {
             if (mounted) {
-              XmaxLogger.render.error('Unable to register native video canvas');
+              XmaxLogger.render.error(
+                XmaxLogger.localized(
+                  '无法注册原生视频画布',
+                  'Unable to register native video canvas',
+                ),
+              );
               failure.current(error);
             }
           });

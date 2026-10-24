@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeTiming } from '../Service/Realtime/RealtimeTiming';
 import type { RoomControlling } from './Room/RoomControlling';
 import type { EncodingControlling } from './Encoding/EncodingControlling';
 import type { QualityControlling } from './Quality/QualityControlling';
@@ -15,10 +16,8 @@ import type { StreamControlling } from './StreamControlling';
 
 import type { RtcManaging } from '../Foundation/RTC/RtcManaging';
 import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
-import type {
-  RealtimeContext,
-  RealtimeVideoFormat,
-} from '../Service/Realtime/RealtimeTypes';
+import type { RealtimeContext } from '../Service/Realtime/RealtimeContext';
+import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoFormat';
 import { waitFor } from '../Foundation/Runtime/Async';
 
 import { invalid } from '../Foundation/Errors/XmaxError';
@@ -36,6 +35,7 @@ export class StreamController implements StreamControlling {
    * @param room The room controller for connection and generation signaling.
    * @param encoding The controller applying uplink encoding settings.
    * @param quality The controller managing transport quality policies and history.
+   * @param timing The shared measurement of generation startup stages.
    */
   constructor(
     /**
@@ -57,6 +57,11 @@ export class StreamController implements StreamControlling {
      * The connection's transport quality policy and history.
      */
     readonly quality: QualityControlling,
+
+    /**
+     * The shared generation startup measurement.
+     */
+    private readonly timing?: RealtimeTiming,
   ) {}
 
   /**
@@ -81,6 +86,7 @@ export class StreamController implements StreamControlling {
 
     if (!connection) throw invalid('Connect before starting generation');
 
+    this.timing?.beginSignal(taskID);
     return waitFor<RemoteStream>(
       (resolve, reject) => {
         let sent = false;
@@ -158,7 +164,7 @@ export class StreamController implements StreamControlling {
    */
   changeTargetSize(
     taskID: string,
-    targetSize: import('../Service/Realtime/RealtimeTypes').MediaSize,
+    targetSize: import('../Service/Realtime/RealtimeVideoFormat').MediaSize,
   ): Promise<void> {
     return this.room.send(
       'change_target_size',

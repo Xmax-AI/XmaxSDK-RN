@@ -11,11 +11,9 @@
 import type { VideoRenderBinding } from './Video/VideoRenderBinding';
 
 import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
-import type {
-  CameraPosition,
-  RealtimeMediaStream,
-  RealtimeVideoFormat,
-} from '../Service/Realtime/RealtimeTypes';
+import type { CameraPosition } from '../Foundation/Media/Camera/CameraPosition';
+import type { RealtimeMediaStream } from '../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * An interface for video tracks, render bindings, and result visibility.

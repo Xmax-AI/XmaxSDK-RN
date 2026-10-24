@@ -15,11 +15,11 @@ export const XmaxSDKInfo = Object.freeze({ version: '1.0.4' });
 
 export { XmaxClient } from './Core/XmaxClient';
 
-export {
-  XmaxEnvironment,
-  XmaxLoggerOption,
-  type XmaxConfiguration,
-} from './Core/XmaxConfiguration';
+export type { XmaxConfiguration } from './Core/XmaxConfiguration';
+
+export { XmaxEnvironment } from './Core/XmaxEnvironment';
+
+export { XmaxLoggerOption } from './Foundation/Logging/XmaxLoggerOption';
 
 export type {
   XmaxRealtimeManaging,
@@ -30,7 +30,21 @@ export type {
   DownlinkVideoStatisticsListener,
 } from './Core/Realtime/XmaxRealtimeManaging';
 
-export * from './Service/Realtime/RealtimeTypes';
+export * from './Service/Realtime/RealtimeModel';
+export * from './Service/Realtime/RealtimeCameraPreset';
+export * from './Service/Realtime/RealtimeVideoFormat';
+export * from './Service/Realtime/RealtimeState';
+export * from './Service/Realtime/RealtimeVideoTrack';
+export * from './Service/Realtime/RealtimeMediaStream';
+export * from './Service/Realtime/RealtimeNetworkQuality';
+export * from './Service/Realtime/RealtimePerformanceAlarm';
+export * from './Service/Realtime/RealtimeContext';
+export * from './Core/Realtime/RealtimeOperationOptions';
+export * from './Foundation/RTC/VideoStatistics';
+export * from './Core/Realtime/RealtimeConfiguration';
+export * from './Foundation/Media/Camera/CameraPosition';
+export * from './Foundation/Media/Video/VideoContentMode';
+export * from './Stream/Quality/RealtimeQualityLevel';
 
 export type { MediaServicing } from './Service/Media/MediaServicing';
 
@@ -60,3 +74,5 @@ export type {
   TrajectoryID,
   TrajectoryPoint,
 } from './Render/Trajectory/TrajectoryEffectRendering';
+
+export * from './Service/Media/RealtimeMediaSource';

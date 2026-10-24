@@ -15,15 +15,10 @@ import { StorageService } from '../Service/Storage/StorageService';
 import { StorageManager } from '../Foundation/Storage/StorageManager';
 import { ApiService } from '../Service/Network/ApiService';
 import NativeRuntime from '../Foundation/Native/NativeXmaxRuntime';
-import {
-  apiBaseURLs,
-  XmaxEnvironment,
-  type XmaxConfiguration,
-} from './XmaxConfiguration';
-import {
-  RealtimeModel,
-  type RealtimeConfiguration,
-} from '../Service/Realtime/RealtimeTypes';
+import { apiBaseURLs, XmaxEnvironment } from './XmaxEnvironment';
+import type { XmaxConfiguration } from './XmaxConfiguration';
+import { RealtimeModel } from '../Service/Realtime/RealtimeModel';
+import type { RealtimeConfiguration } from './Realtime/RealtimeConfiguration';
 import { invalid } from '../Foundation/Errors/XmaxError';
 import { XmaxRealtimeManager } from './Realtime/XmaxRealtimeManager';
 import type { XmaxRealtimeManaging } from './Realtime/XmaxRealtimeManaging';
@@ -88,7 +83,8 @@ export class XmaxClient {
           message,
           option
         );
-      }
+      },
+      environment === XmaxEnvironment.china ? 'chinese' : 'english',
     );
   }
 
@@ -102,8 +98,13 @@ export class XmaxClient {
   createRealtimeManager(
     options: RealtimeConfiguration
   ): XmaxRealtimeManaging {
-    if (!Object.values(RealtimeModel).includes(options.model))
+    if (!options || !Object.values(RealtimeModel).includes(options.model))
       throw invalid('Unsupported realtime model');
+    if (
+      options.isAdaptiveQualityEnabled !== undefined &&
+      typeof options.isAdaptiveQualityEnabled !== 'boolean'
+    )
+      throw invalid('isAdaptiveQualityEnabled must be a boolean');
 
     return new XmaxRealtimeManager(
       this.configuration,
@@ -141,12 +142,12 @@ export class XmaxClient {
   /**
    * Creates a service for media sizing and capability queries.
    *
-   * The default model is x2.1. Creation does not allocate camera or RTC resources.
+   * The default model is x2.1.1-preview-cn. Creation does not allocate camera or RTC resources.
    *
-   * @param model The model defining sizing rules; defaults to x2.1.
+   * @param model The model defining sizing rules; defaults to x2.1.1-preview-cn.
    */
   createMediaService(
-    model: RealtimeModel = RealtimeModel.x2_1,
+    model: RealtimeModel = RealtimeModel.x2_1_1_preview_cn,
   ): MediaServicing {
     if (!Object.values(RealtimeModel).includes(model))
       throw invalid('Unsupported realtime model');

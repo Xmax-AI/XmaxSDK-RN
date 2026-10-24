@@ -10,7 +10,7 @@
 
 import type { InteractionControlling } from './InteractionControlling';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
-import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import {
   mapInteractionPoint,
   type InteractionFrame,

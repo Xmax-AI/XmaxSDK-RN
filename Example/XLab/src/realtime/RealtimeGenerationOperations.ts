@@ -1,57 +1,50 @@
 /**
- * Owns XLab's replaceable generation task, matching UIKit's cancel-and-await flow.
- * Cancellation propagates through each SDK call's AbortSignal. Only the latest
- * request may start after prior work and its SDK-owned cleanup settle.
- * Finished generation stays connected so subsequent contexts can reuse its task.
- * Independent reference uploads are deliberately outside this queue.
+ * Owns screen-level reference preparation and cancellation. Generation requests are
+ * submitted immediately; the SDK replaces pending generation and owns resource cleanup.
  */
 export class RealtimeGenerationOperations {
   private controller: AbortController | null = null;
-  private completion: Promise<void> = Promise.resolve();
+  private readonly pending = new Set<Promise<void>>();
+  private cleanup: Promise<void> | null = null;
 
   constructor(private readonly disconnect: () => Promise<void>) {}
 
-  /** Replaces pending preparation, connection or generation with the latest intent. */
+  /** Replaces pending reference preparation and submits the latest generation intent. */
   run(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
-    return this.replace(action);
-  }
-
-  /** Stops generation, or closes all media when the screen leaves its lifecycle. */
-  cancel(cleanup = this.disconnect): Promise<void> {
-    return this.replace(async () => {}, cleanup);
-  }
-
-  private replace(
-    action: (signal: AbortSignal) => Promise<void>,
-    cleanup?: () => Promise<void>,
-  ): Promise<void> {
-    const previous = this.controller;
-    const completion = this.completion;
-    previous?.abort();
-
+    this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
-    // Explicit close may pause capture immediately, even during independent upload preparation.
-    // The next request still waits for both the previous task and its cleanup.
-    const cleaning = cleanup
-      ? Promise.resolve().then(cleanup)
-      : Promise.resolve();
+    const cleanup = this.cleanup;
     const operation = (async () => {
-      const [, result] = await Promise.allSettled([completion, cleaning]);
+      // A user-requested stop must finish before accepting another start.
+      if (cleanup) await cleanup;
       if (controller.signal.aborted) return;
-      if (result.status === 'rejected') throw result.reason;
       try {
         await action(controller.signal);
       } catch (error) {
         if (!controller.signal.aborted) throw error;
       }
     })().finally(() => {
+      this.pending.delete(operation);
       if (this.controller === controller) this.controller = null;
     });
-
-    // A superseded failure cannot poison the next request or escape as unhandled.
-    this.completion = operation.catch(() => {});
-
+    this.pending.add(operation);
     return operation;
+  }
+
+  /** Cancels preparation and asks the SDK to disconnect or close immediately. */
+  cancel(cleanup = this.disconnect): Promise<void> {
+    this.controller?.abort();
+    this.controller = null;
+    const pending = [...this.pending];
+    const cleaning = Promise.resolve().then(cleanup);
+    const result = Promise.allSettled(pending).then(() => cleaning);
+    // Observe cleanup rejection immediately while independent preparation settles.
+    void cleaning.catch(() => {});
+    const completion = result.finally(() => {
+      if (this.cleanup === completion) this.cleanup = null;
+    });
+    this.cleanup = completion;
+    return completion;
   }
 }

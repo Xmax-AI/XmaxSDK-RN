@@ -20,12 +20,10 @@ import type { InteractionControlling } from '../Media/Interaction/InteractionCon
 import { invalid } from '../Foundation/Errors/XmaxError';
 import type { RtcManaging } from '../Foundation/RTC/RtcManaging';
 import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
-import type {
-  CameraPosition,
-  RealtimeMediaStream,
-  RealtimeVideoFormat,
-  RealtimeVideoTrack,
-} from '../Service/Realtime/RealtimeTypes';
+import type { CameraPosition } from '../Foundation/Media/Camera/CameraPosition';
+import type { RealtimeMediaStream } from '../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoFormat';
+import type { RealtimeVideoTrack } from '../Service/Realtime/RealtimeVideoTrack';
 
 /**
  * Coordinates video tracks, render bindings, and trajectory rendering.
@@ -268,7 +266,10 @@ export class RenderController implements RenderControlling {
               } catch {
                 // Missing or retired views must not block room and session cleanup.
                 XmaxLogger.render.warn(
-                  'Native video hide failed during teardown',
+                  XmaxLogger.localized(
+                    '释放资源时隐藏原生视频失败',
+                    'Native video hide failed during teardown',
+                  ),
                 );
               }
             }),

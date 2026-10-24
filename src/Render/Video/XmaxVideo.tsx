@@ -22,10 +22,8 @@ import { Image, View, StyleSheet, type ViewProps } from 'react-native';
 import { RtcVideoSurface } from '../../Foundation/RTC/RtcVideoSurface';
 import { videoBinding } from './VideoRenderRegistry';
 import { VideoSurfaceBinding } from './VideoSurfaceBinding';
-import {
-  VideoContentMode,
-  type RealtimeVideoTrack,
-} from '../../Service/Realtime/RealtimeTypes';
+import { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
+import type { RealtimeVideoTrack } from '../../Service/Realtime/RealtimeVideoTrack';
 
 /**
  * Properties for displaying a manager-owned video track.

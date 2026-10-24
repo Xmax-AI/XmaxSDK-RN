@@ -84,14 +84,16 @@ export class ApiLogger {
   ): void {
     const message = () =>
       `${method} ${this.path(path)}\n` +
-      `├─ 状态 (Status)：${status}\n` +
-      `├─ 耗时 (Duration)：${duration} ms\n` +
-      `└─ 响应 (Response Size)：${bytes} bytes` +
+      `├─ ${XmaxLogger.localized('状态：', 'Status: ')}${status}\n` +
+      `├─ ${XmaxLogger.localized('耗时：', 'Duration: ')}${duration} ms\n` +
+      `└─ ${XmaxLogger.localized('响应：', 'Response Size: ')}${bytes} bytes` +
       (successful
         ? ''
-        : `\n失败响应 (Failure)：code=${
-            typeof code === 'number' ? code : 'unavailable'
-          }; body omitted`);
+        : `\n${XmaxLogger.localized('失败响应：', 'Failure: ')}code=${
+            typeof code === 'number'
+              ? code
+              : XmaxLogger.localized('不可用', 'unavailable')
+          }; ${XmaxLogger.localized('响应正文已省略', 'body omitted')}`);
 
     if (successful) XmaxLogger.api.debug(message);
     else XmaxLogger.api.error(message);
@@ -115,10 +117,12 @@ export class ApiLogger {
   ): void {
     XmaxLogger.api.error(
       () =>
-        `${method} ${this.path(path)} 失败 (Request Failed)\n` +
-        `├─ 耗时 (Duration)：${duration} ms\n` +
-        `├─ 状态 (Status)：${status ?? 'unavailable'}\n` +
-        `└─ 原因 (Reason)：${code}`,
+        `${method} ${this.path(path)} ${XmaxLogger.localized('请求失败', 'Request Failed')}\n` +
+        `├─ ${XmaxLogger.localized('耗时：', 'Duration: ')}${duration} ms\n` +
+        `├─ ${XmaxLogger.localized('状态：', 'Status: ')}${
+          status ?? XmaxLogger.localized('不可用', 'unavailable')
+        }\n` +
+        `└─ ${XmaxLogger.localized('原因：', 'Reason: ')}${code}`,
     );
   }
 }

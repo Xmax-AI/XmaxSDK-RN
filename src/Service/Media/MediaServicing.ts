@@ -8,11 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  RealtimeModel,
-  RealtimeMediaSource,
-  MediaSize,
-} from '../Realtime/RealtimeTypes';
+import type { RealtimeModel } from '../Realtime/RealtimeModel';
+import type { RealtimeMediaSource } from './RealtimeMediaSource';
+import type { MediaSize } from '../Realtime/RealtimeVideoFormat';
 
 /**
  * An interface for calculating aspect-preserving local media, generation canvas, and returned media
@@ -26,7 +24,8 @@ export interface MediaServicing {
   readonly model: RealtimeModel;
 
   /**
-   * Resolves local media dimensions without upscaling and validates camera resolution buckets.
+   * Resolves local media dimensions within the model area limits and validates camera buckets.
+   * Images are upscaled or downscaled as needed, preserving exact aspect ratio when possible.
    *
    * @param size The source media dimensions, in pixels.
    * @param source The local media source.

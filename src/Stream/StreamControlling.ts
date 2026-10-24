@@ -12,10 +12,8 @@ import type { QualityControlling } from './Quality/QualityControlling';
 import type { EncodingControlling } from './Encoding/EncodingControlling';
 
 import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
-import type {
-  RealtimeContext,
-  RealtimeVideoFormat,
-} from '../Service/Realtime/RealtimeTypes';
+import type { RealtimeContext } from '../Service/Realtime/RealtimeContext';
+import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoFormat';
 
 import type { GenerationParameters } from './Room/RoomEvent';
 
@@ -82,7 +80,7 @@ export interface StreamControlling {
    */
   changeTargetSize(
     taskID: string,
-    targetSize: import('../Service/Realtime/RealtimeTypes').MediaSize,
+    targetSize: import('../Service/Realtime/RealtimeVideoFormat').MediaSize,
   ): Promise<void>;
 
   /**

@@ -11,10 +11,8 @@
 import type { InteractionPoint } from '../../Media/Interaction/InteractionCoordinateMapper';
 
 import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
-import type {
-  RealtimeContext,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 
 import type { GenerationParameters } from './RoomEvent';
 

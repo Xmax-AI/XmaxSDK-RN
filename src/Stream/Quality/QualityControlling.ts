@@ -10,11 +10,11 @@
 
 import type {
   MediaSize,
-  RealtimeNetworkQuality,
   RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimeVideoFormat';
+import type { RealtimeNetworkQuality } from '../../Service/Realtime/RealtimeNetworkQuality';
 
-import type { RealtimeQualityLevel } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeQualityLevel } from './RealtimeQualityLevel';
 
 /**
  * An interface for uplink and downlink quality policies and history.
@@ -51,10 +51,14 @@ export interface QualityControlling {
    *
    * @param baseline The original media format used as the transport baseline.
    * @param model The model identifier used to isolate quality history.
+   * @param minimumInputPixels The minimum uplink pixel area.
+   * @param isAdaptiveQualityEnabled Whether to restore history and adapt quality; defaults to true.
    */
   prepare(
     baseline: RealtimeVideoFormat,
-    model: string
+    model: string,
+    minimumInputPixels?: number,
+    isAdaptiveQualityEnabled?: boolean,
   ): Promise<void>;
 
   /**

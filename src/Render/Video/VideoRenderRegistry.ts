@@ -8,10 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  RealtimeMediaStream,
-  RealtimeVideoTrack,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeVideoTrack } from '../../Service/Realtime/RealtimeVideoTrack';
 import type { VideoRenderBinding } from './VideoRenderBinding';
 
 /**

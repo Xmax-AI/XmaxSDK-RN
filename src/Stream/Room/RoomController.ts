@@ -8,15 +8,14 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
 import type { RoomControlling } from './RoomControlling';
 import type { InteractionPoint } from '../../Media/Interaction/InteractionCoordinateMapper';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
-import type {
-  RealtimeContext,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import { repeatHeartbeat } from '../../Foundation/Runtime/Async';
 import { roomEvent, tracksEvent, type GenerationParameters } from './RoomEvent';
 import { cancelledError } from '../../Foundation/Errors/XmaxError';
@@ -44,6 +43,11 @@ export class RoomController implements RoomControlling {
      * The RTC manager for media configuration and room events.
      */
     private readonly rtc: RtcManaging,
+
+    /**
+     * The shared generation startup measurement.
+     */
+    private readonly timing?: RealtimeTiming,
   ) {}
 
   /**
@@ -61,14 +65,23 @@ export class RoomController implements RoomControlling {
     microphone: boolean,
     signal: AbortSignal,
   ): Promise<void> {
-    XmaxLogger.room.info('Joining room');
+    XmaxLogger.room.info(XmaxLogger.localized(
+      '正在加入房间',
+      'Joining room'
+    ));
+    this.timing?.beginRoomJoin();
+    this.timing?.beginLocalPublication();
     await this.rtc.join(
       connection,
       microphone,
       signal
     );
+    this.timing?.finishRoomJoin();
     this.connection = connection;
-    XmaxLogger.room.info('Joined room');
+    XmaxLogger.room.info(XmaxLogger.localized(
+      '已加入房间',
+      'Joined room'
+    ));
     this.stopHeartbeat = repeatHeartbeat(
       async () => {
         await this.rtc.send(
@@ -79,7 +92,13 @@ export class RoomController implements RoomControlling {
           ),
         );
       },
-      () => XmaxLogger.room.warn('Room heartbeat failed'),
+      () =>
+        XmaxLogger.room.warn(
+          XmaxLogger.localized(
+            '房间心跳失败',
+            'Room heartbeat failed'
+          ),
+        ),
     );
   }
 
@@ -108,11 +127,11 @@ export class RoomController implements RoomControlling {
 
     XmaxLogger.room.debug(
       () =>
-        `发送信令 (Send Signal)：${event}\n` +
-        `视频 (Video)：${
+        `${XmaxLogger.localized('发送信令：', 'Send Signal: ')}${event}\n` +
+        `${XmaxLogger.localized('视频：', 'Video: ')}${
           format
             ? `${format.width} × ${format.height} @ ${format.fps} fps`
-            : 'unchanged'
+            : XmaxLogger.localized('不变', 'unchanged')
         }`,
     );
     return this.rtc.send(
@@ -157,7 +176,13 @@ export class RoomController implements RoomControlling {
    * Completes after queue cancellation and RTC room exit.
    */
   async leave(): Promise<void> {
-    if (this.connection) XmaxLogger.room.info('Leaving room');
+    if (this.connection)
+      XmaxLogger.room.info(
+        XmaxLogger.localized(
+          '正在离开房间',
+          'Leaving room'
+        ),
+      );
     this.stopHeartbeat?.();
     this.stopHeartbeat = null;
     this.connection = null;

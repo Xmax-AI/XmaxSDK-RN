@@ -19,9 +19,9 @@ import { invalid } from '../Foundation/Errors/XmaxError';
 import type {
   CameraStreamOptions,
   ImageStreamOptions,
-  RealtimeMediaStream,
-  RealtimeVideoFormat,
-} from '../Service/Realtime/RealtimeTypes';
+} from '../Core/Realtime/RealtimeOperationOptions';
+import type { RealtimeMediaStream } from '../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * Coordinates local media ownership, preparation, and task interactions.

@@ -246,36 +246,38 @@ test('failed language writes keep the newest preference for retry', async () => 
 });
 
 
-test('X2.1 model selection keeps the service environment and credentials independent', async () => {
+test('regional model selection keeps the service environment and credentials independent', async () => {
   const disk = storage({ china: 'cn-fixture', global: 'global-fixture', environment: 'global' });
   const store = new ConfigurationStore(disk);
   await store.load();
-  assert.equal(store.getSnapshot().model, 'x2.1');
-  store.selectModel('x2.1');
+  assert.equal(store.getSnapshot().model, 'x2.1.1-preview-us');
+  store.selectModel('x2.1.1-preview-cn');
   assert.equal(store.getSnapshot().endpoint, 'global');
   store.selectEndpoint('china');
-  assert.equal(store.getSnapshot().model, 'x2.1');
+  assert.equal(store.getSnapshot().model, 'x2.1.1-preview-cn');
   store.selectModel('obsolete-model');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().model, 'x2.1');
+  assert.equal(reloaded.getSnapshot().model, 'x2.1.1-preview-cn');
   assert.equal(reloaded.getSnapshot().endpoint, 'china');
   assert.deepEqual(reloaded.getSnapshot().keys, { china: 'cn-fixture', global: 'global-fixture' });
 });
 
-test('legacy regional models migrate to X2.1 and only supply a missing environment', async () => {
+test('regional models retain their selection and legacy values use an explicit environment', async () => {
   for (const [model, environment, expected] of [
     ['x2.1.1-preview-us', undefined, 'global'],
     ['x2.1.1-preview-cn', undefined, 'china'],
     ['x2.1.1-preview-us', 'china', 'china'],
     ['x2.1.1-preview-cn', 'global', 'global'],
     ['obsolete-model', 'global', 'global'],
+    ['x2.1', 'global', 'global'],
+    ['x2.1', 'china', 'china'],
   ]) {
     const disk = storage({ model, ...(environment ? { environment } : {}), global: 'saved' });
     const store = new ConfigurationStore(disk);
     await store.load();
-    assert.equal(store.getSnapshot().model, 'x2.1');
+    assert.equal(store.getSnapshot().model, ['x2.1.1-preview-cn', 'x2.1.1-preview-us'].includes(model) ? model : expected === 'global' ? 'x2.1.1-preview-us' : 'x2.1.1-preview-cn');
     assert.equal(store.getSnapshot().endpoint, expected);
     assert.equal(store.getSnapshot().keys.global, 'saved');
   }

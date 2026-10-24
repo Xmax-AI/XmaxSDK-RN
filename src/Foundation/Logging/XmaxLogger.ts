@@ -8,7 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import { XmaxLoggerOption } from '../../Core/XmaxConfiguration';
+import { XmaxLoggerOption } from './XmaxLoggerOption';
 
 /**
  * Receives formatted, credential-free logs while retaining severity.
@@ -90,6 +90,11 @@ export class XmaxLogger {
   private static options = 0;
 
   /**
+   * The language used for log details, independent of service routing.
+   */
+  private static language: 'chinese' | 'english' = 'chinese';
+
+  /**
    * The output function for enabled, formatted logs.
    */
   private static sink: LogSink = () => {};
@@ -109,13 +114,30 @@ export class XmaxLogger {
    *
    * @param options The SDK log-category bitmask; 0 disables logging.
    * @param sink The formatted log output function.
+   * @param language The language of log details; defaults to Chinese.
    */
   static configure(
     options: number,
-    sink: LogSink
+    sink: LogSink,
+    language: 'chinese' | 'english' = 'chinese',
   ): void {
     this.options = options;
     this.sink = sink;
+    this.language = language;
+  }
+
+  /**
+   * Selects log detail text using the current global language.
+   *
+   * @param chinese The Chinese log text.
+   * @param english The English log text.
+   * @returns The text for the configured language.
+   */
+  static localized(
+    chinese: string,
+    english: string
+  ): string {
+    return this.language === 'chinese' ? chinese : english;
   }
 
   /**

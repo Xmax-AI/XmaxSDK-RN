@@ -10,7 +10,7 @@
 
 import type { EncodingControlling } from './EncodingControlling';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
-import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import { resolveBitrates } from './EncodingBitratePolicy';
 
 /**

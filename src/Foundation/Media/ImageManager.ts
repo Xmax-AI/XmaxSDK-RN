@@ -11,7 +11,7 @@
 import type { ImageManaging } from './ImageManaging';
 import NativeRuntime from '../Native/NativeXmaxRuntime';
 import { invalid, XmaxError, XmaxErrorCode } from '../Errors/XmaxError';
-import type { MediaSize } from '../../Service/Realtime/RealtimeTypes';
+import type { MediaSize } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * A service for image metadata and private copies without transferring pixels to JS.

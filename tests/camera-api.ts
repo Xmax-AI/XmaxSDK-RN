@@ -21,27 +21,27 @@ import {
 
 // Compile the emitted consumer declarations, including negative calls. Never executed.
 export async function cameraContract(client: XmaxClient) {
-  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1].supportedVideoFormats;
+  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1_1_preview_cn].supportedVideoFormats;
   // @ts-expect-error Model buckets cannot be changed by callers.
   bucket.push({ width: 640, height: 480 });
   const pro: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1,
+    model: RealtimeModel.x2_1_1_preview_cn,
   });
-  client.createMediaService(RealtimeModel.x2_1);
+  client.createMediaService(RealtimeModel.x2_1_1_preview_cn);
   await pro.close();
 
   const preview: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1,
+    model: RealtimeModel.x2_1_1_preview_cn,
   });
-  client.createMediaService(RealtimeModel.x2_1);
+  client.createMediaService(RealtimeModel.x2_1_1_preview_cn);
   await preview.close();
 
   const manager: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1,
+    model: RealtimeModel.x2_1_1_preview_cn,
   });
   const size: MediaSize = client
-    .createMediaService(RealtimeModel.x2_1)
-    .resolveMediaSize({ width: 1080, height: 1920 }, RealtimeMediaSource.camera);
+    .createMediaService(RealtimeModel.x2_1_1_preview_cn)
+    .resolveMediaSize({ width: 1024, height: 1920 }, RealtimeMediaSource.camera);
   const local = await manager.createLocalCameraStream({
     position: CameraPosition.front,
     videoFormat: { ...size, fps: 30, minimumBitrate: 0, maximumBitrate: 3000,
@@ -173,3 +173,18 @@ async function cancellableOperations(manager: import('../src').XmaxRealtimeManag
   return remote;
 }
 void cancellableOperations;
+
+export function realtimeConfigurationContract(client: XmaxClient) {
+  // Adaptive quality remains optional and model selection is independent of service routing.
+  client.createRealtimeManager({
+    model: RealtimeModel.x2_1_1_preview_us,
+    isAdaptiveQualityEnabled: false,
+  });
+  // @ts-expect-error The retired model is not part of the current SDK contract.
+  RealtimeModel.x2_1;
+  client.createRealtimeManager({
+    model: RealtimeModel.x2_1_1_preview_cn,
+    // @ts-expect-error Adaptive quality accepts only a Boolean value.
+    isAdaptiveQualityEnabled: 'false',
+  });
+}

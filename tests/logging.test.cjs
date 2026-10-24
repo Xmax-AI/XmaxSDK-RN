@@ -141,3 +141,93 @@ test('generation confirmation waits retain TIMEOUT independently of HTTP classif
   await rejected;
   assert.equal(removed, true);
 });
+
+test('existing loggers select details using the latest global language', () => {
+  const logs = [];
+  const sink = (_level, message) => logs.push(message);
+  XmaxLogger.configure(1, sink, 'chinese');
+  XmaxLogger.room.info(() => XmaxLogger.localized('创建会话', 'Creating Session'));
+  XmaxLogger.configure(1, sink, 'english');
+  XmaxLogger.room.info(() => XmaxLogger.localized('创建会话', 'Creating Session'));
+  assert.deepEqual(logs, ['[Xmax][Room] 创建会话', '[Xmax][Room] Creating Session']);
+  capture(0);
+});
+
+test('startup timing reports measured stages once and ignores unrelated task frames', () => {
+  const { RealtimeTiming } = require('../lib/commonjs/Service/Realtime/RealtimeTiming');
+  let time = 0;
+  const logs = [];
+  XmaxLogger.configure(2, (_level, message) => logs.push(message), 'english');
+  const timing = new RealtimeTiming(() => time);
+  timing.begin();
+  timing.beginSessionCreation(); time = 0.1; timing.finishSessionCreation();
+  timing.beginRoomJoin(); time = 0.15; timing.finishRoomJoin();
+  timing.beginLocalPublication(); time = 0.16; timing.finishLocalPublication();
+  timing.beginSignal('secret-task-id'); time = 0.3;
+  timing.finishFirstFrame('different'); timing.finish('secret-task-id');
+  assert.equal(logs.length, 0);
+  timing.finishFirstFrame('secret-task-id'); timing.finish('secret-task-id');
+  timing.finish('secret-task-id'); timing.finishFirstFrame('secret-task-id');
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /Total Duration: 300\.0 ms/);
+  assert.match(logs[0], /Session Creation: 100\.0 ms/);
+  assert.match(logs[0], /RTC Room Join: 50\.0 ms/);
+  assert.match(logs[0], /Local Stream Publication: 10\.0 ms/);
+  assert.match(logs[0], /First Frame Arrival: 140\.0 ms/);
+  assert(!logs[0].includes('secret-task-id'));
+  capture(0);
+});
+
+test('startup failure timings identify the pending stage and exclude sensitive error bodies', () => {
+  const { RealtimeTiming } = require('../lib/commonjs/Service/Realtime/RealtimeTiming');
+  const { XmaxError, XmaxErrorCode } = require('../lib/commonjs/Foundation/Errors/XmaxError');
+  let time = 1;
+  const logs = [];
+  XmaxLogger.configure(2, (_level, message) => logs.push(message), 'english');
+  const timing = new RealtimeTiming(() => time);
+  timing.begin(); timing.beginSessionCreation(); time = 1.25;
+  timing.finishFailure(new XmaxError({ code: XmaxErrorCode.apiError, message: 'secret-token-echo' }));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /Current Stage: Creating Session/);
+  assert.match(logs[0], /Session Creation: 250\.0 ms/);
+  assert.match(logs[0], /RTC Room Join: —/);
+  assert.match(logs[0], /Failure Reason: API_ERROR/);
+  assert(!logs[0].includes('secret-token-echo'));
+  timing.begin(); timing.finishFailure(new XmaxError({ code: XmaxErrorCode.cancelled, message: 'cancelled' }));
+  assert.equal(logs.length, 1);
+  timing.reset(); timing.finishFailure(new Error('late failure'));
+  assert.equal(logs.length, 1);
+  capture(0);
+});
+
+test('Chinese startup details and performance filtering do not affect business logging', () => {
+  const { RealtimeTiming } = require('../lib/commonjs/Service/Realtime/RealtimeTiming');
+  const logs = [];
+  const sink = (_level, message) => logs.push(message);
+  const timing = new RealtimeTiming(() => 1);
+  for (const options of [1, 2]) {
+    XmaxLogger.configure(options, sink, 'chinese');
+    timing.begin(); timing.beginSignal('task'); timing.finishFirstFrame('task'); timing.finish('task');
+    assert.equal(logs.length, options === 1 ? 0 : 1);
+  }
+  assert.match(logs[0], /总耗时：0\.0 ms/);
+  assert.match(logs[0], /创建会话：—/);
+  capture(0);
+});
+
+test('an in-flight transfer uses the latest language for its complete outcome message', async () => {
+  const logs = [];
+  const sink = (_level, message) => logs.push(message);
+  let resolve;
+  const transfer = new Promise(done => { resolve = done; });
+  const service = new StorageService({}, { download: async () => transfer }, () => 'id');
+  XmaxLogger.configure(1, sink, 'chinese');
+  const pending = service.download({ remoteURL: 'https://example.invalid/image', destinationURL: 'file:///tmp/image.png' });
+  XmaxLogger.configure(1, sink, 'english');
+  resolve({ fileURL: 'file:///tmp/image.png', size: 1 });
+  await pending;
+  assert.match(logs[0], /下载开始/);
+  assert.match(logs[1], /Download completed in/);
+  assert.doesNotMatch(logs[1], /下载/);
+  capture(0);
+});

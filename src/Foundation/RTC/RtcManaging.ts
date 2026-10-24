@@ -11,11 +11,9 @@
 import type { RemoteStream } from './RemoteStream';
 import type { RtcEvent } from './RtcEvent';
 
-import type {
-  CameraPosition,
-  RealtimeVideoFormat,
-  VideoContentMode,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { CameraPosition } from '../Media/Camera/CameraPosition';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
+import type { VideoContentMode } from '../Media/Video/VideoContentMode';
 import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
 import type { RuntimeInfo } from '../Runtime/RuntimeInfo';
 

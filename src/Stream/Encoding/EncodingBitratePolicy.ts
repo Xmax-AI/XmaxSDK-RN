@@ -12,7 +12,7 @@ import { invalid } from '../../Foundation/Errors/XmaxError';
 import {
   RealtimeVideoEncoderPreference,
   type RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * The pixel-area and bitrate reference points for 15 fps.

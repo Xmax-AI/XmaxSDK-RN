@@ -13,13 +13,14 @@ import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { monotonicTime } from '../../Foundation/Runtime/MonotonicTime';
 import type {
   MediaSize,
-  RealtimeNetworkQuality,
   RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimeVideoFormat';
+import type { RealtimeNetworkQuality } from '../../Service/Realtime/RealtimeNetworkQuality';
 
+import { QualityHistory } from './QualityHistory';
 import { QualityDirection } from './QualityDirection';
 import { qualityFormat, scales } from './QualityVideoFormat';
-import type { RealtimeQualityLevel } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeQualityLevel } from './RealtimeQualityLevel';
 
 /**
  * The controller for independent uplink and downlink quality, with one-hour per-model history.
@@ -37,9 +38,19 @@ export class QualityController implements QualityControlling {
   private down: QualityDirection | null = null;
 
   /**
-   * The model identifier isolating quality history.
+   * The current model's quality history; null disables history persistence.
    */
-  private model = '';
+  private history: QualityHistory | null = null;
+
+  /**
+   * Whether automatic adaptation and history persistence are enabled.
+   */
+  private adaptiveEnabled = true;
+
+  /**
+   * The model minimum uplink pixel area.
+   */
+  private minimumInputPixels = 0;
 
   /**
    * The revision used to reject late asynchronous results.
@@ -101,40 +112,34 @@ export class QualityController implements QualityControlling {
    *
    * @param baseline The original media format used as the transport baseline.
    * @param model The model identifier used to isolate quality history.
+   * @param minimumInputPixels The minimum uplink pixel area.
+   * @param isAdaptiveQualityEnabled Whether to restore history and adapt quality; defaults to true.
    */
   async prepare(
     baseline: RealtimeVideoFormat,
-    model: string
+    model: string,
+    minimumInputPixels = 0,
+    isAdaptiveQualityEnabled = true,
   ): Promise<void> {
     const version = ++this.version;
-    this.model = model;
+    const history = isAdaptiveQualityEnabled
+      ? new QualityHistory(
+        this.rtc,
+        model
+      )
+      : null;
+    this.history = history;
+    this.adaptiveEnabled = isAdaptiveQualityEnabled;
+    this.minimumInputPixels = minimumInputPixels;
     const levels = await Promise.all(
-      [false, true].map(async downlink => {
-        try {
-          const value = JSON.parse(
-            await this.rtc.readPreference(this.key(
-              model,
-              downlink
-            )),
-          );
-          const age = Date.now() - value.time;
-          return Number.isInteger(value.level) &&
-            value.level >= 1 &&
-            value.level <= 5 &&
-            age >= 0 &&
-            age < 3600000
-            ? (value.level as number)
-            : 2;
-        } catch {
-          return 2;
-        }
-      }),
+      [false, true].map(downlink => history?.read(downlink) ?? 1),
     );
     if (version !== this.version) return;
     this.up = new QualityDirection(
       baseline,
       levels[0]!,
-      false
+      false,
+      minimumInputPixels,
     );
     this.down = new QualityDirection(
       baseline,
@@ -166,6 +171,7 @@ export class QualityController implements QualityControlling {
      */
     downlink: number | null;
   } {
+    if (!this.adaptiveEnabled) return { uplink: null, downlink: null };
     const now = monotonicTime();
     return {
       uplink: this.up?.propose(
@@ -195,10 +201,11 @@ export class QualityController implements QualityControlling {
     const direction = downlink ? this.down : this.up;
     return direction
       ? qualityFormat(
-        direction.baseline,
-        level,
-        downlink
-      )
+          direction.baseline,
+          level,
+          downlink,
+          this.minimumInputPixels,
+        )
       : null;
   }
 
@@ -238,16 +245,10 @@ export class QualityController implements QualityControlling {
       success,
       monotonicTime()
     );
-    if (success)
-      void this.rtc
-        .writePreference(
-          this.key(
-            this.model,
-            downlink
-          ),
-          JSON.stringify({ level, time: Date.now() }),
-        )
-        .catch(() => {});
+    if (success) void this.history?.write(
+      level,
+      downlink
+    ).catch(() => {});
   }
 
   /**
@@ -265,18 +266,6 @@ export class QualityController implements QualityControlling {
     this.version++;
     this.up = null;
     this.down = null;
-  }
-
-  /**
-   * Creates a storage key isolated by model and transport direction.
-   *
-   * @param model The model identifier used to isolate quality history.
-   * @param downlink Whether to use the downlink policy.
-   */
-  private key(
-    model: string,
-    downlink: boolean
-  ): string {
-    return `quality.${model}.${downlink ? 'down' : 'up'}`;
+    this.history = null;
   }
 }

@@ -8,11 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  CameraStreamOptions,
-  RealtimeMediaStream,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { CameraStreamOptions } from '../../Core/Realtime/RealtimeOperationOptions';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * An interface for camera capture, format updates, and preview ownership.

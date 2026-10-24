@@ -20,13 +20,13 @@ import {
   RealtimeConnectionState,
   type RealtimeReason,
   type RealtimeState,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimeState';
 import type { RealtimeStateListener } from './XmaxRealtimeManaging';
 
 /**
  * The resources released when disconnecting or closing local media.
  */
-export type TerminationScope = 'connection' | 'all';
+export type TerminationScope = 'generation' | 'connection' | 'all';
 /**
  * Operation categories used to prevent overlapping resource changes.
  */
@@ -68,6 +68,16 @@ export interface RealtimeOperation {
 interface Operation {
 
   /**
+   * The replaceable generation request owning this operation, including condition updates.
+   */
+  request: GenerationRequest | null;
+
+  /**
+   * Whether this operation is a low-priority automatic quality update.
+   */
+  background: boolean;
+
+  /**
    * The operation category used for mutual exclusion.
    */
   kind: OperationKind;
@@ -101,6 +111,22 @@ interface Operation {
    * Whether this operation has published Preparing state.
    */
   preparationStarted: boolean;
+}
+
+/**
+ * A generation request's cancellation handle and resource-completion barrier.
+ */
+interface GenerationRequest {
+
+  /**
+   * The cancellation controller, retained while waiting for predecessor cleanup.
+   */
+  readonly controller: AbortController;
+
+  /**
+   * The barrier that settles after all work and required cleanup finish.
+   */
+  completion: Promise<void>;
 }
 
 /**
@@ -158,6 +184,26 @@ export class XmaxRealtimeLifecycleManager {
    * The currently admitted operation.
    */
   private operation: Operation | null = null;
+
+  /**
+   * The latest generation request, including a successor waiting for resource cleanup.
+   */
+  private generationRequest: GenerationRequest | null = null;
+
+  /**
+   * The completion barrier for an automatic quality update.
+   */
+  private backgroundCompletion: Promise<void> | null = null;
+
+  /**
+   * The number of foreground callers admitted or waiting for a background update.
+   */
+  private foregroundRequests = 0;
+
+  /**
+   * The revision cancelling foreground callers waiting across explicit termination.
+   */
+  private terminationVersion = 0;
 
   /**
    * The shared cleanup task.
@@ -233,7 +279,11 @@ export class XmaxRealtimeLifecycleManager {
    * Defers adaptation while an operation or cleanup is active.
    */
   get isBusy(): boolean {
-    return this.operation !== null || this.termination !== null;
+    return (
+      this.operation !== null ||
+      this.termination !== null ||
+      this.generationRequest !== null
+    );
   }
 
   /**
@@ -272,7 +322,8 @@ export class XmaxRealtimeLifecycleManager {
   }
 
   /**
-   * Rejects overlapping operations. Configuration validation failures preserve active generation.
+   * Admits exclusive operations and replaces pending generation with the latest request.
+   * Configuration validation failures preserve active generation.
    *
    * @param kind The operation's mutual-exclusion category.
    * @param action The work performed under this operation's cancellation and ownership lease.
@@ -286,13 +337,161 @@ export class XmaxRealtimeLifecycleManager {
     ) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
+    this.foregroundRequests++;
+    const revision = this.terminationVersion;
+    const completion =
+      kind === 'generation'
+        ? this.runGeneration(
+          action,
+          signal
+        )
+        : this.backgroundCompletion
+        ? this.backgroundCompletion.then(() => {
+            if (revision !== this.terminationVersion) throw cancelledError();
+            return this.runOperation(
+              kind,
+              action,
+              signal
+            );
+          })
+        : this.runOperation(
+          kind,
+          action,
+          signal
+        );
+    return completion.finally(() => {
+      this.foregroundRequests--;
+    });
+  }
+
+  /**
+   * Applies a low-priority quality update only while no foreground work is admitted or waiting.
+   *
+   * @param action The transport update guarded by its operation lease.
+   * @returns Whether the update was admitted and completed; failures reject after resource cleanup.
+   */
+  runBackground(
+    action: (
+      token: RealtimeOperation
+    ) => Promise<void>,
+  ): Promise<boolean> {
+    if (this.isBusy || this.foregroundRequests > 0)
+      return Promise.resolve(false);
+    const result = this.runOperation(
+      'configuration',
+      action,
+      undefined,
+      null,
+      true,
+    );
+    const barrier = result
+      .then(
+        () => {},
+        () => {},
+      )
+      .finally(() => {
+        if (this.backgroundCompletion === barrier)
+          this.backgroundCompletion = null;
+      });
+    this.backgroundCompletion = barrier;
+    return result.then(() => true);
+  }
+
+  /**
+   * Replaces pending generation and waits for predecessor work and resource cleanup.
+   *
+   * @param action The generation work guarded by its operation lease.
+   * @param signal The caller's cancellation signal.
+   * @returns The latest successful result; superseded requests reject with CANCELLED.
+   */
+  private runGeneration<T>(
+    action: (
+      token: RealtimeOperation
+    ) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     if (signal?.aborted) return Promise.reject(cancelledError());
-    if (this.operation || this.termination)
+    if (
+      (this.termination && !this.generationRequest) ||
+      (this.operation && !this.operation.request && !this.operation.background)
+    )
+      return Promise.reject(
+        invalid('Another realtime operation is in progress'),
+      );
+
+    const previous = this.generationRequest;
+    const request: GenerationRequest = {
+      controller: new AbortController(),
+      completion: Promise.resolve(),
+    };
+    const cancel = () => request.controller.abort();
+    signal?.addEventListener(
+      'abort',
+      cancel,
+      { once: true }
+    );
+    this.generationRequest = request;
+    const result = (async () => {
+      await previous?.completion;
+      await this.backgroundCompletion;
+      if (
+        request.controller.signal.aborted ||
+        this.generationRequest !== request
+      )
+        throw cancelledError();
+      return this.runOperation(
+        'generation',
+        action,
+        request.controller.signal,
+        request,
+      );
+    })().finally(() => {
+      if (this.generationRequest === request) this.generationRequest = null;
+      signal?.removeEventListener(
+        'abort',
+        cancel
+      );
+    });
+    request.completion = result.then(
+      () => {},
+      () => {},
+    );
+    previous?.controller.abort();
+    return result;
+  }
+
+  /**
+   * Executes one admitted operation without overlapping resource ownership.
+   *
+   * @param kind The mutual-exclusion category.
+   * @param action The work guarded by the operation lease.
+   * @param signal The operation cancellation signal.
+   * @param request The owning generation request, or null for other operations.
+   * @param background Whether the operation is an automatic quality update.
+   * @returns The completed operation result after any required cleanup.
+   */
+  private runOperation<T>(
+    kind: OperationKind,
+    action: (
+      token: RealtimeOperation
+    ) => Promise<T>,
+    signal?: AbortSignal,
+    request: GenerationRequest | null = null,
+    background = false,
+  ): Promise<T> {
+    if (signal?.aborted) return Promise.reject(cancelledError());
+    if (
+      this.operation ||
+      this.termination ||
+      (!request && this.generationRequest)
+    )
       return Promise.reject(
         invalid('Another realtime operation is in progress'),
       );
 
     const entry: Operation = {
+      request,
+      background,
       kind:
         kind === 'generation' &&
         this.state.connectionState === RealtimeConnectionState.generating
@@ -352,8 +551,18 @@ export class XmaxRealtimeLifecycleManager {
           entry.kind !== 'configuration' &&
           entry.failureScope
         ) {
-          await this.terminate(
-            entry.failureScope,
+          const replacement =
+            entry.request &&
+            this.generationRequest &&
+            entry.request !== this.generationRequest;
+          const scope =
+            aborted &&
+            replacement &&
+            this.state.connectionState === RealtimeConnectionState.connected
+              ? 'generation'
+              : entry.failureScope;
+          await this.requestTermination(
+            scope,
             failure.code === XmaxErrorCode.cancelled
               ? { type: 'normal' }
               : { type: 'failure', error: failure },
@@ -375,7 +584,10 @@ export class XmaxRealtimeLifecycleManager {
         if (failure.code !== XmaxErrorCode.cancelled)
           this.errorManager.report(
             failure,
-            'Realtime operation failed'
+            XmaxLogger.localized(
+              '实时操作失败',
+              'Realtime operation failed'
+            ),
           );
         throw entry.terminalError ?? failure;
       })
@@ -415,6 +627,7 @@ export class XmaxRealtimeLifecycleManager {
     reason: RealtimeReason = { type: 'normal' }
   ): Promise<void> {
     if (
+      !this.generationRequest &&
       !this.termination &&
       (!this.operation || this.operation.kind === 'media') &&
       [
@@ -442,6 +655,27 @@ export class XmaxRealtimeLifecycleManager {
     scope: TerminationScope,
     reason: RealtimeReason = { type: 'normal' },
   ): Promise<void> {
+    this.terminationVersion++;
+    this.generationRequest?.controller.abort();
+    this.generationRequest = null;
+    return this.requestTermination(
+      scope,
+      reason
+    );
+  }
+
+  /**
+   * Merges cleanup scopes while retaining any successor generation request.
+   *
+   * Completes after resource cleanup and final-state delivery.
+   *
+   * @param scope The generation, connection, or complete media scope to release.
+   * @param reason The final termination reason.
+   */
+  private requestTermination(
+    scope: TerminationScope,
+    reason: RealtimeReason,
+  ): Promise<void> {
     const existing = this.termination;
     if (existing) {
       // Late room errors must not replace a user-initiated termination reason.
@@ -453,13 +687,16 @@ export class XmaxRealtimeLifecycleManager {
         existing.reason = reason;
         if (existing.operation) existing.operation.terminalError = reason.error;
       }
-      if (scope === 'all' && existing.scope !== 'all') {
-        existing.scope = 'all';
+      if (
+        (scope === 'all' && existing.scope !== 'all') ||
+        (scope === 'connection' && existing.scope === 'generation')
+      ) {
+        existing.scope = scope;
         if (existing.operation) {
           existing.operation.termination = existing.completion;
           existing.operation.controller.abort();
         }
-        this.pauseCapture();
+        if (scope === 'all') this.pauseCapture();
       }
       return existing.completion;
     }
@@ -482,7 +719,10 @@ export class XmaxRealtimeLifecycleManager {
           const failure = XmaxError.from(error);
           this.errorManager.report(
             failure,
-            'Realtime cleanup failed'
+            XmaxLogger.localized(
+              '实时资源清理失败',
+              'Realtime cleanup failed'
+            ),
           );
           if (pending.reason.type !== 'failure')
             pending.reason = { type: 'failure', error: failure };
@@ -490,15 +730,19 @@ export class XmaxRealtimeLifecycleManager {
       } while (pending.scope !== cleanedScope);
       const next: RealtimeState = {
         connectionState:
-          pending.scope === 'all' || !this.hasLocalMedia()
+          pending.scope === 'generation'
+            ? RealtimeConnectionState.connected
+            : pending.scope === 'all' || !this.hasLocalMedia()
             ? RealtimeConnectionState.idle
             : RealtimeConnectionState.ready,
         sessionID: this.lastSessionID() ?? pending.sessionID,
         taskID: null,
-        reason: pending.reason,
+        reason: pending.scope === 'generation' ? null : pending.reason,
       };
       // Release admission before notification so a final-state listener can start new work.
       if (this.operation === pending.operation) this.operation = null;
+      if (this.generationRequest === pending.operation?.request)
+        this.generationRequest = null;
       this.termination = null;
       this.setState(next);
     });
@@ -511,12 +755,13 @@ export class XmaxRealtimeLifecycleManager {
         reason.type === 'failure' ? reason.error : null;
       pending.operation.controller.abort();
     }
-    this.setState({
-      ...this.state,
-      connectionState: RealtimeConnectionState.disconnecting,
-      taskID: null,
-      reason: null,
-    });
+    if (scope !== 'generation')
+      this.setState({
+        ...this.state,
+        connectionState: RealtimeConnectionState.disconnecting,
+        taskID: null,
+        reason: null,
+      });
     if (scope === 'all') this.pauseCapture();
     return pending.completion;
   }
@@ -529,7 +774,10 @@ export class XmaxRealtimeLifecycleManager {
       this.pauseLocalCapture();
     } catch {
       XmaxLogger.realtime.warn(
-        'Unable to pause local capture during termination',
+        XmaxLogger.localized(
+          '终止时无法暂停本地采集',
+          'Unable to pause local capture during termination',
+        ),
       );
     }
   }
@@ -555,7 +803,10 @@ export class XmaxRealtimeLifecycleManager {
       reason: state.reason ? Object.freeze({ ...state.reason }) : null,
     });
     XmaxLogger.realtime.info(
-      () => `Connection State: ${state.connectionState}`,
+      () =>
+        `${XmaxLogger.localized('连接状态：', 'Connection State: ')}${
+          state.connectionState
+        }`,
     );
     this.notify(this.listener);
   }
@@ -571,7 +822,12 @@ export class XmaxRealtimeLifecycleManager {
     try {
       listener?.(this.state);
     } catch {
-      XmaxLogger.realtime.warn('Host listener threw an exception');
+      XmaxLogger.realtime.warn(
+        XmaxLogger.localized(
+          '应用监听器抛出异常',
+          'Host listener threw an exception',
+        ),
+      );
     }
   }
 }

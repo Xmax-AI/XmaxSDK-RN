@@ -167,9 +167,10 @@ function screenFixture(t, options = {}) {
   let cleanup = null;
   const cancelled = () => ({ code: 'CANCELLED' });
   const manager = {
-    currentCameraPreset: options.fileURL ? null : '1080x1920',
+    currentCameraPreset: null,
+    currentCameraVideoFormat: options.fileURL ? null : { width: 1024, height: 1920, fps: 30 },
     uplinkQualityLevel: null, downlinkQualityLevel: null,
-    async updateCameraFormat(preset) { manager.currentCameraPreset = preset; },
+    async updateCameraFormat(format) { manager.currentCameraVideoFormat = format; },
     async setUplinkQualityLevel(level) { manager.uplinkQualityLevel = level; },
     async setDownlinkQualityLevel(level) { manager.downlinkQualityLevel = level; },
     currentState: { connectionState: options.preparing ? 'preparing' : 'ready', reason: null },
@@ -178,7 +179,7 @@ function screenFixture(t, options = {}) {
     setDownlinkVideoStatisticsListener: async () => {},
     createLocalCameraStream: async () => { previews++; return { videoTrack: localTrack }; },
     createLocalImageStream: async () => { previews++; return { videoTrack: localTrack }; },
-    async startGeneration({ context, signal }) {
+    async _startGeneration({ context, signal }) {
       const updating = manager.currentState.connectionState === 'generating';
       try {
         if (updating && options.failUpdate) throw { code: 'RTC_ERROR', message: 'Update failed' };
@@ -201,11 +202,11 @@ function screenFixture(t, options = {}) {
         manager.currentState = { connectionState: 'generating' };
         return { videoTrack: remoteTrack };
       } catch (error) {
-        if (!updating) await manager.disconnect();
+        if (!updating) await manager._disconnect();
         throw error;
       }
     },
-    disconnect() {
+    _disconnect() {
       if (cleanup) return cleanup;
       if (manager.currentState.connectionState === 'ready') return Promise.resolve();
       stops++;
@@ -213,6 +214,33 @@ function screenFixture(t, options = {}) {
       return cleanup;
     },
     close: async () => { closes++; },
+  };
+  // Simulate the SDK's public replacement/cancellation contract at the UI boundary.
+  // Resource and publication races are exercised against the real SDK in camera.test.cjs.
+  let request = null;
+  manager.startGeneration = options => {
+    const previous = request;
+    const current = { controller: new AbortController(), completion: Promise.resolve() };
+    request = current;
+    const result = (async () => {
+      await previous?.completion;
+      if (current.controller.signal.aborted) throw cancelled();
+      return manager._startGeneration({ ...options, signal: current.controller.signal });
+    })().finally(() => { if (request === current) request = null; });
+    current.completion = result.catch(() => {});
+    previous?.controller.abort();
+    return result;
+  };
+  manager.disconnect = () => {
+    request?.controller.abort();
+    request = null;
+    return manager._disconnect();
+  };
+  manager.close = () => {
+    closes++;
+    request?.controller.abort();
+    request = null;
+    return manager._disconnect();
   };
   const { RealtimeScreen: Screen } = load('screens/RealtimeScreen.tsx', h.react, {
     '../realtime/RealtimeGenerationOperations': load('realtime/RealtimeGenerationOperations.ts', {}),
@@ -223,7 +251,7 @@ function screenFixture(t, options = {}) {
       RealtimeCameraPreset: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeCameraPreset,
       XmaxLoggerOption: { all: 3 },
       XmaxClient: class { createRealtimeManager({ model }) { models.push(model); return manager; } createStorageManager() { return {}; } },
-      XmaxRealtimeVideo: 'Video', RealtimeModel: { x2_1: 'x2.1' }, VideoContentMode: { fit: 'fit', fill: 'fill' },
+      XmaxRealtimeVideo: 'Video', RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, realtimeModelSpecifications: require('../lib/commonjs/Service/Realtime/RealtimeTypes').realtimeModelSpecifications, VideoContentMode: { fit: 'fit', fill: 'fill' },
       RealtimeConnectionState: { idle: 'idle', connecting: 'connecting', connected: 'connected',
         generating: 'generating', preparing: 'preparing', ready: 'ready' },
       XmaxError: { from: value => value },
@@ -536,7 +564,7 @@ test('switching from touch preparation to a reference aborts the upload and igno
   assert.equal(uploadSignal.aborted, true);
   f.disconnect.resolve();
   await tick();
-  assert.equal(f.counts().connects, 0, 'Wait for the owned temporary upload to unwind');
+  assert.equal(f.counts().connects, 1, 'Independent reference generation is submitted without waiting for an obsolete upload');
   uploaded.resolve('obsolete-touch.jpg');
   f.connect.resolve({ videoTrack: f.remoteTrack });
   f.start.resolve();
@@ -672,7 +700,7 @@ test('storage selection, progress, safety errors and results follow the current 
 
 test('endpoint selection drives credentials and backend routing for every feature route', () => {
   const configuration = { keys: { china: 'cn-fixture', global: 'global-fixture' },
-    endpoint: 'global', model: 'x2.1', language: 'en', loaded: true,
+    endpoint: 'global', model: 'x2.1.1-preview-cn', language: 'en', loaded: true,
     minBitrate: '', maxBitrate: '', downMinBitrate: '', downMaxBitrate: '' };
   const writes = [], routes = [];
   const context = { configuration, store: { setKey: (...args) => writes.push(args),
@@ -698,15 +726,15 @@ test('endpoint selection drives credentials and backend routing for every featur
   assert.equal(feed.configuration.endpoint, 'global');
   feed.onAPIKeyChange('new-global');
   assert.deepEqual(writes.at(-1), ['global', 'new-global']);
-  feed.onModelChange('x2.1');
-  assert.equal(configuration.model, 'x2.1');
-  feed.onModelChange('x2.1');
+  feed.onModelChange('x2.1.1-preview-cn');
+  assert.equal(configuration.model, 'x2.1.1-preview-cn');
+  feed.onModelChange('x2.1.1-preview-cn');
   feed.onCamera('global-fixture', 'global');
-  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1', bitrate: null }]);
+  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1.1-preview-cn', bitrate: null }]);
   for (const name of ['Camera', 'Image', 'Storage']) {
-    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1', bitrate: null } }, navigation }).props;
+    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1.1-preview-cn', bitrate: null } }, navigation }).props;
     if (name !== 'Storage') {
-      assert.equal(props.model, 'x2.1');
+      assert.equal(props.model, 'x2.1.1-preview-cn');
       assert.equal(props.entryReady, false, 'Media routes forward native transition readiness');
     }
     assert.equal(props.environment, 'global');
@@ -770,13 +798,13 @@ test('all home feature entries require the current endpoint key before navigatio
   const draw = () => h.render(FeedScreen, props);
   for (const language of ['en', 'zh-Hans']) {
     locale = language;
-    const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1');
-    assert(preview, 'X2.1 must have its own model entry');
-    assert(find(draw(), node => node.props?.children === 'RealtimeModel.x2_1'));
+    const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1.1-PREVIEW-CN');
+    assert(preview, 'China preview must have its own model entry');
+    assert(find(draw(), node => node.props?.children === 'RealtimeModel.x2_1_1_preview_cn'));
     assert(!find(draw(), node => node.props?.accessibilityLabel === 'X2.0-PRO'), 'X2.0 Pro must not appear in the model list');
     preview.props.onPress();
-    assert.equal(configuration.model, 'x2.1');
-    assert.equal(find(draw(), node => node.props?.accessibilityLabel === 'X2.1').props.accessibilityState.checked, true);
+    assert.equal(configuration.model, 'x2.1.1-preview-cn');
+    assert.equal(find(draw(), node => node.props?.accessibilityLabel === 'X2.1.1-PREVIEW-CN').props.accessibilityState.checked, true);
   }
   const press = target => {
     const tree = draw();
@@ -838,7 +866,7 @@ test('image input opens on touch animation without automatically generating; cam
 });
 
 
-for (const model of ['x2.1', 'x2.1']) {
+for (const model of ['x2.1.1-preview-cn', 'x2.1.1-preview-us']) {
 test(`XLab initializes camera and image managers with the route-selected ${model}`, async t => {
   const camera = screenFixture(t, { model });
   const image = screenFixture(t, { model, fileURL: 'file:///image.jpg' });
@@ -1044,26 +1072,23 @@ test('storage selection retains native error explanations and falls back only wh
   }
 });
 
-test('XLab camera preset menu updates the existing preview and uses fit for square and 3:4 formats', async t => {
+test('XLab offers current model formats and updates preview without replacing its track', async t => {
   const screen = screenFixture(t);
   await tick();
   const menu = () => find(screen.draw(), node => node.props?.accessibilityLabel === '分辨率');
   screen.state({ connectionState: 'ready' });
   assert.equal(menu().props.disabled, false);
   menu().props.onPress();
-  const square = find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1408 × 1408'));
-  assert(square, 'All model camera presets are offered');
+  const landscape = find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1920 × 1024'));
+  assert(landscape);
+  assert(!find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1408 × 1408')));
   const track = screen.props('Video').localTrack, before = screen.counts();
-  square.props.onPress();
+  landscape.props.onPress();
   await tick();
-  assert.equal(screen.manager.currentCameraPreset, '1408x1408');
+  assert.deepEqual(screen.manager.currentCameraVideoFormat, { width: 1920, height: 1024, fps: 30 });
   assert.equal(screen.props('Video').videoContentMode, 'fit');
   assert.equal(screen.props('Video').localTrack, track);
   assert.deepEqual(screen.counts(), before);
-  menu().props.onPress();
-  find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1152 × 1536')).props.onPress();
-  await tick();
-  assert.equal(screen.props('Video').videoContentMode, 'fit');
   screen.state({ connectionState: 'connected' });
   assert.equal(menu().props.disabled, true);
 });

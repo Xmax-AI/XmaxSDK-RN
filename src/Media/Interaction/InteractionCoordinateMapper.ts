@@ -8,10 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import {
-  VideoContentMode,
-  type MediaSize,
-} from '../../Service/Realtime/RealtimeTypes';
+import { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
+import type { MediaSize } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * A touch position in the viewport or normalized media coordinate space specified by its sample

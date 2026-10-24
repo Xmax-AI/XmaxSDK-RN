@@ -8,10 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  ImageStreamOptions,
-  RealtimeMediaStream,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { ImageStreamOptions } from '../../Core/Realtime/RealtimeOperationOptions';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
 
 /**
  * An interface for image preparation, repeated frame delivery, and cleanup.

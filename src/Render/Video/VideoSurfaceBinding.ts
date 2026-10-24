@@ -10,7 +10,7 @@
 
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import type { RemoteStream } from '../../Foundation/RTC/RemoteStream';
-import type { VideoContentMode } from '../../Service/Realtime/RealtimeTypes';
+import type { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
 import type { VideoRenderBinding } from './VideoRenderBinding';
 
 /**
@@ -134,7 +134,12 @@ export class VideoSurfaceBinding {
     const failed = (error: unknown) => {
       if (!this.active || revision !== this.revision) return;
       this.record.onBindingFailure?.(error);
-      XmaxLogger.render.error('Video canvas binding failed');
+      XmaxLogger.render.error(
+        XmaxLogger.localized(
+          '视频画布绑定失败',
+          'Video canvas binding failed'
+        ),
+      );
       this.mode = null;
       this.bound = false;
       this.refresh();

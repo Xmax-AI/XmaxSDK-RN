@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
 import { RtcManager } from '../../Foundation/RTC/RtcManager';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { ImageManager } from '../../Foundation/Media/ImageManager';
@@ -27,11 +28,9 @@ import { MediaService } from '../../Service/Media/MediaService';
 import type { MediaServicing } from '../../Service/Media/MediaServicing';
 import { ApiService } from '../../Service/Network/ApiService';
 import { RealtimeSessionService } from '../../Service/Realtime/RealtimeSessionService';
-import type { RealtimeConfiguration } from '../../Service/Realtime/RealtimeTypes';
-import {
-  realtimeAPIBaseURL,
-  type XmaxConfiguration,
-} from '../XmaxConfiguration';
+import type { RealtimeConfiguration } from './RealtimeConfiguration';
+import { realtimeAPIBaseURL } from '../XmaxEnvironment';
+import type { XmaxConfiguration } from '../XmaxConfiguration';
 import { XmaxRealtimeConnectionManager } from './XmaxRealtimeConnectionManager';
 import { XmaxRealtimeGenerationManager } from './XmaxRealtimeGenerationManager';
 import { XmaxRealtimeErrorManager } from './XmaxRealtimeErrorManager';
@@ -44,6 +43,11 @@ import {
  * The dependencies shared by a realtime facade and its lifecycle manager.
  */
 export interface XmaxRealtimeDependencies {
+
+  /**
+   * The shared generation startup timer; omission disables component-level timing.
+   */
+  readonly timing?: RealtimeTiming;
 
   /**
    * The manager owning the server session and RTC connection.
@@ -113,10 +117,14 @@ export class XmaxRealtimeFactory {
     configuration: Readonly<Required<XmaxConfiguration>>,
     options: RealtimeConfiguration,
   ): XmaxRealtimeComponents {
+    const timing = new RealtimeTiming();
     const rtcManager = new RtcManager();
     const errorManager = new XmaxRealtimeErrorManager();
     const mediaService = new MediaService(options.model);
-    const roomController = new RoomController(rtcManager);
+    const roomController = new RoomController(
+      rtcManager,
+      timing
+    );
     const interactionController = new InteractionController((taskID, points) =>
       roomController.sendTracks(
         taskID,
@@ -147,6 +155,7 @@ export class XmaxRealtimeFactory {
       roomController,
       new EncodingController(rtcManager),
       new QualityController(rtcManager),
+      timing,
     );
     const generationManager = new XmaxRealtimeGenerationManager(
       rtcManager,
@@ -164,9 +173,11 @@ export class XmaxRealtimeFactory {
       ),
       roomController,
       renderController,
+      timing,
     );
 
     return this.assemble({
+      timing,
       connectionManager,
       generationManager,
       errorManager,
@@ -220,6 +231,15 @@ export class XmaxRealtimeFactory {
       return completion;
     };
     const cleanup = async (scope: TerminationScope): Promise<void> => {
+      if (scope === 'generation') {
+        const remote = connectionManager.remoteStream;
+        if (remote) renderController.setRemoteStream(
+          remote,
+          null
+        );
+        await generationManager.stop();
+        return;
+      }
       if (scope === 'connection') return disconnect();
 
       let stopFailure: unknown;
@@ -268,6 +288,7 @@ export class XmaxRealtimeFactory {
     });
     errorManager.setFailureHandler((error, target, isCurrent) => {
       if (!isCurrent()) return;
+      dependencies.timing?.finishFailure(error);
       mediaController.stopInteraction();
       void lifecycleManager.terminate(
         target,

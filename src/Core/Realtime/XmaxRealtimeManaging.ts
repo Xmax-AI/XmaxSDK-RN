@@ -8,23 +8,27 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeConfiguration } from './RealtimeConfiguration';
+import type { RealtimeCameraPreset } from '../../Service/Realtime/RealtimeCameraPreset';
+import type { RealtimeQualityLevel } from '../../Stream/Quality/RealtimeQualityLevel';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import type {
-  RealtimeConfiguration,
-  RealtimeCameraPreset,
-  RealtimeQualityLevel,
-  RealtimeVideoFormat,
   RealtimeState,
   RealtimeReason,
+} from '../../Service/Realtime/RealtimeState';
+import type {
   RealtimeOperationOptions,
-  RealtimeMediaStream,
   CameraStreamOptions,
   ImageStreamOptions,
-  RealtimeContext,
-  RealtimeNetworkQuality,
-  RealtimePerformanceAlarm,
+} from './RealtimeOperationOptions';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
+import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
+import type { RealtimeNetworkQuality } from '../../Service/Realtime/RealtimeNetworkQuality';
+import type { RealtimePerformanceAlarm } from '../../Service/Realtime/RealtimePerformanceAlarm';
+import type {
   UplinkVideoStatistics,
   DownlinkVideoStatistics,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Foundation/RTC/VideoStatistics';
 
 /**
  * A handler that receives the current state on registration and subsequent changes.
@@ -128,7 +132,7 @@ export interface XmaxRealtimeManaging {
   ): Promise<void>;
 
   /**
-   * Changes uplink encoding quality during generation. Automatic adaptation remains enabled;
+   * Changes uplink encoding quality during generation. The configured adaptation policy is unchanged;
    * failure retains the prior level.
    *
    * @param level The requested uplink quality level, from l1 to l5.
@@ -361,6 +365,9 @@ export interface XmaxRealtimeManaging {
    * successful conditions; disconnect and close clear that cache. This overload returns the result
    * stream.
    *
+   * A newer call to either overload replaces an unfinished generation request. The replaced call
+   * rejects with CANCELLED after required cleanup. Requests do not replace other operation kinds.
+   *
    * @param options The local stream, generation conditions, face restoration, and cancellation
    *   settings.
    * @returns The manager-owned result stream after task confirmation.
@@ -388,8 +395,9 @@ export interface XmaxRealtimeManaging {
   /**
    * Starts generation or updates conditions on an existing connection.
    *
-   * New tasks wait for the result account to publish in the target room. Updates reuse the task and
-   * complete after signal submission.
+   * Uses the same request-replacement behavior as the localStream overload. New tasks wait for the
+   * result account to publish in the target room. Updates reuse the task and complete after signal
+   * submission.
    *
    * @param options The generation conditions, face restoration, and cancellation settings.
    */

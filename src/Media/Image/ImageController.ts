@@ -16,12 +16,10 @@ import { ensureActive } from '../../Foundation/Runtime/Async';
 import { invalid } from '../../Foundation/Errors/XmaxError';
 import type { RenderControlling } from '../../Render/RenderControlling';
 
-import {
-  realtimeModelSpecifications,
-  RealtimeMediaSource,
-  type ImageStreamOptions,
-  type RealtimeMediaStream,
-} from '../../Service/Realtime/RealtimeTypes';
+import { realtimeModelSpecifications } from '../../Service/Realtime/RealtimeModel';
+import { RealtimeMediaSource } from '../../Service/Media/RealtimeMediaSource';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
+import type { ImageStreamOptions } from '../../Core/Realtime/RealtimeOperationOptions';
 import { EncodingController } from '../../Stream/Encoding/EncodingController';
 
 /**

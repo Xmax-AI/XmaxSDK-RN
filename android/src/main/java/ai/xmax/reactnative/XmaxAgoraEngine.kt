@@ -141,6 +141,25 @@ internal class XmaxAgoraEngine(
           }
 
           /**
+           * Reports successful local video publication for startup timing.
+           *
+           * @param source The local video source being published.
+           * @param channel The channel containing the publication.
+           * @param oldState The previous publication state.
+           * @param newState The current publication state; 3 indicates successful publication.
+           * @param elapseSinceLastState The transition interval, in milliseconds.
+           */
+          override fun onVideoPublishStateChanged(
+            source: Constants.VideoSourceType?,
+            channel: String?,
+            oldState: Int,
+            newState: Int,
+            elapseSinceLastState: Int
+          ) {
+            if (!closed && channel == roomID && newState == 3) event("localPublished")
+          }
+
+          /**
            * Reports the string account associated with a remote numeric UID.
            *
            * @param uid The numeric RTC user identifier, mapped to a string account before

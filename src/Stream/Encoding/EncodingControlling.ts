@@ -8,7 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * An interface for applying RTC video encoding settings.

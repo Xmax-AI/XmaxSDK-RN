@@ -9,11 +9,11 @@
 //
 
 import type { InteractionPoint } from '../../Media/Interaction/InteractionCoordinateMapper';
+import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
 import type {
-  RealtimeContext,
   RealtimeVideoFormat,
   MediaSize,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimeVideoFormat';
 import type { RuntimeInfo } from '../../Foundation/Runtime/RuntimeInfo';
 import { resolveBitrates } from '../Encoding/EncodingBitratePolicy';
 import { invalid } from '../../Foundation/Errors/XmaxError';

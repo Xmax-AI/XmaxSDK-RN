@@ -195,9 +195,20 @@ export class StorageService implements StorageServicing {
       ) => void,
     ) => Promise<T>,
   ): Promise<T> {
-    const action = code === XmaxErrorCode.uploadError ? 'Upload' : 'Download';
+    const action = () =>
+      code === XmaxErrorCode.uploadError
+        ? XmaxLogger.localized(
+          '上传',
+          'Upload'
+        )
+        : XmaxLogger.localized(
+          '下载',
+          'Download'
+        );
     const started = this.now();
-    XmaxLogger.storage.info(`${action} started`);
+    XmaxLogger.storage.info(
+      `${action()}${XmaxLogger.localized('开始', ' started')}`,
+    );
 
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -228,20 +239,26 @@ export class StorageService implements StorageServicing {
           try {
             options.progress?.(value);
           } catch {
-            XmaxLogger.storage.warn('Progress listener threw an exception');
+            XmaxLogger.storage.warn(
+              XmaxLogger.localized(
+                '进度监听器抛出异常',
+                'Progress listener threw an exception',
+              ),
+            );
           }
         }
       );
 
       XmaxLogger.storage.info(
-        () => `${action} completed in ${this.now() - started} ms`,
+        () =>
+          `${action()}${XmaxLogger.localized('完成，耗时：', ' completed in ')}${this.now() - started} ms`,
       );
 
       return result;
     } catch (error) {
       XmaxLogger.storage.error(
         () =>
-          `${action} failed: ${
+          `${action()}${XmaxLogger.localized('失败：', ' failed: ')}${
             controller.signal.aborted
               ? timedOut
                 ? XmaxErrorCode.timeout

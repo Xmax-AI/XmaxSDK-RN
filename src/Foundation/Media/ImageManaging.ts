@@ -8,7 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { MediaSize } from '../../Service/Realtime/RealtimeTypes';
+import type { MediaSize } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * An interface for image metadata, private prepared copies, and copy cleanup.

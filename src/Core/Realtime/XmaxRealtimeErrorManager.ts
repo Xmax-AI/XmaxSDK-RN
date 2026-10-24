@@ -64,6 +64,7 @@ export class XmaxRealtimeErrorManager {
   invalidatePendingFailures(
     target: TerminationScope = 'all'
   ): void {
+    if (target === 'generation') return;
     this.connectionRevision++;
     if (target === 'all') this.mediaRevision++;
   }
@@ -104,7 +105,10 @@ export class XmaxRealtimeErrorManager {
    */
   report(
     error: unknown,
-    context = 'Realtime service error'
+    context = XmaxLogger.localized(
+      '实时服务错误',
+      'Realtime service error'
+    ),
   ): void {
     const failure = XmaxError.from(error);
     XmaxLogger.realtime.error(() => `${context}: ${failure.code}`);

@@ -5,7 +5,10 @@ import type { XLabLanguage } from '../localization/Localization';
 export type XLabApiEndpoint = 'china' | 'global';
 
 /** Models offered by XLab; persisted selections outside this list fall back to the default. */
-export const xlabModels: readonly RealtimeModel[] = [RealtimeModel.x2_1];
+export const xlabModels: readonly RealtimeModel[] = [
+  RealtimeModel.x2_1_1_preview_cn,
+  RealtimeModel.x2_1_1_preview_us,
+];
 
 /** Maps an endpoint to the SDK environment used when creating clients. */
 export function environmentForEndpoint(
@@ -66,7 +69,7 @@ export class ConfigurationStore {
     keys: { china: '', global: '' },
     endpoint: 'china',
     language: 'system',
-    model: RealtimeModel.x2_1,
+    model: RealtimeModel.x2_1_1_preview_cn,
     minBitrate: '',
     maxBitrate: '',
     loaded: false,
@@ -121,16 +124,18 @@ export class ConfigurationStore {
           this.storage.read('maxBitrate'),
         ]);
 
-        const selectedModel =
-          xlabModels.find(supported => supported === model) ??
-          RealtimeModel.x2_1;
-        // Preserve an explicit environment; old regional model values only supply a missing environment.
+        // Explicit environment remains authoritative, including older regional model selections.
         const selectedEndpoint =
           endpoint === 'global' || endpoint === 'china'
             ? endpoint
-            : model === 'x2.1.1-preview-us'
+            : model === RealtimeModel.x2_1_1_preview_us
             ? 'global'
             : 'china';
+        const selectedModel =
+          xlabModels.find(supported => supported === model) ??
+          (selectedEndpoint === 'global'
+            ? RealtimeModel.x2_1_1_preview_us
+            : RealtimeModel.x2_1_1_preview_cn);
         this.publish({
           keys: { china: china ?? '', global: global ?? '' },
           endpoint: selectedEndpoint,

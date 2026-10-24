@@ -270,7 +270,7 @@ const client = new XmaxClient({
 });
 
 const realtime = client.createRealtimeManager({
-  model: RealtimeModel.x2_1,
+  model: RealtimeModel.x2_1_1_preview_us,
 });
 
 const localStream = await realtime.createLocalCameraStream({
@@ -293,20 +293,35 @@ await realtime.startGeneration({
 The view shows local preview until remote generation is ready, with touch
 interaction enabled by default.
 
-Use `RealtimeModel.x2_1` in either region; `XmaxEnvironment` selects the
-realtime and storage backends.
-Camera input defaults to 1080 × 1920 at 30 fps. `RealtimeCameraPreset` also offers
-1920 × 1080, 1408 × 1408, 1152 × 1536 and 1536 × 1152. Pass `preset` when creating
-a camera stream, or call `updateCameraFormat(preset)` while the camera preview
-is Ready and disconnected. The existing stream and track are preserved.
-Images retain their aspect ratio, independently of the model's generation canvas.
+Select `RealtimeModel.x2_1_1_preview_cn` or `RealtimeModel.x2_1_1_preview_us`.
+`XmaxEnvironment` independently selects the realtime and storage backends.
+Both models support camera formats of 1024 × 1920 and 1920 × 1024 at 30 fps;
+portrait is the default. Read `realtimeModelSpecifications[model].supportedVideoFormats`
+and pass `videoFormat` when creating a camera stream, or call
+`updateCameraFormat(format)` while the camera preview is Ready and disconnected.
+The existing stream and track are preserved. Preset availability depends on the model;
+these formats have no corresponding `RealtimeCameraPreset` cases.
+Images retain their aspect ratio where alignment permits and are scaled to fit
+200,000–2,100,000 pixels, with dimensions aligned to 4 pixels. The generation canvas
+is selected separately from the model's supported formats.
 Network adaptation adjusts upload encoding and return-video dimensions automatically.
-During generation, `setUplinkQualityLevel()` and `setDownlinkQualityLevel()` accept
-`RealtimeQualityLevel.l1` through `.l5`; automatic adaptation remains enabled.
+Set `isAdaptiveQualityEnabled: false` in `createRealtimeManager()` to start at L1
+without automatic adaptation or quality history. During generation,
+`setUplinkQualityLevel()` and `setDownlinkQualityLevel()` accept
+`RealtimeQualityLevel.l1` through `.l5` without changing the configured adaptation policy.
 Read `uplinkQualityLevel` and `downlinkQualityLevel` for the acknowledged tiers.
 The default upload minimum bitrate is 500 kbps, capped by the maximum bitrate;
 an explicit `minimumBitrate: 0` is preserved.
 Pass `faceRestoration: true` to `startGeneration()` to restore the source face.
+
+A new `startGeneration()` call replaces an unfinished generation request after
+required cleanup. The replaced Promise rejects with `XmaxErrorCode.cancelled`.
+`disconnect()` and `close()` cancel pending generation as well.
+
+Logging is disabled by default. Set `loggerOptions` to `XmaxLoggerOption.business`,
+`.performance`, or `.all` for native OSLog/Logcat output. Performance logs include
+observed startup stages. The most recently created client controls log options and
+detail language globally: Chinese for China, English for global.
 
 Keep the client and manager stable for the screen's lifetime.
 

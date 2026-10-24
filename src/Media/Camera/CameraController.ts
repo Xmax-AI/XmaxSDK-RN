@@ -17,14 +17,12 @@ import { ensureActive, abortable } from '../../Foundation/Runtime/Async';
 import { invalid } from '../../Foundation/Errors/XmaxError';
 
 import { refreshBinding } from '../../Render/Video/VideoRenderRegistry';
-import {
-  CameraPosition,
-  realtimeModelSpecifications,
-  RealtimeMediaSource,
-  type CameraStreamOptions,
-  type RealtimeMediaStream,
-  type RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import { CameraPosition } from '../../Foundation/Media/Camera/CameraPosition';
+import { realtimeModelSpecifications } from '../../Service/Realtime/RealtimeModel';
+import { RealtimeMediaSource } from '../../Service/Media/RealtimeMediaSource';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
+import type { CameraStreamOptions } from '../../Core/Realtime/RealtimeOperationOptions';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import { EncodingController } from '../../Stream/Encoding/EncodingController';
 import { validateVideoFormat } from '../../Stream/Encoding/EncodingBitratePolicy';
 

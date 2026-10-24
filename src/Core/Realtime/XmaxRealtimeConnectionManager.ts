@@ -8,15 +8,14 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
 import type { RoomControlling } from '../../Stream/Room/RoomControlling';
 import type { RenderControlling } from '../../Render/RenderControlling';
 import type { RealtimeSessionServicing } from '../../Service/Realtime/RealtimeSessionServicing';
 import type { RealtimeSession } from '../../Service/Realtime/RealtimeSession';
-import type {
-  RealtimeModel,
-  RealtimeVideoFormat,
-  RealtimeMediaStream,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeModel } from '../../Service/Realtime/RealtimeModel';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
+import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
 
 import { ensureActive, repeatHeartbeat } from '../../Foundation/Runtime/Async';
 
@@ -65,6 +64,11 @@ export class XmaxRealtimeConnectionManager {
      * The render controller for stream and video-track bindings.
      */
     private readonly render: RenderControlling,
+
+    /**
+     * The shared generation startup measurement.
+     */
+    private readonly timing?: RealtimeTiming,
   ) {}
 
   /**
@@ -89,10 +93,12 @@ export class XmaxRealtimeConnectionManager {
   ): Promise<RealtimeMediaStream> {
     this.lastSessionID = null;
     // Cancel transport and reclaim any session allocated by a response that completes first.
+    this.timing?.beginSessionCreation();
     const session = await this.service.createSession(
       model,
       signal
     );
+    this.timing?.finishSessionCreation();
     this.lastSessionID = session.id;
 
     try {

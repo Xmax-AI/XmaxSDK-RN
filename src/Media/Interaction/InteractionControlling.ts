@@ -8,7 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import type { InteractionFrame } from './InteractionCoordinateMapper';
 
 /**

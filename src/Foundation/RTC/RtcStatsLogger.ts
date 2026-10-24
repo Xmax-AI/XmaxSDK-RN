@@ -8,12 +8,12 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import { XmaxLoggerOption } from '../../Core/XmaxConfiguration';
+import { XmaxLoggerOption } from '../Logging/XmaxLoggerOption';
 import type {
   UplinkVideoStatistics,
   DownlinkVideoStatistics,
-  RealtimePerformanceAlarm,
-} from '../../Service/Realtime/RealtimeTypes';
+} from './VideoStatistics';
+import type { RealtimePerformanceAlarm } from '../../Service/Realtime/RealtimePerformanceAlarm';
 import { XmaxLogger } from '../Logging/XmaxLogger';
 
 /**
@@ -26,7 +26,12 @@ const number = (
   value: number | null,
   unit = ''
 ) =>
-  value === null ? 'unavailable' : `${value}${unit}`;
+  value === null
+    ? XmaxLogger.localized(
+      '不可用',
+      'unavailable'
+    )
+    : `${value}${unit}`;
 
 /**
  * Formats RTC statistics for Xmax logs.
@@ -43,9 +48,9 @@ export class RtcStatsLogger {
   ): void {
     XmaxLogger.rtc.debug(
       () =>
-        `Local video uplink: ${number(stats.width)} × ${number(stats.height)}, ` +
-        `capture ${number(stats.captureFrameRate, ' fps')}, encode ${number(stats.encodeFrameRate, ' fps')}, ` +
-        `send ${number(stats.sendFrameRate, ' fps')}, ${number(stats.bitrateKbps, ' kbps')}, loss ${number(stats.packetLossPercent, '%')}`,
+        `${XmaxLogger.localized('本地视频上行：', 'Local video uplink: ')}${number(stats.width)} × ${number(stats.height)}, ` +
+        `${XmaxLogger.localized('采集 ', 'capture ')}${number(stats.captureFrameRate, ' fps')}, ${XmaxLogger.localized('编码 ', 'encode ')}${number(stats.encodeFrameRate, ' fps')}, ` +
+        `${XmaxLogger.localized('发送 ', 'send ')}${number(stats.sendFrameRate, ' fps')}, ${number(stats.bitrateKbps, ' kbps')}, ${XmaxLogger.localized('丢包 ', 'loss ')}${number(stats.packetLossPercent, '%')}`,
       XmaxLoggerOption.performance,
     );
   }
@@ -60,9 +65,9 @@ export class RtcStatsLogger {
   ): void {
     XmaxLogger.rtc.debug(
       () =>
-        `Remote video downlink: ${number(stats.width)} × ${number(stats.height)}, ` +
-        `decode ${number(stats.decodeFrameRate, ' fps')}, render ${number(stats.renderFrameRate, ' fps')}, ` +
-        `${number(stats.bitrateKbps, ' kbps')}, loss ${number(stats.packetLossPercent, '%')}, delay ${number(stats.endToEndDelayMs, ' ms')}`,
+        `${XmaxLogger.localized('远端视频下行：', 'Remote video downlink: ')}${number(stats.width)} × ${number(stats.height)}, ` +
+        `${XmaxLogger.localized('解码 ', 'decode ')}${number(stats.decodeFrameRate, ' fps')}, ${XmaxLogger.localized('渲染 ', 'render ')}${number(stats.renderFrameRate, ' fps')}, ` +
+        `${number(stats.bitrateKbps, ' kbps')}, ${XmaxLogger.localized('丢包 ', 'loss ')}${number(stats.packetLossPercent, '%')}, ${XmaxLogger.localized('延迟 ', 'delay ')}${number(stats.endToEndDelayMs, ' ms')}`,
       XmaxLoggerOption.performance,
     );
   }
@@ -76,7 +81,10 @@ export class RtcStatsLogger {
     alarm: RealtimePerformanceAlarm
   ): void {
     XmaxLogger.rtc.debug(
-      () => `Device performance: ${alarm.status}`,
+      () =>
+        `${XmaxLogger.localized('设备性能：', 'Device performance: ')}${
+          alarm.status
+        }`,
       XmaxLoggerOption.performance,
     );
   }

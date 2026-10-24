@@ -27,16 +27,18 @@ import { ensureActive, waitFor } from '../Runtime/Async';
 import { RtcMessageQueue } from './RtcMessageQueue';
 import { RtcStatsLogger } from './RtcStatsLogger';
 import { XmaxLogger } from '../Logging/XmaxLogger';
+import { CameraPosition } from '../Media/Camera/CameraPosition';
+import { RealtimeNetworkQualityLevel } from '../../Service/Realtime/RealtimeNetworkQuality';
 import {
-  CameraPosition,
-  RealtimeNetworkQualityLevel,
   RealtimePerformanceStatus,
-  type RealtimeVideoFormat,
   type RealtimePerformanceAlarm,
-  type UplinkVideoStatistics,
-  type DownlinkVideoStatistics,
-  type VideoContentMode,
-} from '../../Service/Realtime/RealtimeTypes';
+} from '../../Service/Realtime/RealtimePerformanceAlarm';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
+import type {
+  UplinkVideoStatistics,
+  DownlinkVideoStatistics,
+} from './VideoStatistics';
+import type { VideoContentMode } from '../Media/Video/VideoContentMode';
 import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
 import type { RuntimeInfo } from '../Runtime/RuntimeInfo';
 
@@ -304,7 +306,12 @@ export class RtcManager implements RtcManaging {
           const event = JSON.parse(value);
           if (event.owner === owner) this.receive(event);
         } catch {
-          XmaxLogger.rtc.warn('Invalid native RTC event');
+          XmaxLogger.rtc.warn(
+            XmaxLogger.localized(
+              '无效的原生 RTC 事件',
+              'Invalid native RTC event',
+            ),
+          );
         }
       });
       await this.command('open');
@@ -702,6 +709,11 @@ export class RtcManager implements RtcManaging {
     if (event.type === 'joined') {
       if (!this.connection || event.roomID !== this.connection.roomID) return;
       for (const listener of this.joinListeners) listener();
+      return;
+    }
+    if (event.type === 'localPublished') {
+      if (this.connection && event.roomID === this.connection.roomID)
+        this.emit({ type: 'localPublished' });
       return;
     }
     if (event.type === 'localFrame' || event.type === 'captureReady') {

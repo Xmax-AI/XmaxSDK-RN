@@ -10,10 +10,8 @@
 
 import { resolveBitrates } from '../Encoding/EncodingBitratePolicy';
 import { qualityFormat } from './QualityVideoFormat';
-import type {
-  RealtimeNetworkQualityLevel,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeNetworkQualityLevel } from '../../Service/Realtime/RealtimeNetworkQuality';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 
 /**
  * The sampling and adaptation policy for one transport direction.
@@ -61,6 +59,7 @@ export class QualityDirection {
    * @param baseline The original media format used as the transport baseline.
    * @param level The transport level, from 1 for highest quality to 5 for lowest.
    * @param downlink Whether to use the downlink policy.
+   * @param minimumInputPixels The minimum uplink pixel area, capped at the baseline area.
    */
   constructor(
     /**
@@ -73,6 +72,11 @@ export class QualityDirection {
      * Whether to use the downlink policy.
      */
     readonly downlink: boolean,
+
+    /**
+     * The model minimum uplink area, in pixels.
+     */
+    readonly minimumInputPixels = 0,
   ) {
     this.level = Math.min(5, Math.max(1, level));
     while (this.level > 1 && !this.supports(this.level)) this.level--;
@@ -85,7 +89,8 @@ export class QualityDirection {
     return qualityFormat(
       this.baseline,
       this.level,
-      this.downlink
+      this.downlink,
+      this.minimumInputPixels,
     );
   }
 
@@ -147,7 +152,8 @@ export class QualityDirection {
       const format = qualityFormat(
         this.baseline,
         candidate,
-        this.downlink
+        this.downlink,
+        this.minimumInputPixels,
       );
       if (
         this.supports(candidate) &&
@@ -193,10 +199,15 @@ export class QualityDirection {
     level: number
   ): boolean {
     try {
-      if (!this.downlink) resolveBitrates(qualityFormat(
-        this.baseline,
-        level
-      ));
+      if (!this.downlink)
+        resolveBitrates(
+          qualityFormat(
+            this.baseline,
+            level,
+            false,
+            this.minimumInputPixels
+          ),
+        );
       return true;
     } catch {
       return false;

@@ -15,10 +15,8 @@ import { taskIDFromUUID } from '../../Foundation/Runtime/RuntimeInfo';
 import type { GenerationParameters } from '../../Stream/Room/RoomEvent';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import type { RemoteStream } from '../../Foundation/RTC/RemoteStream';
-import type {
-  RealtimeContext,
-  RealtimeVideoFormat,
-} from '../../Service/Realtime/RealtimeTypes';
+import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
+import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import type { StreamControlling } from '../../Stream/StreamControlling';
 
 /**
@@ -147,7 +145,7 @@ export class XmaxRealtimeGenerationManager {
    * @param targetSize The returned frame dimensions, in pixels.
    */
   async changeTargetSize(
-    targetSize: import('../../Service/Realtime/RealtimeTypes').MediaSize,
+    targetSize: import('../../Service/Realtime/RealtimeVideoFormat').MediaSize,
   ): Promise<void> {
     if (this.taskID)
       await this.stream.changeTargetSize(

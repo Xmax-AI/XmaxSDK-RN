@@ -24,7 +24,7 @@ import {
   type GestureResponderEvent,
 } from 'react-native';
 import type { VideoRenderBinding } from '../Video/VideoRenderBinding';
-import type { VideoContentMode } from '../../Service/Realtime/RealtimeTypes';
+import type { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
 import type { TrajectoryEffectRendering } from './TrajectoryEffectRendering';
 import { DefaultTrajectoryEffectRenderer } from './DefaultTrajectoryEffectRenderer';
 import { TrajectorySampler } from './TrajectorySampler';
