@@ -93,6 +93,7 @@ function load(relative, react, mocks = {}) {
     }
     if (name in mocks) return mocks[name];
     if (name.endsWith('/LocalizationProvider')) return { useLocalization: () => ({ t: translateUI, locale }) };
+    if (name.endsWith('/messages')) return load('localization/messages.ts', {});
     if (name.endsWith('/ErrorMessages')) return load('localization/ErrorMessages.ts', {});
     if (name.endsWith('RealtimeReferenceCatalog')) return catalog;
     if (name.endsWith('.png')) return name;
@@ -171,7 +172,9 @@ function screenFixture(t, options = {}) {
       frameEvents.push(['create', handle]);
       return handle;
     },
-    async getStatistics() { return { videoFrames: 30, audioPackets: 100 }; },
+    async startRecording(handle) { frameEvents.push(['record', handle]); await options.recordPermission; },
+    async stopRecording(handle) { frameEvents.push(['save', handle]); return 'content://saved.mp4'; },
+    async getRecordingError() { return null; },
     async releaseConsumer(handle) { frameEvents.push(['release', handle]); },
   };
   const { RemoteMediaFrameReception } = load('realtime/RemoteMediaFrameReception.ts', {});
@@ -1146,9 +1149,7 @@ test('XLab external capture binds app-owned native decoding without using camera
     ['create', 'consumer-1'], ['listener', { nativeHandle: 'consumer-1' }],
   ]);
   screen.props('Toolbar').onStatistics();
-  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, true);
-  await tick();
-  assert.deepEqual(screen.props('RealtimeStatisticsPanel').mediaFrames, { videoFrames: 30, audioPackets: 100 });
+  assert.equal(screen.props('Toolbar').recording, true);
 });
 
 test('camera registers native frame reception once across background recovery and releases it on exit', async t => {
@@ -1158,9 +1159,7 @@ test('camera registers native frame reception once across background recovery an
     ['create', 'consumer-1'], ['listener', { nativeHandle: 'consumer-1' }],
   ]);
   screen.props('Toolbar').onStatistics();
-  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, true);
-  await tick();
-  assert.deepEqual(screen.props('RealtimeStatisticsPanel').mediaFrames, { videoFrames: 30, audioPackets: 100 });
+  assert.equal(screen.props('Toolbar').recording, true);
   screen.background('background');
   await tick();
   screen.background('active');
@@ -1176,7 +1175,7 @@ test('image input does not create or register the camera and external frame exam
   const screen = screenFixture(t, { fileURL: 'file:///image.jpg' });
   await tick();
   screen.props('Toolbar').onStatistics();
-  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, false);
+  assert.equal(screen.props('Toolbar').recording, false);
   assert.deepEqual(screen.frameEvents, []);
 });
 
@@ -1356,3 +1355,52 @@ test('multiple file replacements retain the last selection and wait for the orig
   assert.equal(f.counts().starts, 2);
   assert.deepEqual(f.contexts[1], { prompt: 'Transform' });
 });
+
+async function generate(screen) {
+  screen.props('Panel').onSubmit({ prompt: 'test' });
+  screen.connect.resolve();
+  screen.start.resolve({ videoTrack: screen.remoteTrack });
+  await tick();
+  screen.state({ connectionState: 'generating' });
+  screen.draw();
+}
+
+for (const scenario of ['camera', 'external']) {
+  test(`${scenario} recording requires generation and saves remote media from the toolbar`, async t => {
+    const screen = screenFixture(t, scenario === 'external' ? {
+      externalFileURL: 'file:///input.mp4',
+      externalSource: async () => ({ videoFormat: { width: 1280, height: 720, fps: 30 }, hasAudio: true, async start() {}, async stop() {} }),
+    } : {});
+    await tick();
+    screen.props('Toolbar').onRecording();
+    assert.equal(screen.props('Toast').notice.messageKey, 'record.generation.required');
+    assert.equal(screen.frameEvents.some(([event]) => event === 'record'), false);
+    await generate(screen);
+    screen.props('Toolbar').onRecording();
+    await tick();
+    assert.equal(screen.props('Toolbar').recordingState, 'recording');
+    screen.props('Toolbar').onRecording();
+    await tick();
+    assert.equal(screen.props('Toolbar').recordingState, 'idle');
+    assert.equal(screen.props('Toast').notice.messageKey, 'record.saved');
+    assert.equal(screen.props('Toast').notice.kind, 'success');
+    assert.deepEqual(screen.frameEvents.slice(-2), [['record', 'consumer-1'], ['save', 'consumer-1']]);
+  });
+}
+
+for (const action of ['stop', 'background', 'exit']) {
+  test(`recording saves exactly once on ${action}`, async t => {
+    const screen = screenFixture(t);
+    await tick();
+    await generate(screen);
+    screen.props('Toolbar').onRecording();
+    await tick();
+    assert.equal(screen.props('Toolbar').recordingState, 'recording');
+    if (action === 'stop') { screen.props('Panel').onStop(); screen.disconnect.resolve(); screen.draw(); }
+    else if (action === 'background') screen.background('background');
+    else { screen.dispose(); screen.disconnect.resolve(); }
+    await tick();
+    assert.equal(screen.frameEvents.filter(([event]) => event === 'save').length, 1);
+    if (action === 'exit') assert.deepEqual(screen.frameEvents.slice(-2), [['listener', null], ['release', 'consumer-1']]);
+  });
+}

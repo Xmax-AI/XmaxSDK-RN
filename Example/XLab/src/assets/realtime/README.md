@@ -18,3 +18,5 @@ JSON SHA-256：`979b8c3bc9269ad2a5199c416f682bf9cebb2c88b59b56c929f7dd2c594444f1
 中英文添加参考图按钮分别原样复制 `realtime_add_reference.imageset` 和 `realtime_add_reference_en.imageset`，跟随 XLab 解析后的界面语言选择，与 iOS 一致。
 
 Toolbar icons `realtime_statistics`, `realtime_volume`, `realtime_photos`, `realtime_sound`, and `realtime_muted` are raster exports of the system symbols `chart.bar.fill`, `slider.horizontal.3`, `photo`, `speaker.wave.2.fill`, and `speaker.slash.fill` used by the UIKit reference, supplied at 1×, 2×, and 3×.
+
+Recording toolbar icons `realtime_record`, `realtime_record_stop`, and `realtime_record_busy` are 1×, 2×, and 3× raster exports of the system symbols `record.circle`, `stop.circle.fill`, and `hourglass` used by the UIKit reference.

@@ -5,7 +5,7 @@ import { makeRealtimeFileVideoSource } from '../external/RealtimeFileVideoSource
 import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
 import {
   RemoteMediaFrameReception,
-  type RemoteMediaFrameStatistics,
+  type RecordingState,
 } from '../realtime/RemoteMediaFrameReception';
 import type {
   UplinkVideoStatistics,
@@ -13,6 +13,7 @@ import type {
 } from '@xmaxai/react-native-sdk';
 import { errorMessageKey } from '../localization/ErrorMessages';
 import { useLocalization } from '../localization/LocalizationProvider';
+import { english, type MessageKey } from '../localization/messages';
 import { RealtimeGenerationOperations } from '../realtime/RealtimeGenerationOperations';
 import { XLabTrajectoryRenderer } from '../realtime/XLabTrajectoryRenderer';
 import { uploadTouchAnimationReference } from '../realtime/TouchAnimationReference';
@@ -135,8 +136,9 @@ export function RealtimeScreen({
   const [controlPanelHeight, setControlPanelHeight] = useState(0);
   const [statisticsVisible, setStatisticsVisible] = useState(false);
   const frameReception = useRef<RemoteMediaFrameReception | null>(null);
-  const [mediaFrameStatistics, setMediaFrameStatistics] =
-    useState<RemoteMediaFrameStatistics | null>(null);
+  const [recordingState, setRecordingState] = useState<RecordingState>('idle');
+  const recordingStateRef = useRef<RecordingState>('idle');
+  const recordingVersion = useRef(0);
   const [uplinkStatistics, setUplinkStatistics] =
     useState<UplinkVideoStatistics | null>(null);
   const [downlinkStatistics, setDownlinkStatistics] =
@@ -214,36 +216,113 @@ export function RealtimeScreen({
     }
   }, []);
 
-  /** Reads native callback counters only while the statistics panel is visible. */
-  useEffect(() => {
-    setMediaFrameStatistics(null);
-    if (!statisticsVisible || fileURL) return;
-    let active = true;
-    let reading = false;
-    const refresh = async () => {
-      if (reading || AppState.currentState !== 'active') return;
-      const receiver = frameReception.current;
-      reading = true;
+  /** Keeps asynchronous recording completions from restoring obsolete toolbar states. */
+  const updateRecordingState = useCallback((value: RecordingState) => {
+    recordingStateRef.current = value;
+    if (alive.current) setRecordingState(value);
+  }, []);
+
+  const recordingNotice = useCallback((failure?: unknown) => {
+    if (!alive.current) return;
+    const message = failure instanceof Error ? failure.message : '';
+    const key: MessageKey = !failure
+      ? 'record.saved'
+      : message.startsWith('record.') && message in english
+      ? (message as MessageKey)
+      : 'record.failed';
+    setError({
+      message: '',
+      messageKey: key,
+      permissionError: key === 'record.permission',
+      ...(!failure ? { kind: 'success' as const } : {}),
+    });
+  }, []);
+
+  /** Finishes the active recording once, including pending permission or save work. */
+  const finishRecording = useCallback(
+    async (receiver = frameReception.current) => {
+      if (!receiver || recordingStateRef.current === 'idle') return;
+      const version = ++recordingVersion.current;
+      updateRecordingState('saving');
       try {
-        const statistics = await receiver?.getStatistics();
-        if (active && frameReception.current === receiver)
-          setMediaFrameStatistics(statistics ?? null);
-      } catch {
-        if (active && frameReception.current === receiver)
-          setMediaFrameStatistics(null);
+        const saved = await receiver.stopRecording();
+        if (saved && version === recordingVersion.current) recordingNotice();
+      } catch (failure) {
+        if (version === recordingVersion.current) recordingNotice(failure);
       } finally {
-        reading = false;
+        if (version === recordingVersion.current) updateRecordingState('idle');
       }
-    };
-    void refresh();
+    },
+    [recordingNotice, updateRecordingState],
+  );
+
+  /** Polls only recording failures; raw frames are encoded entirely in native code. */
+  useEffect(() => {
+    if (recordingState !== 'recording') return;
+    let current = true;
+    let reading = false;
     const timer = setInterval(() => {
-      void refresh();
-    }, 1000);
+      if (reading) return;
+      reading = true;
+      const receiver = frameReception.current;
+      void receiver
+        ?.getRecordingError()
+        .then(failure => {
+          if (current && failure && frameReception.current === receiver) {
+            ++recordingVersion.current;
+            updateRecordingState('idle');
+            recordingNotice(new Error(failure));
+          }
+        })
+        .catch(recordingNotice)
+        .finally(() => {
+          reading = false;
+        });
+    }, 500);
     return () => {
-      active = false;
+      current = false;
       clearInterval(timer);
     };
-  }, [statisticsVisible, fileURL]);
+  }, [recordingState, recordingNotice, updateRecordingState]);
+
+  useEffect(() => {
+    if (
+      !generationRequested ||
+      [
+        RealtimeConnectionState.idle,
+        RealtimeConnectionState.ready,
+        RealtimeConnectionState.disconnecting,
+      ].includes(state.connectionState)
+    )
+      void finishRecording();
+  }, [generationRequested, state.connectionState, finishRecording]);
+
+  async function toggleRecording() {
+    const receiver = frameReception.current;
+    if (!receiver) return;
+    if (recordingStateRef.current === 'recording')
+      return finishRecording(receiver);
+    if (recordingStateRef.current !== 'idle') return;
+    if (!generationRequested) {
+      recordingNotice(new Error('record.generation.required'));
+      return;
+    }
+    const version = ++recordingVersion.current;
+    updateRecordingState('preparing');
+    try {
+      await receiver.startRecording();
+      if (
+        version === recordingVersion.current &&
+        frameReception.current === receiver
+      )
+        updateRecordingState('recording');
+    } catch (failure) {
+      if (version === recordingVersion.current) {
+        updateRecordingState('idle');
+        recordingNotice(failure);
+      }
+    }
+  }
 
   /**
    * Starts local preview and ignores results from an obsolete screen operation.
@@ -442,6 +521,7 @@ export function RealtimeScreen({
     let closing: Promise<void> = Promise.resolve();
     const appState = AppState.addEventListener('change', next => {
       if (next === 'background') {
+        void finishRecording(reception);
         nextOperation();
         mediaBusy.current = true;
         setBusy(true);
@@ -482,6 +562,7 @@ export function RealtimeScreen({
     // Release on unmount without cancelling and replaying the native back gesture.
     // Invalidate pending work first so late results cannot restore the removed screen.
     return () => {
+      void finishRecording(reception);
       active = false;
       alive.current = false;
       nextOperation();
@@ -518,6 +599,7 @@ export function RealtimeScreen({
     input.fileURL,
     preview,
     refreshConfiguration,
+    finishRecording,
     showError,
     nextOperation,
   ]);
@@ -829,6 +911,11 @@ export function RealtimeScreen({
         picking={pickingMedia}
         statisticsVisible={statisticsVisible}
         muted={muted}
+        recording={!fileURL}
+        recordingState={recordingState}
+        onRecording={() => {
+          void toggleRecording();
+        }}
         top={insets.top}
         right={insets.right}
         onFlip={flip}
@@ -869,8 +956,6 @@ export function RealtimeScreen({
           ]}
         >
           <RealtimeStatisticsPanel
-            receivesMediaFrames={!fileURL}
-            mediaFrames={mediaFrameStatistics}
             uplink={uplinkStatistics}
             downlink={downlinkStatistics}
             networkQuality={networkQuality}
@@ -934,7 +1019,9 @@ export function RealtimeScreen({
         notice={error}
         top={insets.top + 78}
         actionLabel={
-          error?.permissionError
+          error?.kind === 'success'
+            ? null
+            : error?.permissionError
             ? t('common.settings')
             : !localTrack
             ? t('common.retry')

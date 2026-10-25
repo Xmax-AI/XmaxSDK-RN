@@ -88,6 +88,7 @@ android {
         applicationId "ai.xmax.xlab"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         versionCode 1
         versionName "1.0"
     }
@@ -114,6 +115,7 @@ android {
 }
 
 dependencies {
+    androidTestImplementation("androidx.test:runner:1.7.0")
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

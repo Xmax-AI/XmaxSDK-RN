@@ -1,4 +1,5 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { RecordingState } from './RemoteMediaFrameReception';
 import { useLocalization } from '../localization/LocalizationProvider';
 
 /** Displays the supported camera or file actions above realtime preview. */
@@ -9,6 +10,9 @@ export function RealtimeToolbar({
   picking,
   statisticsVisible,
   muted,
+  recording,
+  recordingState,
+  onRecording,
   top,
   right,
   onFlip,
@@ -23,6 +27,9 @@ export function RealtimeToolbar({
   picking: boolean;
   statisticsVisible: boolean;
   muted: boolean;
+  recording: boolean;
+  recordingState: RecordingState;
+  onRecording: () => void;
   top: number;
   right: number;
   onFlip: () => void;
@@ -50,6 +57,54 @@ export function RealtimeToolbar({
       onPress={onVolume}
     />
   );
+  const record = recording && (
+    <Action
+      camera={camera}
+      title={t(
+        recordingState === 'recording'
+          ? 'record.stop'
+          : recordingState === 'preparing'
+          ? 'record.prepare'
+          : recordingState === 'saving'
+          ? 'record.save'
+          : 'record.title',
+      )}
+      label={t(
+        recordingState === 'recording'
+          ? 'record.stopSave'
+          : recordingState === 'preparing'
+          ? 'record.preparing.label'
+          : recordingState === 'saving'
+          ? 'record.saving.label'
+          : 'record.start',
+      )}
+      icon={
+        recordingState === 'recording'
+          ? require('../assets/realtime/realtime_record_stop.png')
+          : recordingState === 'idle'
+          ? require('../assets/realtime/realtime_record.png')
+          : require('../assets/realtime/realtime_record_busy.png')
+      }
+      value={t(
+        recordingState === 'idle'
+          ? 'record.idle'
+          : recordingState === 'preparing'
+          ? 'record.preparing'
+          : recordingState === 'saving'
+          ? 'record.saving'
+          : 'record.recording',
+      )}
+      tint={
+        recordingState === 'recording'
+          ? '#FF3B30'
+          : recordingState === 'idle'
+          ? '#FFF'
+          : '#FF9500'
+      }
+      disabled={recordingState === 'preparing' || recordingState === 'saving'}
+      onPress={onRecording}
+    />
+  );
   return (
     <View
       style={[
@@ -70,10 +125,12 @@ export function RealtimeToolbar({
           />
           {volume}
           {statistics}
+          {record}
         </>
       ) : (
         <>
           {statistics}
+          {record}
           {external && volume}
           {external && (
             <Action
@@ -109,6 +166,8 @@ function Action({
   label = title,
   icon,
   selected = false,
+  tint,
+  value,
   disabled = false,
   onPress,
 }: {
@@ -117,6 +176,8 @@ function Action({
   label?: string;
   icon: number;
   selected?: boolean;
+  tint?: string;
+  value?: string;
   disabled?: boolean;
   onPress: () => void;
 }) {
@@ -125,6 +186,7 @@ function Action({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected, disabled }}
+      accessibilityValue={value ? { text: value } : undefined}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -139,6 +201,7 @@ function Action({
           styles.icon,
           camera ? styles.cameraIcon : styles.mediaIcon,
           selected && styles.selected,
+          tint ? { tintColor: tint } : undefined,
         ]}
       />
       <Text

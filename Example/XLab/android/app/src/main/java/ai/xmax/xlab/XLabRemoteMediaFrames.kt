@@ -1,49 +1,34 @@
 package ai.xmax.xlab
 
-import ai.xmax.reactnative.RealtimeAudioFrame
-import ai.xmax.reactnative.RealtimeMediaFrame
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import ai.xmax.reactnative.RealtimeMediaFrameConsumer
-import ai.xmax.reactnative.RealtimeVideoFrame
 import com.facebook.react.ReactPackage
-import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.modules.core.PermissionAwareActivity
+import com.facebook.react.modules.core.PermissionListener
 import com.facebook.react.uimanager.ViewManager
 
-/** Counts delivered packets without retaining video planes or PCM buffers. */
-private class XLabRemoteMediaFrameCounter {
-  private var audioPackets = 0L
-  private var videoFrames = 0L
+/** Retains a native MP4 recorder and its SDK frame consumer. */
+private class XLabRemoteMediaFrameReceiver(context: ReactApplicationContext) {
+  val recorder = RealtimeVideoRecorder(context)
+  val consumer = RealtimeMediaFrameConsumer { frame -> recorder.append(frame) }
 
-  @Synchronized
-  fun receive(frame: RealtimeMediaFrame) {
-    when (frame.content) {
-      is RealtimeAudioFrame -> audioPackets++
-      is RealtimeVideoFrame -> videoFrames++
-    }
-  }
-
-  /** Returns cumulative counts for this receiver's lifetime. */
-  @Synchronized
-  fun snapshot(): WritableMap = Arguments.createMap().apply {
-    putDouble("audioPackets", audioPackets.toDouble())
-    putDouble("videoFrames", videoFrames.toDouble())
+  fun close() {
+    consumer.close()
+    recorder.close()
   }
 }
 
-/** Retains the native receiver and consumes its packets on the SDK delivery queue. */
-private class XLabRemoteMediaFrameReceiver {
-  val counter = XLabRemoteMediaFrameCounter()
-  val consumer = RealtimeMediaFrameConsumer { frame -> counter.receive(frame) }
-}
-
-/** Exposes receiver handles and scalar statistics; media bytes stay native. */
+/** Exposes recording controls and completion status while keeping media bytes native. */
 private class XLabRemoteMediaFrames(
-  context: ReactApplicationContext,
+  private val context: ReactApplicationContext,
 ) : ReactContextBaseJavaModule(context) {
   private val receivers = mutableMapOf<String, XLabRemoteMediaFrameReceiver>()
   private var invalidated = false
@@ -54,23 +39,55 @@ private class XLabRemoteMediaFrames(
   fun createConsumer(promise: Promise) {
     val receiver = synchronized(receivers) {
       if (invalidated) null
-      else XLabRemoteMediaFrameReceiver().also { receivers[it.consumer.nativeHandle] = it }
+      else XLabRemoteMediaFrameReceiver(context).also { receivers[it.consumer.nativeHandle] = it }
     }
-    if (receiver == null) promise.reject("MEDIA_ERROR", "Remote media receivers are unavailable")
+    if (receiver == null) promise.reject("MEDIA_ERROR", "record.failed")
     else promise.resolve(receiver.consumer.nativeHandle)
   }
 
   @ReactMethod
-  fun getStatistics(handle: String, promise: Promise) {
-    val receiver = synchronized(receivers) { receivers[handle] }
-    if (receiver == null) promise.reject("MEDIA_ERROR", "Remote media receiver is unavailable")
-    else promise.resolve(receiver.counter.snapshot())
+  fun startRecording(handle: String, promise: Promise) {
+    val start = {
+      val receiver = synchronized(receivers) { receivers[handle] }
+      if (receiver == null) promise.reject("MEDIA_ERROR", "record.notRecording")
+      else receiver.recorder.start { error ->
+        if (error != null) promise.reject("MEDIA_ERROR", error) else promise.resolve(null)
+      }
+    }
+    if (Build.VERSION.SDK_INT >= 29 || context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+      start()
+    } else UiThreadUtil.runOnUiThread {
+      val activity = context.currentActivity as? PermissionAwareActivity
+      if (activity == null) promise.reject("MEDIA_ERROR", "record.permission")
+      else activity.requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 8403,
+        PermissionListener { request, _, grants ->
+          if (request != 8403) false
+          else {
+            if (grants.firstOrNull() == PackageManager.PERMISSION_GRANTED) start()
+            else promise.reject("MEDIA_ERROR", "record.permission")
+            true
+          }
+        })
+    }
   }
 
-  /** Releases only this handle after JavaScript has removed its SDK registration. */
+  @ReactMethod
+  fun stopRecording(handle: String, promise: Promise) {
+    val receiver = synchronized(receivers) { receivers[handle] }
+    if (receiver == null) promise.reject("MEDIA_ERROR", "record.notRecording")
+    else receiver.recorder.stopAndSave { uri, error ->
+      if (error != null) promise.reject("MEDIA_ERROR", error) else promise.resolve(uri)
+    }
+  }
+
+  @ReactMethod
+  fun getRecordingError(handle: String, promise: Promise) {
+    promise.resolve(synchronized(receivers) { receivers[handle]?.recorder?.error() })
+  }
+
   @ReactMethod
   fun releaseConsumer(handle: String, promise: Promise) {
-    synchronized(receivers) { receivers.remove(handle) }?.consumer?.close()
+    synchronized(receivers) { receivers.remove(handle) }?.close()
     promise.resolve(null)
   }
 
@@ -79,12 +96,12 @@ private class XLabRemoteMediaFrames(
       invalidated = true
       receivers.values.toList().also { receivers.clear() }
     }
-    previous.forEach { it.consumer.close() }
+    previous.forEach { it.close() }
     super.invalidate()
   }
 }
 
-/** Installs XLab's app-owned remote frame consumer. */
+/** Installs XLab's app-owned recording consumer. */
 class XLabRemoteMediaFramesPackage : ReactPackage {
   override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
     listOf(XLabRemoteMediaFrames(context))

@@ -27,27 +27,30 @@ function fixture() {
   };
   const native = {
     async createConsumer() { events.push(['create']); return 'receiver'; },
-    async getStatistics(handle) { events.push(['statistics', handle]); return { videoFrames: 30, audioPackets: 100 }; },
+    async startRecording(handle) { events.push(['record', handle]); },
+    async stopRecording(handle) { events.push(['save', handle]); return 'content://saved.mp4'; },
+    async getRecordingError() { return null; },
     async releaseConsumer(handle) { events.push(['release', handle]); },
   };
   return { events, realtime, native };
 }
 
-test('XLab registers once, reads scalar counters and unregisters before releasing its consumer', async () => {
+test('XLab registers once, records and saves native media and unregisters before releasing its consumer', async () => {
   const { events, realtime, native } = fixture();
   const receiver = new RemoteMediaFrameReception(realtime, native);
   const opening = receiver.start();
   assert.equal(receiver.start(), opening);
   await opening;
-  assert.deepEqual(await receiver.getStatistics(), { videoFrames: 30, audioPackets: 100 });
+  await receiver.startRecording();
+  assert.equal(await receiver.stopRecording(), 'content://saved.mp4');
   const closing = receiver.close();
   assert.equal(receiver.close(), closing);
   await closing;
   assert.deepEqual(events, [
-    ['create'], ['listener', { nativeHandle: 'receiver' }], ['statistics', 'receiver'],
+    ['create'], ['listener', { nativeHandle: 'receiver' }], ['record', 'receiver'], ['save', 'receiver'],
     ['listener', null], ['release', 'receiver'],
   ]);
-  assert.equal(await receiver.getStatistics(), null);
+  assert.equal(await receiver.getRecordingError(), null);
   await assert.rejects(receiver.start(), /closed/);
 });
 
@@ -95,16 +98,43 @@ test('failed unregistration still releases the native consumer', async () => {
   assert.deepEqual(events.at(-1), ['release', 'receiver']);
 });
 
-test('late statistics never restore a released receiver snapshot', async () => {
-  const { realtime, native } = fixture(), statistics = deferred();
-  native.getStatistics = () => statistics.promise;
+test('closing during album permission waits for recording completion, saves once, then releases', async () => {
+  const { events, realtime, native } = fixture(), permission = deferred();
+  native.startRecording = async handle => { events.push(['record', handle]); await permission.promise; };
   const receiver = new RemoteMediaFrameReception(realtime, native);
-  assert.equal(await receiver.getStatistics(), null);
-  await receiver.start();
-  const reading = receiver.getStatistics();
+  const recording = receiver.startRecording();
+  await nextTurn();
+  const closing = receiver.close();
+  assert.equal(events.some(([event]) => event === 'release'), false);
+  permission.resolve();
+  await Promise.all([recording, closing]);
+  assert.deepEqual(events.slice(-3), [['save', 'receiver'], ['listener', null], ['release', 'receiver']]);
+});
+
+test('simultaneous manual stop and route exit share one save even when saving fails', async () => {
+  const { events, realtime, native } = fixture(), saving = deferred();
+  native.stopRecording = async handle => { events.push(['save', handle]); return saving.promise; };
+  const receiver = new RemoteMediaFrameReception(realtime, native);
+  await receiver.startRecording();
+  const stop = receiver.stopRecording();
+  assert.equal(receiver.stopRecording(), stop);
+  const closing = receiver.close();
+  saving.reject(new Error('record.saveFailed'));
+  await assert.rejects(stop, /saveFailed/);
+  await assert.rejects(closing, /saveFailed/);
+  assert.equal(events.filter(([event]) => event === 'save').length, 1);
+  assert.deepEqual(events.slice(-2), [['listener', null], ['release', 'receiver']]);
+});
+
+test('encoder failures reset recording so stopping does not try to save discarded media', async () => {
+  const { events, realtime, native } = fixture();
+  native.getRecordingError = async () => 'record.sizeChanged';
+  const receiver = new RemoteMediaFrameReception(realtime, native);
+  await receiver.startRecording();
+  assert.equal(await receiver.getRecordingError(), 'record.sizeChanged');
+  assert.equal(await receiver.stopRecording(), null);
   await receiver.close();
-  statistics.resolve({ videoFrames: 30, audioPackets: 100 });
-  assert.equal(await reading, null);
+  assert.equal(events.some(([event]) => event === 'save'), false);
 });
 
 test('missing native modules fail explicitly without registering an invalid handle', async () => {

@@ -98,6 +98,8 @@ This API supplies native media output. Recording, file muxing, frame interpolati
 
 ## XLab example
 
-The camera and external capture screens register an app-owned `XLabRemoteMediaFrames` receiver. Its Swift and Kotlin callbacks count delivered video frames and audio packets without retaining media buffers. Open the statistics panel to read these cumulative counters; JavaScript reads only scalar snapshots once per second while the panel is visible.
+The camera and external capture screens register an app-owned `XLabRemoteMediaFrames` consumer. During generation, tap **Record** to encode subsequent result video and PCM audio to MP4, then tap **Stop** to save it to Photos on iOS or Movies/XLab on Android. Photo-library permission is requested before recording on iOS; Android 9 and earlier require storage permission. Playback volume does not affect recorded audio. When no result audio arrives, the output contains video only.
 
-The screen unregisters the listener before releasing its native receiver. Background suspension stops SDK frame delivery, and foreground preview recovery retains the screen's registration for the next generation. Image input does not register this example receiver.
+The Swift recorder uses AVAssetWriter; the Kotlin recorder uses MediaCodec and MediaMuxer. Both retain at most 512 packets and 32 MiB of pending media, encode outside the SDK delivery queue, and preserve each track's original timestamp offset. Audio gaps up to ten seconds are filled with silence. A changed stream identity, incompatible format, regressing timestamp, or encoder failure ends recording with an error instead of silently producing a corrupted file. Start a new recording after a generation format change.
+
+Stopping generation, backgrounding, replacing input, or leaving the screen finishes and saves an active recording. The screen unregisters the listener before releasing its native consumer. Foreground preview recovery retains the screen's registration for the next generation. Image input does not register this example recorder. Recording is an XLab consumer example, not a turnkey SDK recording API.

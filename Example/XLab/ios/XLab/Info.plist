@@ -39,6 +39,8 @@
 	<string>XLab connects to the Metro server on your computer during development.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>XLab uses your microphone to provide live audio input for realtime generation.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>XLab saves recorded generated videos to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>XLab selects images or videos for realtime input and storage uploads.</string>
 	<key>RCTNewArchEnabled</key>

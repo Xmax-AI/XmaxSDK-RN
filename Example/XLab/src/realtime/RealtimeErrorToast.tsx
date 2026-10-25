@@ -14,6 +14,7 @@ import {
 /** A new object represents each error occurrence, including repeated messages. */
 export interface RealtimeErrorNotice {
   readonly message: string;
+  readonly kind?: 'success';
   /** Translate at render time so an existing notice follows language changes. */
   readonly messageKey?: MessageKey;
   readonly permissionError: boolean;
@@ -55,20 +56,37 @@ export function RealtimeErrorToast({
 
   return (
     <View pointerEvents="box-none" style={[styles.overlay, { top }]}>
-      <View style={styles.toast}>
+      <View style={[styles.toast, notice.kind === 'success' && styles.success]}>
         <View style={styles.messageRow}>
           <ScrollView style={styles.message} bounces={false}>
-            <Text style={styles.text} accessibilityLiveRegion="polite">
+            <Text
+              style={[
+                styles.text,
+                notice.kind === 'success' && styles.successText,
+              ]}
+              accessibilityLiveRegion="polite"
+            >
               {message}
             </Text>
           </ScrollView>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('common.dismissError')}
+            accessibilityLabel={t(
+              notice.kind === 'success'
+                ? 'common.dismissNotice'
+                : 'common.dismissError',
+            )}
             onPress={onDismiss}
             style={styles.dismiss}
           >
-            <Text style={styles.dismissText}>×</Text>
+            <Text
+              style={[
+                styles.dismissText,
+                notice.kind === 'success' && styles.successText,
+              ]}
+            >
+              ×
+            </Text>
           </Pressable>
         </View>
         {actionLabel && (
@@ -98,6 +116,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 8,
   },
+  success: { backgroundColor: '#153B2DF5' },
+  successText: { color: '#D8FFED' },
   messageRow: { flexDirection: 'row', alignItems: 'center' },
   message: { flex: 1, maxHeight: 152, marginVertical: 8 },
   text: {

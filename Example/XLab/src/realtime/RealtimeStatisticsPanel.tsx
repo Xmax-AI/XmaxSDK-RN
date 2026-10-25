@@ -8,14 +8,11 @@ import type {
 } from '@xmaxai/react-native-sdk';
 import { useLocalization } from '../localization/LocalizationProvider';
 import type { MessageKey } from '../localization/messages';
-import type { RemoteMediaFrameStatistics } from './RemoteMediaFrameReception';
 
 /** Displays acknowledged transport tiers and measured statistics in a height-constrained scroll view. */
 export function RealtimeStatisticsPanel({
   uplink,
   downlink,
-  receivesMediaFrames,
-  mediaFrames,
   networkQuality,
   uplinkLevel,
   downlinkLevel,
@@ -26,8 +23,6 @@ export function RealtimeStatisticsPanel({
 }: {
   uplink: UplinkVideoStatistics | null;
   downlink: DownlinkVideoStatistics | null;
-  receivesMediaFrames: boolean;
-  mediaFrames: RemoteMediaFrameStatistics | null;
   networkQuality: RealtimeNetworkQuality | null;
   uplinkLevel: RealtimeQualityLevel | null;
   downlinkLevel: RealtimeQualityLevel | null;
@@ -110,21 +105,6 @@ export function RealtimeStatisticsPanel({
       {row('realtime.statistics.network', quality(networkQuality?.downlink))}
       {row('realtime.statistics.delay', value(downlink?.endToEndDelayMs, 'ms'))}
       <Text style={styles.hint}>{t('realtime.statistics.hint')}</Text>
-      {receivesMediaFrames && (
-        <>
-          <Text style={[styles.heading, styles.downlink]}>
-            {t('realtime.statistics.mediaFrames')}
-          </Text>
-          {row(
-            'realtime.statistics.videoFrames',
-            value(mediaFrames?.videoFrames),
-          )}
-          {row(
-            'realtime.statistics.audioPackets',
-            value(mediaFrames?.audioPackets),
-          )}
-        </>
-      )}
     </ScrollView>
   );
 }

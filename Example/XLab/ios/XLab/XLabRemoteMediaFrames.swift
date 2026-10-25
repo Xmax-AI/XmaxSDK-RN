@@ -1,41 +1,80 @@
 import Foundation
+import Photos
 import React
 import XmaxReactNativeSDK
 
-/// Counts delivered packets without retaining video pixel buffers or PCM data.
-private final class XLabRemoteMediaFrameCounter: @unchecked Sendable {
+/// Shares encoder failures without retaining the recorder's owner.
+private final class RecordingFailureState: @unchecked Sendable {
   private let lock = NSLock()
-  private var audioPackets = 0
-  private var videoFrames = 0
+  private var failure: String?
 
-  func receive(_ frame: RealtimeMediaFrame) {
-    lock.withLock {
-      switch frame.content {
-      case .audio: audioPackets += 1
-      case .video: videoFrames += 1
-      }
-    }
-  }
+  func read() -> String? { lock.withLock { failure } }
 
-  /// Returns cumulative counts for this receiver's lifetime.
-  func snapshot() -> [String: Int] {
-    lock.withLock { ["audioPackets": audioPackets, "videoFrames": videoFrames] }
-  }
+  func write(_ failure: String?) { lock.withLock { self.failure = failure } }
 }
 
-/// Retains the native receiver and consumes its packets on the SDK delivery queue.
-private final class XLabRemoteMediaFrameReceiver {
-  let counter: XLabRemoteMediaFrameCounter
+/// Retains a native recording consumer without transferring media through JavaScript.
+private final class XLabRemoteMediaFrameReceiver: @unchecked Sendable {
+  private let lock = NSLock()
+  private let failure = RecordingFailureState()
+  private var closed = false
+  let recorder: RealtimeVideoRecorder
   let consumer: RealtimeMediaFrameConsumer
 
   init() {
-    let counter = XLabRemoteMediaFrameCounter()
-    self.counter = counter
-    consumer = RealtimeMediaFrameConsumer { frame in counter.receive(frame) }
+    let failure = failure
+    let recorder = RealtimeVideoRecorder { error in failure.write(error.localizedDescription) }
+    self.recorder = recorder
+    consumer = RealtimeMediaFrameConsumer { frame in recorder.append(frame) }
+  }
+
+  func status() -> String? { failure.read() }
+
+  /// Obtains add-only photo access before accepting frames for a new recording.
+  func start() async throws {
+    let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+    guard status == .authorized || status == .limited else {
+      throw NSError(domain: "record.permission", code: 1)
+    }
+    try lock.withLock {
+      guard !closed else { throw NSError(domain: "record.notRecording", code: 1) }
+      failure.write(nil)
+      try recorder.start()
+    }
+  }
+
+  /// Finalizes the MP4 and saves it to Photos, including when the screen leaves the foreground.
+  func stopAndSave() async throws -> String {
+    let backgroundTask = await MainActor.run {
+      UIApplication.shared.beginBackgroundTask(withName: "XLab recording")
+    }
+    defer {
+      Task { @MainActor in
+        if backgroundTask != .invalid {
+          UIApplication.shared.endBackgroundTask(backgroundTask)
+        }
+      }
+    }
+    let url = try await recorder.stop()
+    defer { try? FileManager.default.removeItem(at: url) }
+    var identifier: String?
+    try await PHPhotoLibrary.shared().performChanges {
+      identifier =
+        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)?
+        .placeholderForCreatedAsset?.localIdentifier
+    }
+    guard let identifier else { throw NSError(domain: "record.saveFailed", code: 1) }
+    return identifier
+  }
+
+  func close() {
+    lock.withLock { closed = true }
+    consumer.invalidate()
+    recorder.cancel()
   }
 }
 
-/// Exposes receiver handles and scalar statistics; media bytes stay native.
+/// Bridges recording controls and completion status; pixel buffers and PCM remain native.
 @objc(XLabRemoteMediaFrames)
 final class XLabRemoteMediaFrames: NSObject, RCTInvalidating {
   private let lock = NSLock()
@@ -46,10 +85,7 @@ final class XLabRemoteMediaFrames: NSObject, RCTInvalidating {
   static func requiresMainQueueSetup() -> Bool { false }
 
   @objc(createConsumer:reject:)
-  func createConsumer(
-    _ resolve: RCTPromiseResolveBlock,
-    reject: RCTPromiseRejectBlock
-  ) {
+  func createConsumer(_ resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
     let receiver = lock.withLock { () -> XLabRemoteMediaFrameReceiver? in
       guard !invalidated else { return nil }
       let receiver = XLabRemoteMediaFrameReceiver()
@@ -57,33 +93,62 @@ final class XLabRemoteMediaFrames: NSObject, RCTInvalidating {
       return receiver
     }
     guard let receiver else {
-      reject("MEDIA_ERROR", "Remote media receivers are unavailable", nil)
+      reject("MEDIA_ERROR", "record.failed", nil)
       return
     }
     resolve(receiver.consumer.nativeHandle)
   }
 
-  @objc(getStatistics:resolve:reject:)
-  func getStatistics(
+  @objc(startRecording:resolve:reject:)
+  func startRecording(
+    _ handle: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard let receiver = lock.withLock({ receivers[handle] }) else {
+      reject("MEDIA_ERROR", "record.notRecording", nil)
+      return
+    }
+    Task {
+      do { try await receiver.start(); resolve(nil) } catch {
+        reject("MEDIA_ERROR", Self.failureKey(error), nil)
+      }
+    }
+  }
+
+  @objc(stopRecording:resolve:reject:)
+  func stopRecording(
+    _ handle: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard let receiver = lock.withLock({ receivers[handle] }) else {
+      reject("MEDIA_ERROR", "record.notRecording", nil)
+      return
+    }
+    Task {
+      do { resolve(try await receiver.stopAndSave()) } catch {
+        reject("MEDIA_ERROR", Self.failureKey(error), nil)
+      }
+    }
+  }
+
+  @objc(getRecordingError:resolve:reject:)
+  func getRecordingError(
     _ handle: String,
     resolve: RCTPromiseResolveBlock,
     reject: RCTPromiseRejectBlock
   ) {
-    guard let receiver = lock.withLock({ receivers[handle] }) else {
-      reject("MEDIA_ERROR", "Remote media receiver is unavailable", nil)
-      return
-    }
-    resolve(receiver.counter.snapshot())
+    resolve(lock.withLock { receivers[handle]?.status() })
   }
 
-  /// Releases only this handle after JavaScript has removed its SDK registration.
   @objc(releaseConsumer:resolve:reject:)
   func releaseConsumer(
     _ handle: String,
     resolve: RCTPromiseResolveBlock,
     reject: RCTPromiseRejectBlock
   ) {
-    lock.withLock { receivers.removeValue(forKey: handle) }?.consumer.invalidate()
+    lock.withLock { receivers.removeValue(forKey: handle) }?.close()
     resolve(nil)
   }
 
@@ -95,6 +160,14 @@ final class XLabRemoteMediaFrames: NSObject, RCTInvalidating {
       receivers.removeAll()
       return previous
     }
-    for receiver in previous { receiver.consumer.invalidate() }
+    for receiver in previous { receiver.close() }
+  }
+
+  private static func failureKey(_ error: Error) -> String {
+    if let error = error as? RealtimeVideoRecorder.RecorderError {
+      return error.localizedDescription
+    }
+    let domain = (error as NSError).domain
+    return domain.hasPrefix("record.") ? domain : "record.failed"
   }
 }
