@@ -456,6 +456,7 @@ input stream or starting generation.
 | `setStateListener` | Observe pipeline states and termination reasons during real-time generation. |
 | `setUplinkVideoStatisticsListener` | Observe measured upload dimensions, frame rates, bitrate and loss. |
 | `setDownlinkVideoStatisticsListener` | Observe result-video dimensions, frame rates, bitrate, loss and delay. |
+| `setRemoteMediaFrameListener` | Register an app-owned native receiver for remote video and PCM; see [integration details](./materials/remote-media-frames.md). |
 | `setNetworkQualityListener` | Monitor uplink and downlink network quality. |
 | `setPerformanceAlarmListener` | Detect device performance limitations or recovery, with a suggested video format when available. |
 

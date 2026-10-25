@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import type { RemoteStream } from './RemoteStream';
 import type { RtcEvent } from './RtcEvent';
 
@@ -21,6 +22,19 @@ import type { RuntimeInfo } from '../Runtime/RuntimeInfo';
  * An interface for RTC leases, native media operations, rooms, and normalized events.
  */
 export interface RtcManaging {
+
+  /**
+   * Configures a native consumer for one mapped result binding without changing playback.
+   *
+   * @param listener The native receiver, or null to discard queued output.
+   * @param stream The result room and account, required when enabling output.
+   * @param streamID The unique output binding identity, required when enabling output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+    stream: RemoteStream | null,
+    streamID: string | null,
+  ): Promise<void>;
 
   /**
    * The platform, system, device, and SDK version metadata attached to service requests.

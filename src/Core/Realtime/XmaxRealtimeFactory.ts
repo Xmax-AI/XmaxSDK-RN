@@ -111,7 +111,7 @@ export class XmaxRealtimeFactory {
   /**
    * Creates the default components for a realtime manager without acquiring native media.
    *
-   * @param configuration The validated credentials, environment, and optional API root override.
+   * @param configuration The validated credentials, service environment, and logging options.
    * @param options The realtime model configuration.
    * @returns The components sharing one RTC adapter and lifecycle manager.
    */
@@ -246,11 +246,14 @@ export class XmaxRealtimeFactory {
     const cleanup = async (scope: TerminationScope): Promise<void> => {
       if (scope === 'generation') {
         const remote = connectionManager.remoteStream;
-        if (remote) renderController.setRemoteStream(
-          remote,
-          null
-        );
-        await generationManager.stop();
+        try {
+          if (remote) await renderController.setRemoteStream(
+            remote,
+            null
+          );
+        } finally {
+          await generationManager.stop();
+        }
         return;
       }
       if (scope === 'connection') return disconnect();

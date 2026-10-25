@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import type { RealtimeExternalVideoSource } from '../../Media/External/RealtimeExternalVideoSource';
 
 import { copyEncodedData } from '../../Foundation/Storage/EncodedData';
@@ -496,6 +497,23 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
     listener: RealtimeStateListener | null,
   ): Promise<void> {
     this.lifecycleManager.setStateListener(listener);
+  }
+
+  /**
+   * Sets an app-owned native receiver for the result user's PCM and decoded video.
+   *
+   * Register before generation or replace while connected. Frames stay on a bounded serial native
+   * queue (256 packets, 32 MiB); output loss marks the next packet of that track as discontinuous.
+   * Registration does not change audio subscription or playback volume. A callback already running
+   * may finish after removal. Retain the native consumer until this listener has been removed.
+   * Registration rejects if a bound native receiver is unavailable or observation cannot be configured.
+   *
+   * @param listener The Swift or Kotlin consumer handle, or null to remove queued output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+  ): Promise<void> {
+    return this.renderController.setRemoteMediaFrameListener(listener);
   }
 
   /**
@@ -1042,11 +1060,12 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
 
           ensureActive(signal);
           if (remote && remoteStream.videoTrack)
-            this.renderController.setRemoteStream(
+            await this.renderController.setRemoteStream(
               remoteStream,
               remote
             );
 
+          token.ensureCurrent();
           if (!updating) this.completeInitialQuality();
           this.update(
             RealtimeConnectionState.generating,
@@ -1085,7 +1104,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
 
         if (generating) {
           const stream = this.connectionManager.remoteStream;
-          if (stream) this.renderController.setRemoteStream(
+          if (stream) await this.renderController.setRemoteStream(
             stream,
             null
           );
@@ -1137,7 +1156,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
           );
           const stream = this.connectionManager.remoteStream;
           if (remote && stream?.videoTrack)
-            this.renderController.setRemoteStream(
+            await this.renderController.setRemoteStream(
               stream,
               remote
             );

@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import type { RtcManaging } from './RtcManaging';
 import type { RemoteStream } from './RemoteStream';
 import type { RtcEvent } from './RtcEvent';
@@ -531,6 +532,34 @@ export class RtcManager implements RtcManaging {
       10000,
       'Remote video first frame',
     );
+  }
+
+  /**
+   * Configures a native consumer for one mapped result binding without changing playback.
+   *
+   * @param listener The native receiver, or null to discard queued output.
+   * @param stream The result room and account, required when enabling output.
+   * @param streamID The unique output binding identity, required when enabling output.
+   */
+  async setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+    stream: RemoteStream | null,
+    streamID: string | null,
+  ): Promise<void> {
+    if (listener && (!this.room || !this.active || !stream || !streamID))
+      throw invalid('Remote media output requires an active result binding');
+    if (listener) {
+      await this.room!.setRemoteMediaFrameListener(
+        listener,
+        stream,
+        streamID
+      );
+    } else if (this.active) {
+      await this.command(
+        'remoteMediaFrames',
+        { nativeHandle: null }
+      );
+    }
   }
 
   /**

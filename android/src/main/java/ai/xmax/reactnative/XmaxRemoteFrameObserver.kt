@@ -12,13 +12,16 @@ package ai.xmax.reactnative
 
 import io.agora.base.VideoFrame
 import io.agora.rtc2.video.IVideoFrameObserver
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
- * A one-shot observer of decoded result readiness without copying or exporting video frames.
+ * Observes decoded readiness and requested native media without changing RTC rendering.
  *
  * @param onReady Receives the account, room, and token for the next matching decoded frame.
  */
 internal class XmaxRemoteFrameObserver(
+
   /**
    * The callback receiving one matching decoded frame's account, room, and observation token.
    */
@@ -36,9 +39,129 @@ internal class XmaxRemoteFrameObserver(
   private var request: Request? = null
 
   /**
-   * An observation accepting one frame from a specific result account.
+   * The bounded output queue shared by remote PCM and video.
+   */
+  private val dispatcher = RealtimeMediaFrameDispatcher()
+
+  /**
+   * The current result user and shared audio/video binding identity.
+   */
+  private var output: Request? = null
+
+  /**
+   * Configures native output independently of first-frame readiness.
+   *
+   * @param consumer The app receiver, or null to remove queued output.
+   * @param roomID The current RTC room.
+   * @param uid The native result account.
+   * @param streamID The nonreusable result binding identity.
+   */
+  fun setOutput(
+    consumer: RealtimeMediaFrameConsumer?,
+    roomID: String = "",
+    uid: Int = 0,
+    streamID: String? = null
+  ) {
+    synchronized(lock) {
+      output = if (consumer != null && streamID != null) Request(
+        roomID,
+        uid,
+        streamID
+      ) else null
+      dispatcher.configure(
+        consumer,
+        streamID
+      )
+    }
+  }
+
+  /**
+   * Retires queued output and its worker before engine destruction.
+   */
+  fun close() {
+    clear()
+    setOutput(null)
+    dispatcher.close()
+  }
+
+  /**
+   * Copies valid pre-mix PCM while its borrowed native buffer is still valid.
+   *
+   * @param channel The room supplying the packet.
+   * @param uid The native result account.
+   * @param samples The samples in each channel.
+   * @param bytesPerSample The PCM sample size; only two-byte samples are accepted.
+   * @param channels The interleaved channel count.
+   * @param sampleRate The sample rate, in hertz.
+   * @param buffer The borrowed PCM bytes, copied before returning.
+   * @param renderTimeMs The receiver rendering timestamp, in milliseconds.
+   */
+  fun audio(
+    channel: String?,
+    uid: Int,
+    samples: Int,
+    bytesPerSample: Int,
+    channels: Int,
+    sampleRate: Int,
+    buffer: ByteBuffer?,
+    renderTimeMs: Long
+  ) {
+    val target = synchronized(lock) { output?.takeIf { it.roomID == channel && it.uid == uid } } ?: return
+    if (bytesPerSample != 2 || channels !in 1..2 || sampleRate !in 8000..192000 || samples !in 1..192000 ||
+      renderTimeMs <= 0 || renderTimeMs > Long.MAX_VALUE / 1000 || buffer == null || buffer.remaining() < samples * channels * 2) {
+      dispatcher.discard(
+        true,
+        target.token
+      )
+      return
+    }
+    val data = ByteArray(samples * channels * 2)
+    buffer.duplicate().get(data)
+    dispatcher.audio(
+      RealtimeAudioFrame(
+        ByteBuffer.wrap(data).asReadOnlyBuffer().order(ByteOrder.LITTLE_ENDIAN),
+        sampleRate,
+        channels,
+        samples,
+        renderTimeMs * 1000
+      ),
+      target.token
+    )
+  }
+
+  /**
+   * Copies a padded native image plane into owned, tightly packed read-only storage.
+   *
+   * @param input The callback-borrowed image plane.
+   * @param stride The source row stride, in bytes.
+   * @param width The bytes copied per row.
+   * @param height The number of rows.
+   */
+  private fun copyPlane(
+    input: ByteBuffer,
+    stride: Int,
+    width: Int,
+    height: Int
+  ): ByteBuffer {
+    val data = ByteArray(width * height)
+    val source = input.duplicate()
+    val origin = source.position()
+    for (row in 0 until height) {
+      source.position(origin + row * stride)
+      source.get(
+        data,
+        row * width,
+        width
+      )
+    }
+    return ByteBuffer.wrap(data).asReadOnlyBuffer()
+  }
+
+  /**
+   * A native result account binding with a nonreusable observation or output identity.
    */
   private data class Request(
+
     /**
      * The RTC room containing the result.
      */
@@ -50,7 +173,7 @@ internal class XmaxRemoteFrameObserver(
     val uid: Int,
 
     /**
-     * The generation observation token.
+     * The first-frame observation or continuous output binding identity.
      */
     val token: String
   )
@@ -115,6 +238,58 @@ internal class XmaxRemoteFrameObserver(
       channelId,
       token
     )
+    val target = synchronized(lock) { output?.takeIf { it.uid == uid && it.roomID == channelId } }
+    if (target != null) {
+      val renderTime = frame.renderStartTimeMs
+      if (renderTime <= 0 || renderTime > Long.MAX_VALUE / 1000) {
+        dispatcher.discard(
+          false,
+          target.token
+        )
+      } else {
+        val image = frame.buffer.toI420()
+        if (image == null) dispatcher.discard(
+          false,
+          target.token
+        )
+        else try {
+          val width = image.width
+          val height = image.height
+          dispatcher.video(
+            RealtimeVideoFrame(
+              width,
+              height,
+              copyPlane(
+                image.dataY,
+                image.strideY,
+                width,
+                height
+              ),
+              copyPlane(
+                image.dataU,
+                image.strideU,
+                (width + 1) / 2,
+                (height + 1) / 2
+              ),
+              copyPlane(
+                image.dataV,
+                image.strideV,
+                (width + 1) / 2,
+                (height + 1) / 2
+              ),
+              frame.rotation,
+              renderTime * 1000
+            ),
+            target.token
+          )
+        } catch (_: Exception) {
+          dispatcher.discard(
+          false,
+          target.token
+        )
+        } finally { image.release() }
+      }
+    }
     return true
   }
 

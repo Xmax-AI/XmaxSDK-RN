@@ -9,10 +9,12 @@
 //
 
 import CoreVideo
+import CoreImage
+import CoreMedia
 import Foundation
 @preconcurrency import AgoraRtcKit
 
-/// A one-shot observer of decoded result readiness without copying or exporting video frames.
+/// Observes decoded readiness and delivers requested remote media through a bounded native queue.
 final class XmaxRemoteFrameObserver: NSObject, AgoraVideoFrameDelegate, @unchecked Sendable {
 
   /// The lock protecting the active observation across RTC and command queues.
@@ -20,6 +22,62 @@ final class XmaxRemoteFrameObserver: NSObject, AgoraVideoFrameDelegate, @uncheck
 
   /// The room, account, and generation observation token accepting the next frame.
   private var request: (roomID: String, uid: UInt, token: String)?
+
+  /// The result user and stream identity accepting continuous native output.
+  private var output: (roomID: String, uid: UInt, streamID: UUID)?
+
+  /// The bounded background dispatcher shared by remote video and PCM.
+  private let dispatcher = RealtimeMediaFrameDispatcher()
+
+  /// The reusable image processor producing owned upright video buffers.
+  private let imageContext = CIContext()
+
+  /// Configures output without changing the independent first-frame observation.
+  ///
+  /// - Parameters:
+  ///   - consumer: The app-owned receiver, or nil to discard queued output.
+  ///   - roomID: The result room identity.
+  ///   - uid: The result account's native identifier.
+  ///   - streamID: The shared binding identity, retained when only the listener changes.
+  func setOutput(
+    consumer: RealtimeMediaFrameConsumer?,
+    roomID: String = "",
+    uid: UInt = 0,
+    streamID: UUID? = nil
+  ) {
+    lock.withLock {
+      if output?.streamID != streamID { dispatcher.setStream(streamID) }
+      if let consumer, let streamID {
+        output = (roomID, uid, streamID)
+        dispatcher.setListener { [weak consumer] in consumer?.receive($0) }
+      } else {
+        output = nil
+        dispatcher.setListener(nil)
+        dispatcher.setStream(nil)
+      }
+    }
+  }
+
+  /// Resolves a current result user's PCM handler before native bytes are copied.
+  ///
+  /// - Parameters:
+  ///   - uid: The account supplying the packet.
+  ///   - roomID: The packet's RTC room.
+  /// - Returns: The binding-guarded receiver, or nil when output is not requested.
+  func audioListener(
+    uid: UInt,
+    roomID: String
+  ) -> RtcRemoteAudioFrameListener? {
+    lock.withLock {
+      guard let output, output.uid == uid, output.roomID == roomID else { return nil }
+      return { [dispatcher] in
+        dispatcher.dispatchAudio(
+          $0,
+          streamID: output.streamID
+        )
+      }
+    }
+  }
 
   /// The callback receiving one matching frame's account, room, and observation token.
   private let onReady: @Sendable (UInt, String, String) -> Void
@@ -58,7 +116,7 @@ final class XmaxRemoteFrameObserver: NSObject, AgoraVideoFrameDelegate, @uncheck
     }
   }
 
-  /// Requests decoded NV12 pixel buffers without allocating an SDK-owned copy.
+  /// Requests native NV12 input for readiness detection and optional owned output conversion.
   ///
   /// - Returns: The native NV12 pixel-buffer format.
   func getVideoFormatPreference() -> AgoraVideoFormat {
@@ -109,6 +167,57 @@ final class XmaxRemoteFrameObserver: NSObject, AgoraVideoFrameDelegate, @uncheck
         channelId,
         token
       )
+    }
+    let identity = lock.withLock { () -> UUID? in
+      guard let output, output.uid == uid, output.roomID == channelId else { return nil }
+      return output.streamID
+    }
+    if let identity {
+      guard frame.renderTimeMs > 0 else {
+        dispatcher.discardVideo(streamID: identity)
+        return true
+      }
+      var image = CIImage(cvPixelBuffer: buffer)
+      let orientation: Int32 =
+        switch frame.rotation {
+        case 90: 6
+        case 180: 3
+        case 270: 8
+        default: 1
+        }
+      image = image.oriented(forExifOrientation: orientation)
+      let bounds = image.extent
+      var copy: CVPixelBuffer?
+      if CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        Int(bounds.width),
+        Int(bounds.height),
+        kCVPixelFormatType_32BGRA,
+        [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary,
+        &copy
+      ) == kCVReturnSuccess, let copy {
+        imageContext.render(
+          image.transformed(
+            by: CGAffineTransform(
+              translationX: -bounds.minX,
+              y: -bounds.minY
+            )
+          ),
+          to: copy
+        )
+        dispatcher.dispatchVideo(
+          RealtimeVideoFrame(
+            pixelBuffer: copy,
+            presentationTimeStamp: CMTime(
+              value: frame.renderTimeMs,
+              timescale: 1000
+            )
+          ),
+          streamID: identity
+        )
+      } else {
+        dispatcher.discardVideo(streamID: identity)
+      }
     }
     return true
   }

@@ -451,3 +451,19 @@ test('target size updates keep earlier messages ordered rather than discarding t
   assert.equal(discarded, 0);
   assert.equal(JSON.parse(sent[0]).event, 'change_target_size');
 });
+
+test('native media output resolves only the active result account and preserves audio subscription and volume', async t => {
+  const rtc = await fixture(t);
+  emit({ type: 'account', uid: 42, userID: 'bot' });
+  const before = calls.length;
+  const target = { roomID: 'room', userID: 'bot' };
+  await rtc.setRemoteMediaFrameListener({ nativeHandle: 'consumer' }, target, 'binding');
+  assert.deepEqual(calls.at(-1), { owner, operation: 'remoteMediaFrames', nativeHandle: 'consumer', uid: 42, streamID: 'binding' });
+  await assert.rejects(rtc.setRemoteMediaFrameListener({ nativeHandle: 'consumer' }, { roomID: 'other', userID: 'bot' }, 'binding'), { code: 'INVALID_CONFIGURATION' });
+  await rtc.setRemoteMediaFrameListener(null, null, null);
+  assert.deepEqual(calls.slice(before).map(({ operation }) => operation), ['remoteMediaFrames', 'remoteMediaFrames']);
+  await rtc.close();
+  const count = calls.length;
+  await rtc.setRemoteMediaFrameListener(null, null, null);
+  assert.equal(calls.length, count, 'Retired managers cannot clear a replacement engine');
+});

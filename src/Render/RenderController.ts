@@ -8,6 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../Service/Realtime/RealtimeMediaFrameListener';
+import { RemoteMediaFrameController } from './Video/RemoteMediaFrameController';
 import type { RenderControlling } from './RenderControlling';
 import type { VideoRenderBinding } from './Video/VideoRenderBinding';
 import {
@@ -34,6 +36,11 @@ export class RenderController implements RenderControlling {
    * The active bindings created by this render controller.
    */
   private owned = new Set<VideoRenderBinding>();
+
+  /**
+   * The native media output coordinator, independent of mounted video views.
+   */
+  private readonly mediaFrames: RemoteMediaFrameController;
 
   /**
    * Creates a render registry with preview readiness and failure handlers.
@@ -73,7 +80,26 @@ export class RenderController implements RenderControlling {
       binding: VideoRenderBinding,
       error: unknown,
     ) => void,
-  ) {}
+  ) {
+    this.mediaFrames = new RemoteMediaFrameController(rtc);
+  }
+
+  /**
+   * Sets an app-owned native receiver for the result user's PCM and decoded video.
+   *
+   * Register before generation or replace while connected. Frames stay on a bounded serial native
+   * queue (256 packets, 32 MiB); output loss marks the next packet of that track as discontinuous.
+   * Registration does not change audio subscription or playback volume. A callback already running
+   * may finish after removal. Retain the native consumer until this listener has been removed.
+   * Registration rejects if a bound native receiver is unavailable or observation cannot be configured.
+   *
+   * @param listener The Swift or Kotlin consumer handle, or null to remove queued output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+  ): Promise<void> {
+    return this.mediaFrames.setListener(listener);
+  }
 
   /**
    * Sets the listener notified when the current local preview becomes ready.
@@ -198,20 +224,22 @@ export class RenderController implements RenderControlling {
 
   /**
    * Updates remote stream confirmation without replacing the public track.
+   * Clearing completes after queued native media output has been removed.
    *
    * @param stream The manager-owned result stream.
    * @param remote The confirmed RTC room and account; null hides output while retaining its binding.
    */
-  setRemoteStream(
+  async setRemoteStream(
     stream: RealtimeMediaStream,
     remote: RemoteStream | null,
-  ): void {
+  ): Promise<void> {
     const binding = streamBinding(stream);
     if (!binding || binding.owner !== this.owner || binding.local) return;
 
     if (remote) binding.remote = remote;
     binding.confirmed = remote !== null;
     refreshBinding(binding);
+    if (!remote) await this.mediaFrames.clear();
   }
 
   /**
@@ -234,6 +262,7 @@ export class RenderController implements RenderControlling {
             value.remote.userID === remote.userID)),
     );
     if (!binding) throw invalid('Remote video stream is unavailable');
+    await this.mediaFrames.bind(remote);
     await this.rtc.waitUntilRemoteFrameReady(
       remote,
       signal
@@ -314,11 +343,26 @@ export class RenderController implements RenderControlling {
   invalidate(
     local: boolean | null = null
   ): void {
+    if (local !== true) this.clearMediaFrames();
     for (const binding of this.owned)
       if (local === null || binding.local === local) {
         binding.valid = false;
         refreshBinding(binding);
         this.owned.delete(binding);
       }
+  }
+
+  /**
+   * Retires native output without forwarding obsolete cleanup failures to a replacement binding.
+   */
+  private clearMediaFrames(): void {
+    void this.mediaFrames.clear().catch(() => {
+      XmaxLogger.render.warn(
+        XmaxLogger.localized(
+          '移除远端媒体帧输出失败',
+          'Remote media frame output cleanup failed',
+        ),
+      );
+    });
   }
 }

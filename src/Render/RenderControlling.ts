@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../Service/Realtime/RealtimeMediaFrameListener';
 import type { VideoRenderBinding } from './Video/VideoRenderBinding';
 
 import type { RemoteStream } from '../Foundation/RTC/RemoteStream';
@@ -19,6 +20,21 @@ import type { RealtimeVideoFormat } from '../Service/Realtime/RealtimeVideoForma
  * An interface for video tracks, render bindings, and result visibility.
  */
 export interface RenderControlling {
+
+  /**
+   * Sets an app-owned native receiver for the result user's PCM and decoded video.
+   *
+   * Register before generation or replace while connected. Frames stay on a bounded serial native
+   * queue (256 packets, 32 MiB); output loss marks the next packet of that track as discontinuous.
+   * Registration does not change audio subscription or playback volume. A callback already running
+   * may finish after removal. Retain the native consumer until this listener has been removed.
+   * Registration rejects if a bound native receiver is unavailable or observation cannot be configured.
+   *
+   * @param listener The Swift or Kotlin consumer handle, or null to remove queued output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+  ): Promise<void>;
 
   /**
    * Sets the listener notified when the current local preview becomes ready.
@@ -73,6 +89,7 @@ export interface RenderControlling {
 
   /**
    * Updates remote stream confirmation without replacing the public track.
+   * Clearing completes after queued native media output has been removed.
    *
    * @param stream The manager-owned result stream.
    * @param remote The confirmed RTC room and account; null hides output while retaining its binding.
@@ -80,7 +97,7 @@ export interface RenderControlling {
   setRemoteStream(
     stream: RealtimeMediaStream,
     remote: RemoteStream | null,
-  ): void;
+  ): Promise<void>;
 
   /**
    * Waits for a new decoded result frame without requiring a mounted video view.

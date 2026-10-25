@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import type { RealtimeExternalVideoSource } from '../../Media/External/RealtimeExternalVideoSource';
 
 import type { RealtimeConfiguration } from './RealtimeConfiguration';
@@ -92,6 +93,21 @@ export type DownlinkVideoStatisticsListener = (
  * automatic quality update to finish.
  */
 export interface XmaxRealtimeManaging {
+
+  /**
+   * Sets an app-owned native receiver for the result user's PCM and decoded video.
+   *
+   * Register before generation or replace while connected. Frames stay on a bounded serial native
+   * queue (256 packets, 32 MiB); output loss marks the next packet of that track as discontinuous.
+   * Registration does not change audio subscription or playback volume. A callback already running
+   * may finish after removal. Retain the native consumer until this listener has been removed.
+   * Registration rejects if a bound native receiver is unavailable or observation cannot be configured.
+   *
+   * @param listener The Swift or Kotlin consumer handle, or null to remove queued output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+  ): Promise<void>;
 
   /**
    * The immutable realtime configuration.

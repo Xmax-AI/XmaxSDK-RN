@@ -39,6 +39,7 @@ export * from './Service/Realtime/RealtimeMediaStream';
 export * from './Service/Realtime/RealtimeNetworkQuality';
 export * from './Service/Realtime/RealtimePerformanceAlarm';
 export * from './Service/Realtime/RealtimeContext';
+export type { RealtimeMediaFrameListener } from './Service/Realtime/RealtimeMediaFrameListener';
 export * from './Core/Realtime/RealtimeOperationOptions';
 export * from './Foundation/RTC/VideoStatistics';
 export * from './Core/Realtime/RealtimeConfiguration';

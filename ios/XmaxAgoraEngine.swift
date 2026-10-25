@@ -32,6 +32,9 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   /// The one-shot observer confirming decoded result readiness without a video view.
   private var remoteFrames: XmaxRemoteFrameObserver?
 
+  /// The pre-mix PCM observer enabled only for requested native output.
+  private var remoteAudioFrames: RtcRemoteAudioSink?
+
   /// Whether the encoder receives external frames instead of camera input.
   private var external = false
 
@@ -224,6 +227,40 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
         uid: UInt(int(request, "uid")),
         token: request["token"] as? String ?? ""
       )
+    case "remoteMediaFrames":
+      if let handle = request["nativeHandle"] as? String {
+        guard let consumer = RealtimeMediaFrameConsumer.find(handle),
+          let identity = request["streamID"] as? String, let stream = UUID(uuidString: identity),
+          !roomID.isEmpty, let remoteFrames
+        else { throw XmaxNativeFailure(message: "Remote media frame consumer is unavailable") }
+        try check(
+          engine.setPlaybackAudioFrameBeforeMixingParametersWithSampleRate(
+            48000,
+            channel: 1,
+            samplesPerCall: 480
+          )
+        )
+        let audio = RtcRemoteAudioSink { [weak remoteFrames] uid, channel in
+          remoteFrames?.audioListener(
+            uid: uid,
+            roomID: channel
+          )
+        }
+        guard engine.setAudioFrameDelegate(audio) else {
+          throw XmaxNativeFailure(message: "Remote audio frame observation is unavailable")
+        }
+        remoteAudioFrames = audio
+        remoteFrames.setOutput(
+          consumer: consumer,
+          roomID: roomID,
+          uid: UInt(int(request, "uid")),
+          streamID: stream
+        )
+      } else {
+        remoteFrames?.setOutput(consumer: nil)
+        engine.setAudioFrameDelegate(nil)
+        remoteAudioFrames = nil
+      }
     case "clearRemoteFrame":
       remoteFrames?.clear(token: request["token"] as? String)
     case "remoteAudio":
@@ -301,6 +338,9 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       _ = engine.enableLocalVideo(false)
       _ = engine.enableLocalAudio(false)
     case "leave":
+      remoteFrames?.setOutput(consumer: nil)
+      engine.setAudioFrameDelegate(nil)
+      remoteAudioFrames = nil
       externalSink?.setPublished(false)
       remoteFrames?.clear()
       roomID = ""
@@ -415,6 +455,9 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
     guard engine != nil else { return }
     externalSink?.invalidate()
     externalSink = nil
+    remoteFrames?.setOutput(consumer: nil)
+    engine?.setAudioFrameDelegate(nil)
+    remoteAudioFrames = nil
     remoteFrames?.clear()
     engine?.setVideoFrameDelegate(nil)
     remoteFrames = nil

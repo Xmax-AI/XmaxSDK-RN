@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import { cancelledError, invalid, XmaxError } from '../Errors/XmaxError';
 import { RtcMessageQueue } from './RtcMessageQueue';
 import { RtcStatsLogger } from './RtcStatsLogger';
@@ -198,6 +199,29 @@ export class AgoraRtcRoom implements RtcRoom {
     );
     if (!entry) throw invalid('Remote RTC account is unavailable');
     return entry[0];
+  }
+
+  /**
+   * Configures a native consumer for one mapped result binding without changing playback.
+   *
+   * @param listener The native receiver, or null to discard queued output.
+   * @param stream The result room and account, required when enabling output.
+   * @param streamID The unique output binding identity, required when enabling output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+    stream: RemoteStream | null,
+    streamID: string | null,
+  ): Promise<void> {
+    if (listener && (!stream || !streamID))
+      throw invalid('Remote output requires a result binding');
+    return this.command(
+      'remoteMediaFrames',
+      {
+        nativeHandle: listener?.nativeHandle ?? null,
+        ...(listener ? { uid: this.requireRemoteUID(stream!), streamID } : {}),
+      }
+    );
   }
 
   /**

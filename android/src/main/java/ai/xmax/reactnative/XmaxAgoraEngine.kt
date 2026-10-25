@@ -108,6 +108,9 @@ internal class XmaxAgoraEngine(
     )
   }
 
+  /** The optional pre-mix PCM observer retained while native media output is requested. */
+  private var remoteAudioFrames: RtcRemoteAudioSink? = null
+
   /**
    * The native RTC engine held by the current media owner.
    */
@@ -669,6 +672,22 @@ internal class XmaxAgoraEngine(
         request.getInt("uid"),
         request.getString("token")
       )
+      "remoteMediaFrames" -> {
+        if (!request.isNull("nativeHandle")) {
+          val consumer = RealtimeMediaFrameConsumer.find(request.getString("nativeHandle"))
+            ?: error("Remote media frame consumer is unavailable")
+          require(roomID.isNotEmpty())
+          check(engine.setPlaybackAudioFrameBeforeMixingParameters(48000, 1, 480))
+          val audio = RtcRemoteAudioSink(remoteFrames)
+          check(engine.registerAudioFrameObserver(audio))
+          remoteAudioFrames = audio
+          remoteFrames.setOutput(consumer, roomID, request.getInt("uid"), request.getString("streamID"))
+        } else {
+          remoteFrames.setOutput(null)
+          engine.registerAudioFrameObserver(null)
+          remoteAudioFrames = null
+        }
+      }
       "clearRemoteFrame" -> remoteFrames.clear(request.optString("token"))
       "remoteAudio" -> check(
         engine.muteRemoteAudioStream(
@@ -715,6 +734,9 @@ internal class XmaxAgoraEngine(
         engine.enableLocalAudio(false)
       }
       "leave" -> {
+        remoteFrames.setOutput(null)
+        engine.registerAudioFrameObserver(null)
+        remoteAudioFrames = null
         externalSink?.setPublished(false)
         remoteFrames.clear()
         roomID = ""
@@ -902,7 +924,9 @@ internal class XmaxAgoraEngine(
     externalSink?.invalidate()
     externalSink = null
     closed = true
-    remoteFrames.clear()
+    remoteFrames.close()
+    engine.registerAudioFrameObserver(null)
+    remoteAudioFrames = null
     engine.registerVideoFrameObserver(null)
     roomID = ""
     RtcEngine.destroy()

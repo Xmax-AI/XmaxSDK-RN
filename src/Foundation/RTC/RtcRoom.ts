@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeMediaFrameListener } from '../../Service/Realtime/RealtimeMediaFrameListener';
 import type { RtcEvent } from './RtcEvent';
 import type { RemoteStream } from './RemoteStream';
 import type { RtcPlatformEvent } from './RtcPlatform';
@@ -30,6 +31,19 @@ export type RtcRoomEvent =
  * A vendor-independent room serving one connection.
  */
 export interface RtcRoom {
+
+  /**
+   * Configures a native consumer for one mapped result binding without changing playback.
+   *
+   * @param listener The native receiver, or null to discard queued output.
+   * @param stream The result room and account, required when enabling output.
+   * @param streamID The unique output binding identity, required when enabling output.
+   */
+  setRemoteMediaFrameListener(
+    listener: RealtimeMediaFrameListener | null,
+    stream: RemoteStream | null,
+    streamID: string | null,
+  ): Promise<void>;
 
   /**
    * The mapped remote accounts currently publishing video.
