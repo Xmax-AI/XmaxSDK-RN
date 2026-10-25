@@ -17,6 +17,8 @@
 		EB0000000000000000000001 /* RealtimeFileVideoSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000001 /* RealtimeFileVideoSource.swift */; };
 		EB0000000000000000000002 /* XLabExternalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000002 /* XLabExternalCapture.swift */; };
 		EB0000000000000000000003 /* XLabExternalCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000003 /* XLabExternalCapture.m */; };
+		EB0000000000000000000005 /* XLabRemoteMediaFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000005 /* XLabRemoteMediaFrames.swift */; };
+		EB0000000000000000000006 /* XLabRemoteMediaFrames.m in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000006 /* XLabRemoteMediaFrames.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +37,8 @@
 		EA0000000000000000000002 /* XLabExternalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XLabExternalCapture.swift; path = XLab/XLabExternalCapture.swift; sourceTree = "<group>"; };
 		EA0000000000000000000003 /* XLabExternalCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = XLabExternalCapture.m; path = XLab/XLabExternalCapture.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EA0000000000000000000005 /* XLabRemoteMediaFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XLabRemoteMediaFrames.swift; path = XLab/XLabRemoteMediaFrames.swift; sourceTree = "<group>"; };
+		EA0000000000000000000006 /* XLabRemoteMediaFrames.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = XLabRemoteMediaFrames.m; path = XLab/XLabRemoteMediaFrames.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +60,8 @@
 				EA0000000000000000000001 /* RealtimeFileVideoSource.swift */,
 				EA0000000000000000000002 /* XLabExternalCapture.swift */,
 				EA0000000000000000000003 /* XLabExternalCapture.m */,
+				EA0000000000000000000006 /* XLabRemoteMediaFrames.m */,
+				EA0000000000000000000005 /* XLabRemoteMediaFrames.swift */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
@@ -266,6 +272,8 @@
 				EB0000000000000000000001 /* RealtimeFileVideoSource.swift in Sources */,
 				EB0000000000000000000002 /* XLabExternalCapture.swift in Sources */,
 				EB0000000000000000000003 /* XLabExternalCapture.m in Sources */,
+				EB0000000000000000000006 /* XLabRemoteMediaFrames.m in Sources */,
+				EB0000000000000000000005 /* XLabRemoteMediaFrames.swift in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				238740C3A06AAE67B731BF71 /* SceneDelegate.swift in Sources */,
 			);

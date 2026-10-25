@@ -163,6 +163,18 @@ function screenFixture(t, options = {}) {
   const localTrack = { id: 'local' }, remoteTrack = { id: 'remote' };
   let starts = 0, stops = 0, connects = 0, previews = 0, closes = 0;
   const contexts = [], models = [], inputFiles = [], faceOptions = [];
+  const frameEvents = [];
+  let consumerID = 0;
+  const frameNative = {
+    async createConsumer() {
+      const handle = `consumer-${++consumerID}`;
+      frameEvents.push(['create', handle]);
+      return handle;
+    },
+    async getStatistics() { return { videoFrames: 30, audioPackets: 100 }; },
+    async releaseConsumer(handle) { frameEvents.push(['release', handle]); },
+  };
+  const { RemoteMediaFrameReception } = load('realtime/RemoteMediaFrameReception.ts', {});
   let stateListener = null, networkListener = null;
   let cleanup = null;
   const cancelled = () => ({ code: 'CANCELLED' });
@@ -178,6 +190,7 @@ function screenFixture(t, options = {}) {
     setStateListener: async listener => { stateListener = listener; },
     setUplinkVideoStatisticsListener: async () => {},
     setDownlinkVideoStatisticsListener: async () => {},
+    async setRemoteMediaFrameListener(listener) { frameEvents.push(['listener', listener]); },
     createLocalCameraStream: async () => { previews++; return { videoTrack: localTrack }; },
     createLocalImageStream: async ({ fileURL }) => { previews++; inputFiles.push(fileURL); return { videoTrack: localTrack }; },
     async createExternalVideoStream(source) { previews++; manager.externalSource = source; await source.start({ nativeHandle: 'native-sink' }); return { videoTrack: localTrack }; },
@@ -251,6 +264,11 @@ function screenFixture(t, options = {}) {
     '../realtime/RealtimeAudioVolumeMenu': { RealtimeAudioVolumeMenu: 'VolumeMenu' },
     '../external/RealtimeFileVideoSource': { makeRealtimeFileVideoSource: options.externalSource ?? (async () => { throw new Error('No external source fixture'); }) },
     '../realtime/RealtimeGenerationOperations': load('realtime/RealtimeGenerationOperations.ts', {}),
+    '../realtime/RemoteMediaFrameReception': {
+      RemoteMediaFrameReception: class extends RemoteMediaFrameReception {
+        constructor(realtime) { super(realtime, frameNative); }
+      },
+    },
     '../realtime/XLabTrajectoryRenderer': {},
     '../realtime/TouchAnimationReference': { uploadTouchAnimationReference: options.prepareTouch },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
@@ -271,7 +289,7 @@ function screenFixture(t, options = {}) {
   const props = type => find(draw(), node => node.type === type).props;
   t.after(() => { h.dispose(); native.AppState.currentState = 'active'; });
   draw();
-  return { props, draw, manager, connect, start, disconnect, localTrack, remoteTrack, contexts, models, inputFiles, faceOptions,
+  return { props, draw, manager, connect, start, disconnect, localTrack, remoteTrack, contexts, models, inputFiles, faceOptions, frameEvents,
     dispose: h.dispose,
     setEntryReady(value) { options.entryReady = value; draw(); },
     state(value) { manager.currentState = value; stateListener?.(value); },
@@ -705,7 +723,7 @@ test('storage selection, progress, safety errors and results follow the current 
 });
 
 
-test('locale selects regional keys and models while active routes retain their captured environment', t => {
+test('locale selects regional keys independently of models while active routes retain their environment', t => {
   t.after(() => { locale = 'zh-Hans'; });
   locale = 'en';
   const configuration = { keys: { china: 'cn-fixture', global: 'global-fixture' },
@@ -736,7 +754,7 @@ test('locale selects regional keys and models while active routes retain their c
   assert.equal(configuration.model, 'x2.1.1-preview-cn');
   feed.onModelChange('x2.1.1-preview-cn');
   feed.onCamera('global-fixture', 'global');
-  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1.1-preview-us' }]);
+  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1.1-preview-cn' }]);
   for (const name of ['Camera', 'Image', 'External', 'Storage']) {
     const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1.1-preview-us' } }, navigation }).props;
     if (name !== 'Storage') {
@@ -809,8 +827,8 @@ test('all home feature entries require the current endpoint key before navigatio
     const model = language === 'en' ? 'x2.1.1-preview-us' : 'x2.1.1-preview-cn';
     const other = language === 'en' ? 'x2.1.1-preview-cn' : 'x2.1.1-preview-us';
     const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === model.toUpperCase());
-    assert(preview, 'The current environment must offer its regional model');
-    assert(!find(draw(), node => node.props?.accessibilityLabel === other.toUpperCase()));
+    assert(preview, 'Both models must be available regardless of the current environment');
+    assert(find(draw(), node => node.props?.accessibilityLabel === other.toUpperCase()));
     assert(!find(draw(), node => node.props?.children === 'API ENDPOINT'));
     assert(!find(draw(), node => node.props?.children === 'UPLOAD BITRATE (KBPS)'));
     preview.props.onPress();
@@ -1124,6 +1142,42 @@ test('XLab external capture binds app-owned native decoding without using camera
   assert.equal(screen.props('Video').videoContentMode, 'fit');
   assert.equal(screen.props('Panel').initialCategoryID, 'charx');
   assert.equal(screen.counts().starts, 0);
+  assert.deepEqual(screen.frameEvents, [
+    ['create', 'consumer-1'], ['listener', { nativeHandle: 'consumer-1' }],
+  ]);
+  screen.props('Toolbar').onStatistics();
+  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, true);
+  await tick();
+  assert.deepEqual(screen.props('RealtimeStatisticsPanel').mediaFrames, { videoFrames: 30, audioPackets: 100 });
+});
+
+test('camera registers native frame reception once across background recovery and releases it on exit', async t => {
+  const screen = screenFixture(t);
+  await tick();
+  assert.deepEqual(screen.frameEvents, [
+    ['create', 'consumer-1'], ['listener', { nativeHandle: 'consumer-1' }],
+  ]);
+  screen.props('Toolbar').onStatistics();
+  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, true);
+  await tick();
+  assert.deepEqual(screen.props('RealtimeStatisticsPanel').mediaFrames, { videoFrames: 30, audioPackets: 100 });
+  screen.background('background');
+  await tick();
+  screen.background('active');
+  await tick();
+  assert.equal(screen.counts().previews, 2);
+  assert.equal(screen.frameEvents.filter(([event]) => event === 'create').length, 1);
+  screen.dispose();
+  await tick();
+  assert.deepEqual(screen.frameEvents.slice(-2), [['listener', null], ['release', 'consumer-1']]);
+});
+
+test('image input does not create or register the camera and external frame example receiver', async t => {
+  const screen = screenFixture(t, { fileURL: 'file:///image.jpg' });
+  await tick();
+  screen.props('Toolbar').onStatistics();
+  assert.equal(screen.props('RealtimeStatisticsPanel').receivesMediaFrames, false);
+  assert.deepEqual(screen.frameEvents, []);
 });
 
 test('a late XLab decoder preparation is stopped when its page has already unmounted', async t => {

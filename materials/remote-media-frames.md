@@ -95,3 +95,9 @@ The example processing functions belong to your app. Plane strides are `width` f
 - Removing the listener rejects queued output. A callback already executing may finish afterward. Stopping or closing the app-owned consumer disables further delivery; unregister it from the manager before releasing it.
 
 This API supplies native media output. Recording, file muxing, frame interpolation, and a TypeScript raw-frame transport are separate capabilities and are not provided by this API.
+
+## XLab example
+
+The camera and external capture screens register an app-owned `XLabRemoteMediaFrames` receiver. Its Swift and Kotlin callbacks count delivered video frames and audio packets without retaining media buffers. Open the statistics panel to read these cumulative counters; JavaScript reads only scalar snapshots once per second while the panel is visible.
+
+The screen unregisters the listener before releasing its native receiver. Background suspension stops SDK frame delivery, and foreground preview recovery retains the screen's registration for the next generation. Image input does not register this example receiver.

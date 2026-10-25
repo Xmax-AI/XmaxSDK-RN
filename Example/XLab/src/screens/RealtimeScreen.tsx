@@ -3,6 +3,10 @@ import { RealtimeToolbar } from '../realtime/RealtimeToolbar';
 import { RealtimeAudioVolumeMenu } from '../realtime/RealtimeAudioVolumeMenu';
 import { makeRealtimeFileVideoSource } from '../external/RealtimeFileVideoSource';
 import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
+import {
+  RemoteMediaFrameReception,
+  type RemoteMediaFrameStatistics,
+} from '../realtime/RemoteMediaFrameReception';
 import type {
   UplinkVideoStatistics,
   DownlinkVideoStatistics,
@@ -130,6 +134,9 @@ export function RealtimeScreen({
     useState<RealtimeNetworkQuality | null>(null);
   const [controlPanelHeight, setControlPanelHeight] = useState(0);
   const [statisticsVisible, setStatisticsVisible] = useState(false);
+  const frameReception = useRef<RemoteMediaFrameReception | null>(null);
+  const [mediaFrameStatistics, setMediaFrameStatistics] =
+    useState<RemoteMediaFrameStatistics | null>(null);
   const [uplinkStatistics, setUplinkStatistics] =
     useState<UplinkVideoStatistics | null>(null);
   const [downlinkStatistics, setDownlinkStatistics] =
@@ -206,6 +213,37 @@ export function RealtimeScreen({
       });
     }
   }, []);
+
+  /** Reads native callback counters only while the statistics panel is visible. */
+  useEffect(() => {
+    setMediaFrameStatistics(null);
+    if (!statisticsVisible || fileURL) return;
+    let active = true;
+    let reading = false;
+    const refresh = async () => {
+      if (reading || AppState.currentState !== 'active') return;
+      const receiver = frameReception.current;
+      reading = true;
+      try {
+        const statistics = await receiver?.getStatistics();
+        if (active && frameReception.current === receiver)
+          setMediaFrameStatistics(statistics ?? null);
+      } catch {
+        if (active && frameReception.current === receiver)
+          setMediaFrameStatistics(null);
+      } finally {
+        reading = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, 1000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [statisticsVisible, fileURL]);
 
   /**
    * Starts local preview and ignores results from an obsolete screen operation.
@@ -313,6 +351,10 @@ export function RealtimeScreen({
     const realtime = configuredClient.createRealtimeManager({
       model,
     });
+    const reception = input.fileURL
+      ? null
+      : new RemoteMediaFrameReception(realtime);
+    frameReception.current = reception;
 
     const generation = new RealtimeGenerationOperations(() =>
       realtime.disconnect(),
@@ -373,15 +415,28 @@ export function RealtimeScreen({
         showError(value.reason.error);
       }
     });
-    void teardown.current.then(() => {
-      if (
+    /** Registers native output before preview can start a generation request. */
+    const startPreview = async () => {
+      const isCurrent = () =>
         active &&
         alive.current &&
         manager.current === realtime &&
-        AppState.currentState === 'active'
-      )
-        return preview(realtime);
-    });
+        AppState.currentState === 'active';
+      if (!isCurrent()) return;
+      try {
+        await reception?.start();
+      } catch (failure) {
+        await reception?.close().catch(() => {});
+        if (isCurrent()) {
+          setBusy(false);
+          setLoading(false);
+          showError(failure);
+        }
+        return;
+      }
+      if (isCurrent()) return preview(realtime);
+    };
+    void teardown.current.then(startPreview);
 
     let previous = AppState.currentState;
     let closing: Promise<void> = Promise.resolve();
@@ -418,7 +473,7 @@ export function RealtimeScreen({
             token === epoch.current &&
             AppState.currentState === 'active'
           )
-            return preview(realtime);
+            return startPreview();
         });
       }
       if (next !== 'inactive') previous = next;
@@ -434,6 +489,7 @@ export function RealtimeScreen({
       operations.current = null;
       client.current = null;
       manager.current = null;
+      if (frameReception.current === reception) frameReception.current = null;
       local.current = null;
       appState.remove();
       void realtime.setStateListener(null);
@@ -442,7 +498,13 @@ export function RealtimeScreen({
       void realtime.setDownlinkVideoStatisticsListener(null);
       const precedingCleanup = teardown.current;
       const cleaning = generation
-        .cancel(() => realtime.close())
+        .cancel(async () => {
+          try {
+            await reception?.close();
+          } finally {
+            await realtime.close();
+          }
+        })
         .catch(() => {});
       teardown.current = Promise.all([precedingCleanup, cleaning]).then(
         () => {},
@@ -453,6 +515,7 @@ export function RealtimeScreen({
     apiKey,
     environment,
     model,
+    input.fileURL,
     preview,
     refreshConfiguration,
     showError,
@@ -806,6 +869,8 @@ export function RealtimeScreen({
           ]}
         >
           <RealtimeStatisticsPanel
+            receivesMediaFrames={!fileURL}
+            mediaFrames={mediaFrameStatistics}
             uplink={uplinkStatistics}
             downlink={downlinkStatistics}
             networkQuality={networkQuality}
