@@ -14,7 +14,6 @@ import type {
 import {
   environmentForEndpoint,
   endpointForLocale,
-  modelForEndpoint,
 } from '../configuration/ConfigurationStore';
 import { useLocalization } from '../localization/LocalizationProvider';
 import { FeedScreen } from '../screens/FeedScreen';
@@ -70,7 +69,7 @@ function FeedRoute({
   const { configuration, store } = useXLabConfiguration();
   const { locale } = useLocalization();
   const currentEndpoint = endpointForLocale(locale);
-  const model = modelForEndpoint(configuration.model, currentEndpoint);
+  const model = configuration.model;
 
   return (
     <FeedScreen

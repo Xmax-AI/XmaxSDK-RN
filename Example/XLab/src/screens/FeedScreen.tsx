@@ -27,7 +27,6 @@ import type {
 } from '../configuration/ConfigurationStore';
 import {
   endpointForLocale,
-  modelForEndpoint,
   xlabModels,
 } from '../configuration/ConfigurationStore';
 
@@ -80,8 +79,7 @@ export function FeedScreen({
 }) {
   const { t, locale } = useLocalization();
   const endpoint = endpointForLocale(locale);
-  const models = xlabModels[endpoint];
-  const selectedModel = modelForEndpoint(configuration.model, endpoint);
+  const selectedModel = configuration.model;
   const apiKey = configuration.keys[endpoint];
   const [visible, setVisible] = useState(false);
 
@@ -268,7 +266,7 @@ export function FeedScreen({
               </FeedText>
               <FeedText style={styles.modelCount}>
                 {t('feed.model.count', {
-                  count: models.length,
+                  count: xlabModels.length,
                 })}
               </FeedText>
             </View>
@@ -344,36 +342,32 @@ export function FeedScreen({
               )}
             </View>
             <View style={styles.divider} />
-            {Object.entries(RealtimeModel)
-              .filter(([, model]) => models.includes(model))
-              .map(([identifier, model]) => (
-                <Pressable
-                  key={model}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    checked: selectedModel === model,
-                  }}
-                  accessibilityLabel={model.toUpperCase()}
-                  onPress={() => onModelChange(model)}
-                  style={[
-                    styles.model,
-                    selectedModel === model && styles.selectedModel,
-                  ]}
-                >
-                  <FeedText style={styles.modelDiamond}>◆</FeedText>
-                  <View style={styles.modelText}>
-                    <FeedText style={styles.modelTitle}>
-                      {model.toUpperCase()}
-                    </FeedText>
-                    <FeedText style={styles.modelIdentifier}>
-                      {`RealtimeModel.${identifier}`}
-                    </FeedText>
-                  </View>
-                  {selectedModel === model && (
-                    <Pill text={t('feed.selected')} />
-                  )}
-                </Pressable>
-              ))}
+            {Object.entries(RealtimeModel).map(([identifier, model]) => (
+              <Pressable
+                key={model}
+                accessibilityRole="radio"
+                accessibilityState={{
+                  checked: selectedModel === model,
+                }}
+                accessibilityLabel={model.toUpperCase()}
+                onPress={() => onModelChange(model)}
+                style={[
+                  styles.model,
+                  selectedModel === model && styles.selectedModel,
+                ]}
+              >
+                <FeedText style={styles.modelDiamond}>◆</FeedText>
+                <View style={styles.modelText}>
+                  <FeedText style={styles.modelTitle}>
+                    {model.toUpperCase()}
+                  </FeedText>
+                  <FeedText style={styles.modelIdentifier}>
+                    {`RealtimeModel.${identifier}`}
+                  </FeedText>
+                </View>
+                {selectedModel === model && <Pill text={t('feed.selected')} />}
+              </Pressable>
+            ))}
           </View>
 
           <View style={styles.section}>

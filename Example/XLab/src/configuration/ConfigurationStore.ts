@@ -4,27 +4,14 @@ import type { XLabLanguage, XLabLocale } from '../localization/Localization';
 /** The API backends XLab can target; credentials persist independently per endpoint. */
 export type XLabApiEndpoint = 'china' | 'global';
 
-/** Models available in each service environment. */
-export const xlabModels: Readonly<
-  Record<XLabApiEndpoint, readonly RealtimeModel[]>
-> = {
-  china: [RealtimeModel.x2_1_1_preview_cn],
-  global: [RealtimeModel.x2_1_1_preview_us],
-};
+/** All SDK models available for selection, independently of the service environment. */
+export const xlabModels: readonly RealtimeModel[] = Object.freeze(
+  Object.values(RealtimeModel),
+);
 
 /** Selects the service environment from the resolved interface language. */
 export function endpointForLocale(locale: XLabLocale): XLabApiEndpoint {
   return locale === 'zh-Hans' ? 'china' : 'global';
-}
-
-/** Resolves a saved selection within the current environment's model list. */
-export function modelForEndpoint(
-  model: RealtimeModel,
-  endpoint: XLabApiEndpoint,
-): RealtimeModel {
-  const models = xlabModels[endpoint];
-
-  return models.includes(model) ? model : models[0]!;
 }
 
 /** Maps an endpoint to the SDK environment used when creating clients. */
@@ -107,9 +94,7 @@ export class ConfigurationStore {
           this.storage.read('model'),
         ]);
         const selectedModel =
-          Object.values(xlabModels)
-            .flat()
-            .find(supported => supported === model) ??
+          xlabModels.find(supported => supported === model) ??
           RealtimeModel.x2_1_1_preview_cn;
         this.publish({
           keys: { china: china ?? '', global: global ?? '' },
@@ -145,11 +130,7 @@ export class ConfigurationStore {
 
   /** Persists the model for future entries without modifying an active route. */
   selectModel(model: RealtimeModel): void {
-    if (
-      !this.state.loaded ||
-      !Object.values(xlabModels).some(models => models.includes(model))
-    )
-      return;
+    if (!this.state.loaded || !xlabModels.includes(model)) return;
     this.publish({ model });
     this.enqueue('model', model);
   }

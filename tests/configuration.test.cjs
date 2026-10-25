@@ -13,7 +13,7 @@ compiled.require = name => name === '@xmaxai/react-native-sdk'
 compiled._compile(ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
-const { ConfigurationStore, endpointForLocale, modelForEndpoint, xlabModels, environmentForEndpoint } = compiled.exports;
+const { ConfigurationStore, endpointForLocale, xlabModels, environmentForEndpoint } = compiled.exports;
 
 // Model the pinned iOS helper: any present cloudSync NSNumber enables sync,
 // including @NO. This is the native boundary the in-memory store tests omit.
@@ -236,15 +236,12 @@ test('failed language writes keep the newest preference for retry', async () => 
 });
 
 
-test('resolved interface language selects the service region and available models', () => {
+test('resolved interface language selects the service region independently of the model list', () => {
   assert.equal(endpointForLocale('zh-Hans'), 'china');
   assert.equal(endpointForLocale('en'), 'global');
   assert.equal(environmentForEndpoint('china'), 'china');
   assert.equal(environmentForEndpoint('global'), 'global');
-  assert.deepEqual(xlabModels.china, ['x2.1.1-preview-cn']);
-  assert.deepEqual(xlabModels.global, ['x2.1.1-preview-us']);
-  assert.equal(modelForEndpoint('x2.1.1-preview-us', 'china'), 'x2.1.1-preview-cn');
-  assert.equal(modelForEndpoint('x2.1.1-preview-cn', 'global'), 'x2.1.1-preview-us');
+  assert.deepEqual(xlabModels, ['x2.1.1-preview-cn', 'x2.1.1-preview-us']);
 });
 
 test('obsolete endpoint and bitrate settings cannot override locale routing or block hydration', async () => {
@@ -259,7 +256,7 @@ test('obsolete endpoint and bitrate settings cannot override locale routing or b
   assert.equal(configuration.error, null);
   assert.deepEqual(fields.sort(), ['china', 'global', 'language', 'model']);
   assert.equal(endpointForLocale(configuration.language), 'china');
-  assert.equal(modelForEndpoint(configuration.model, 'china'), 'x2.1.1-preview-cn');
+  assert.equal(configuration.model, 'x2.1.1-preview-us');
   assert.deepEqual(configuration.keys, { china: 'cn-fixture', global: 'global-fixture' });
 });
 
@@ -275,4 +272,23 @@ test('model selections persist and obsolete models fall back to a supported mode
   const obsolete = new ConfigurationStore(storage({ model: 'obsolete-model' }));
   await obsolete.load();
   assert.equal(obsolete.getSnapshot().model, 'x2.1.1-preview-cn');
+});
+
+test('switching interface languages preserves each selected model across reloads', async () => {
+  for (const model of xlabModels) {
+    const disk = storage({ language: 'zh-Hans', model });
+    const store = new ConfigurationStore(disk);
+    await store.load();
+    store.selectLanguage('en');
+    await nextTurn();
+    assert.equal(store.getSnapshot().model, model);
+    const english = new ConfigurationStore(disk);
+    await english.load();
+    assert.equal(english.getSnapshot().model, model);
+    english.selectLanguage('zh-Hans');
+    await nextTurn();
+    const chinese = new ConfigurationStore(disk);
+    await chinese.load();
+    assert.equal(chinese.getSnapshot().model, model);
+  }
 });
