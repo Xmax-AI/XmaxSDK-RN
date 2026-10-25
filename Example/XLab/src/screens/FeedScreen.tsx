@@ -168,6 +168,7 @@ function Pill({ text }: { text: string }) {
 export function FeedScreen({
   onCamera,
   onImage,
+  onExternalVideo,
   onStorage,
   configuration,
   onAPIKeyChange,
@@ -184,6 +185,11 @@ export function FeedScreen({
     fileURL: string,
     customTrajectory: boolean,
     contentType: string | undefined,
+  ) => void;
+  onExternalVideo: (
+    apiKey: string,
+    endpoint: XLabApiEndpoint,
+    fileURL: string,
   ) => void;
   onStorage: (apiKey: string, endpoint: XLabApiEndpoint) => void;
   configuration: SavedConfiguration;
@@ -252,6 +258,30 @@ export function FeedScreen({
       return false;
     }
     return true;
+  }
+
+  /** Selects a video for the app-owned native decoder. */
+  async function openExternalVideo() {
+    if (pickerOpen.current || !requireAPIKey() || !requireValidBitrate())
+      return;
+    pickerOpen.current = true;
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'video',
+        selectionLimit: 1,
+        assetRepresentationMode: 'current',
+      });
+      if (!mounted.current || result.didCancel) return;
+      const uri = result.assets?.[0]?.uri;
+      if (result.errorCode || !uri)
+        throw new Error('Unable to read selected video');
+      onExternalVideo(apiKey.trim(), endpoint, uri);
+    } catch {
+      if (mounted.current)
+        Alert.alert(t('feed.external.pickError'), t('feed.external.error'));
+    } finally {
+      pickerOpen.current = false;
+    }
   }
 
   /** Selects an input image; the destination owns preparation and RTC resources. */
@@ -580,6 +610,20 @@ export function FeedScreen({
             </FeedText>
           </View>
           <View style={styles.cards}>
+            <FeedFeatureCard
+              category="SDK MEDIA / EXTERNAL"
+              watermark="PCM"
+              accentColor={colors.accent}
+              icon={require('../assets/feed/external.png')}
+              iconLabel="EXTERNAL"
+              title={t('feed.external.title')}
+              subtitle={t('feed.external.subtitle')}
+              tags={['EXTERNAL SOURCE', 'VIDEO', 'PCM AUDIO']}
+              highlightedTag="EXTERNAL SOURCE"
+              onPress={() => {
+                void openExternalVideo();
+              }}
+            />
             <FeedFeatureCard
               category="SDK RENDERING / TRAJECTORY"
               watermark="FX"

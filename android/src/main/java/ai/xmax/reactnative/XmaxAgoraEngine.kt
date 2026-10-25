@@ -74,9 +74,12 @@ internal class XmaxAgoraEngine(
   @Volatile private var closed = false
 
   /**
-   * Whether the encoder receives external image frames instead of camera input.
+   * Whether the encoder receives external frames instead of camera input.
    */
   private var external = false
+
+  /** The current external receiver, invalidated before engine destruction. */
+  private var externalSink: RealtimeExternalFrameSink? = null
 
   /**
    * Whether the front camera is selected.
@@ -138,6 +141,7 @@ internal class XmaxAgoraEngine(
             elapsed: Int
           ) {
             if (channel != roomID || closed) return
+            externalSink?.setPublished(true)
 
             streamID = engine.createDataStream(
               DataStreamConfig().apply {
@@ -643,6 +647,22 @@ internal class XmaxAgoraEngine(
           )
         )
       }
+      "external" -> {
+        require(roomID.isEmpty())
+        external = true
+        front = false
+        engine.stopPreview()
+        check(engine.enableLocalVideo(false))
+        check(engine.setExternalVideoSource(true, false, Constants.ExternalVideoSourceType.VIDEO_FRAME))
+        check(engine.enableLocalAudio(false))
+        externalSink?.invalidate()
+        externalSink = RealtimeExternalFrameSink(request.getString("sinkID"), request.getInt("sourceWidth"),
+          request.getInt("sourceHeight"), RealtimeExternalVideoFormat(request.getInt("width"), request.getInt("height"),
+          request.getInt("fps")), request.optBoolean("hasAudio"), engine) {
+          event("error", "code" to "MEDIA_ERROR", "scope" to "all")
+        }
+        check(engine.startPreview(Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM))
+      }
       "join" -> join(request)
       "observeRemoteFrame" -> remoteFrames.observe(
         roomID,
@@ -688,11 +708,14 @@ internal class XmaxAgoraEngine(
         check(if (uid == 0) engine.setupLocalVideo(canvas) else engine.setupRemoteVideo(canvas))
       }
       "pause" -> {
+        externalSink?.invalidate()
+        engine.stopPreview(Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM)
         engine.stopPreview()
         engine.enableLocalVideo(false)
         engine.enableLocalAudio(false)
       }
       "leave" -> {
+        externalSink?.setPublished(false)
         remoteFrames.clear()
         roomID = ""
         streamID = -1
@@ -823,6 +846,8 @@ internal class XmaxAgoraEngine(
       publishCameraTrack = !external
       publishCustomVideoTrack = external
       publishMicrophoneTrack = request.optBoolean("microphone")
+      publishCustomAudioTrack = externalSink?.audioTrackID != null
+      externalSink?.audioTrackID?.let { publishCustomAudioTrackId = it }
       autoSubscribeAudio = false
       autoSubscribeVideo = false
     }
@@ -863,7 +888,8 @@ internal class XmaxAgoraEngine(
       if (request.optString("mode") == "fit") Constants.RENDER_MODE_FIT else Constants.RENDER_MODE_HIDDEN,
       uid,
     )
-    canvas.mirrorMode = if (uid == 0 && front) Constants.VIDEO_MIRROR_MODE_ENABLED
+    if (uid == 0 && external) canvas.sourceType = Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM.value
+    canvas.mirrorMode = if (uid == 0 && !external && front) Constants.VIDEO_MIRROR_MODE_ENABLED
     else Constants.VIDEO_MIRROR_MODE_DISABLED
     check(if (uid == 0) engine.setupLocalVideo(canvas) else engine.setupRemoteVideo(canvas))
   }
@@ -873,6 +899,8 @@ internal class XmaxAgoraEngine(
    */
   fun close() {
     if (closed) return
+    externalSink?.invalidate()
+    externalSink = null
     closed = true
     remoteFrames.clear()
     engine.registerVideoFrameObserver(null)

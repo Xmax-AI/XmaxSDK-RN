@@ -8,6 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeExternalVideoSource } from '../../Media/External/RealtimeExternalVideoSource';
+
 import { copyEncodedData } from '../../Foundation/Storage/EncodedData';
 import {
   XmaxRealtimeFactory,
@@ -470,7 +472,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   }
 
   /**
-   * The local preview volume; camera and image input do not play local audio, so this is always 0.
+   * The local preview volume; camera, image, and external input do not play local audio, so this is always 0.
    */
   get localAudioVolume(): number {
     return 0;
@@ -738,6 +740,28 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   }
 
   /**
+   * Binds an app-owned external video source and optional PCM audio without requesting permissions.
+   * Disconnect preserves capture and preview; stopping or closing invalidates the native sink.
+   *
+   * @param source The source owning native capture or decoding and its stable format.
+   * @param options The operation cancellation settings.
+   * @returns The local stream after source startup; rejects invalid formats or startup failures.
+   */
+  createExternalVideoStream(
+    source: RealtimeExternalVideoSource,
+    options: RealtimeOperationOptions = {},
+  ): Promise<RealtimeMediaStream> {
+    return this.createLocal(
+      'external',
+      token => this.mediaController.createExternal(
+        source,
+        token.signal
+      ),
+      options.signal,
+    );
+  }
+
+  /**
    * Creates one local input under exclusive operation ownership and publishes preparation state.
    *
    * @param source The local media source.
@@ -745,7 +769,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
    * @param signal The operation's cancellation signal.
    */
   private createLocal(
-    source: 'camera' | 'image',
+    source: 'camera' | 'image' | 'external',
     prepare: (
       token: RealtimeOperation
     ) => Promise<RealtimeMediaStream>,
@@ -772,7 +796,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
         token.ensureCurrent();
         await this.setRemoteAudioVolume(0);
         token.ensureCurrent();
-        if (source === 'image')
+        if (source !== 'camera')
           this.update(
             RealtimeConnectionState.ready,
             token,
@@ -1260,13 +1284,28 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   }
 
   /**
+   * Stops external frame delivery after disconnection without affecting camera or image input.
+   * Your app retains ownership of its capture resources.
+   *
+   * @param options The operation cancellation settings.
+   */
+  stopExternalVideoStream(
+    options: RealtimeOperationOptions = {},
+  ): Promise<void> {
+    return this.stopLocal(
+      'external',
+      options.signal
+    );
+  }
+
+  /**
    * Stops the specified local input after remote disconnection.
    *
    * @param source The local media source.
    * @param signal The operation's cancellation signal.
    */
   private stopLocal(
-    source: 'camera' | 'image',
+    source: 'camera' | 'image' | 'external',
     signal?: AbortSignal,
   ): Promise<void> {
     return this.lifecycleManager.run(

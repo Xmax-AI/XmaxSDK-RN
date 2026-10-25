@@ -32,8 +32,11 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   /// The one-shot observer confirming decoded result readiness without a video view.
   private var remoteFrames: XmaxRemoteFrameObserver?
 
-  /// Whether the encoder receives external image frames instead of camera input.
+  /// Whether the encoder receives external frames instead of camera input.
   private var external = false
+
+  /// The native external receiver invalidated before engine release.
+  private var externalSink: RealtimeExternalFrameSink?
 
   /// Whether the front camera is selected.
   private var front = true
@@ -178,6 +181,22 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
         useTexture: false,
         sourceType: .videoFrame
       )
+    case "external":
+      guard roomID.isEmpty else {
+        throw XmaxNativeFailure(message: "Disconnect before external input")
+      }
+      external = true
+      front = false
+      _ = engine.stopPreview()
+      try check(engine.enableLocalVideo(false))
+      engine.setExternalVideoSource(true, useTexture: false, sourceType: .videoFrame)
+      try check(engine.enableLocalAudio(false))
+      externalSink?.invalidate()
+      externalSink = try RealtimeExternalFrameSink(request: request, engine: engine) {
+        [weak self] in
+        Task { @MainActor in self?.event("error", ["code": "MEDIA_ERROR", "scope": "all"]) }
+      }
+      try check(engine.startPreview(.custom))
     case "join":
       roomID = request["roomID"] as? String ?? ""
       let options = AgoraRtcChannelMediaOptions()
@@ -186,6 +205,8 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       options.publishCameraTrack = !external
       options.publishCustomVideoTrack = external
       options.publishMicrophoneTrack = request["microphone"] as? Bool ?? false
+      options.publishCustomAudioTrack = externalSink?.audioTrackID != nil
+      if let id = externalSink?.audioTrackID { options.publishCustomAudioTrackId = id }
       options.autoSubscribeVideo = false
       options.autoSubscribeAudio = false
       try check(engine.enableLocalAudio(options.publishMicrophoneTrack))
@@ -261,7 +282,8 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
         )
       )
       canvas.renderMode = request["mode"] as? String == "fit" ? .fit : .hidden
-      canvas.mirrorMode = canvas.uid == 0 && front ? .enabled : .disabled
+      if canvas.uid == 0 && external { canvas.sourceType = .custom }
+      canvas.mirrorMode = canvas.uid == 0 && !external && front ? .enabled : .disabled
       try check(canvas.uid == 0 ? engine.setupLocalVideo(canvas) : engine.setupRemoteVideo(canvas))
     case "unbind":
       let canvas = AgoraRtcVideoCanvas()
@@ -273,10 +295,13 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       )
       try check(canvas.uid == 0 ? engine.setupLocalVideo(canvas) : engine.setupRemoteVideo(canvas))
     case "pause":
+      externalSink?.invalidate()
+      _ = engine.stopPreview(.custom)
       _ = engine.stopPreview()
       _ = engine.enableLocalVideo(false)
       _ = engine.enableLocalAudio(false)
     case "leave":
+      externalSink?.setPublished(false)
       remoteFrames?.clear()
       roomID = ""
       streamID = -1
@@ -388,6 +413,8 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   /// Stops callbacks before destroying the current RTC engine; repeated closure is safe.
   func close() {
     guard engine != nil else { return }
+    externalSink?.invalidate()
+    externalSink = nil
     remoteFrames?.clear()
     engine?.setVideoFrameDelegate(nil)
     remoteFrames = nil
@@ -476,6 +503,7 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       )
       return
     }
+    externalSink?.setPublished(true)
     event("joined")
   }
 

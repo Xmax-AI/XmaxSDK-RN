@@ -8,8 +8,10 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { ExternalVideoControlling } from './External/ExternalVideoControlling';
 import type { CameraControlling } from './Camera/CameraControlling';
 import type { ImageControlling } from './Image/ImageControlling';
+import type { RealtimeExternalVideoSource } from './External/RealtimeExternalVideoSource';
 import type { InteractionControlling } from './Interaction/InteractionControlling';
 import type { InteractionFrame } from './Interaction/InteractionCoordinateMapper';
 import type { MediaControlling } from './MediaControlling';
@@ -31,10 +33,10 @@ export class MediaController implements MediaControlling {
   /**
    * The current local input type.
    */
-  source: 'camera' | 'image' | null = null;
+  source: 'camera' | 'image' | 'external' | null = null;
 
   /**
-   * Creates a local media owner with camera, image, and interaction controllers.
+   * Creates a local media owner with camera, image, external-source, and interaction controllers.
    */
   constructor(
     /**
@@ -51,6 +53,11 @@ export class MediaController implements MediaControlling {
      * The interaction controller for this owner's active generation task.
      */
     private readonly interaction: InteractionControlling,
+
+    /**
+     * The app-owned external video and optional audio attachment controller.
+     */
+    private readonly external: ExternalVideoControlling | null = null,
   ) {}
 
   /**
@@ -119,7 +126,13 @@ export class MediaController implements MediaControlling {
    * The currently held local stream.
    */
   get stream(): RealtimeMediaStream | null {
-    return this.source === 'camera' ? this.camera.stream : this.image.stream;
+    return this.source === 'camera'
+      ? this.camera.stream
+      : this.source === 'external'
+      ? this.external?.stream ?? null
+      : this.source === 'image'
+      ? this.image.stream
+      : null;
   }
 
   /**
@@ -171,13 +184,37 @@ export class MediaController implements MediaControlling {
   }
 
   /**
+   * Creates an external stream while retaining app ownership of capture resources.
+   *
+   * @param source The app-owned native frame producer.
+   * @param signal The attachment cancellation signal.
+   * @returns The local stream after the producer starts.
+   */
+  createExternal(
+    source: RealtimeExternalVideoSource,
+    signal: AbortSignal,
+  ): Promise<RealtimeMediaStream> {
+    if (!this.external)
+      return Promise.reject(
+        invalid('External media controller is unavailable'),
+      );
+    return this.create(
+      'external',
+      () => this.external!.create(
+        source,
+        signal
+      )
+    );
+  }
+
+  /**
    * Prepares the specified input type and clears its ownership if preparation fails.
    *
    * @param source The local media source.
    * @param action The work performed under this operation's cancellation and ownership lease.
    */
   private async create(
-    source: 'camera' | 'image',
+    source: 'camera' | 'image' | 'external',
     action: () => Promise<RealtimeMediaStream>,
   ): Promise<RealtimeMediaStream> {
     if (this.source)
@@ -238,7 +275,7 @@ export class MediaController implements MediaControlling {
    * @param source The local media source.
    */
   async stop(
-    source: 'camera' | 'image'
+    source: 'camera' | 'image' | 'external'
   ): Promise<void> {
     if (this.source === source) await this.close();
   }
@@ -254,5 +291,6 @@ export class MediaController implements MediaControlling {
     this.source = null;
     if (source === 'camera') await this.camera.close();
     else if (source === 'image') await this.image.close();
+    else if (source === 'external') await this.external?.close();
   }
 }

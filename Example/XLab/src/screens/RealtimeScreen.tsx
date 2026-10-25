@@ -1,3 +1,4 @@
+import { makeRealtimeFileVideoSource } from '../external/RealtimeFileVideoSource';
 import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
 import type {
   UplinkVideoStatistics,
@@ -68,6 +69,7 @@ export function RealtimeScreen({
   baseURL,
   onBack,
   fileURL,
+  externalFileURL,
   customTrajectory = false,
   imageContentType,
   entryReady = true,
@@ -84,6 +86,8 @@ export function RealtimeScreen({
   onBack: () => void;
   /** Omit for camera capture; otherwise keep this source readable until exit. */
   fileURL?: string;
+  /** App-owned video decoding through the SDK external-source API. */
+  externalFileURL?: string | undefined;
   /** Selects the iOS XLab pink/blue renderer for the custom rendering example. */
   customTrajectory?: boolean;
   imageContentType?: string | undefined;
@@ -195,13 +199,31 @@ export function RealtimeScreen({
               maximumBitrate: bitrate.maximum,
             }
           : undefined;
-        const stream = fileURL
-          ? await realtime.createLocalImageStream(
-              videoFormat ? { fileURL, videoFormat } : { fileURL },
-            )
-          : await realtime.createLocalCameraStream(
-              videoFormat ? { videoFormat } : undefined,
-            );
+        let stream: RealtimeMediaStream;
+        if (externalFileURL) {
+          const source = await makeRealtimeFileVideoSource(
+            externalFileURL,
+            videoFormat ??
+              realtimeModelSpecifications[model].defaultCameraVideoFormat,
+          );
+          if (!alive.current || token !== epoch.current) {
+            await source.stop();
+            return;
+          }
+          try {
+            stream = await realtime.createExternalVideoStream(source);
+          } catch (failure) {
+            await source.stop();
+            throw failure;
+          }
+        } else
+          stream = fileURL
+            ? await realtime.createLocalImageStream(
+                videoFormat ? { fileURL, videoFormat } : { fileURL },
+              )
+            : await realtime.createLocalCameraStream(
+                videoFormat ? { videoFormat } : undefined,
+              );
 
         if (alive.current && token === epoch.current) {
           local.current = stream;
@@ -221,7 +243,15 @@ export function RealtimeScreen({
         }
       }
     },
-    [showError, nextOperation, fileURL, model, bitrate, refreshConfiguration],
+    [
+      showError,
+      nextOperation,
+      fileURL,
+      externalFileURL,
+      model,
+      bitrate,
+      refreshConfiguration,
+    ],
   );
 
   useEffect(() => {
@@ -623,7 +653,7 @@ export function RealtimeScreen({
     RealtimeConnectionState.connected,
     RealtimeConnectionState.generating,
   ].includes(state.connectionState);
-  const previewTop = fileURL ? insets.top + 68 : 0;
+  const previewTop = fileURL || externalFileURL ? insets.top + 68 : 0;
 
   return (
     <View
@@ -641,6 +671,7 @@ export function RealtimeScreen({
           remoteTrack={remoteTrack}
           videoContentMode={
             fileURL ||
+            externalFileURL ||
             (landscapeLayout ?? width > height) ||
             (cameraFormat !== null && cameraFormat.width > cameraFormat.height)
               ? VideoContentMode.fit
@@ -672,7 +703,10 @@ export function RealtimeScreen({
         onPress={() => setStatisticsVisible(value => !value)}
         style={[
           styles.statisticsButton,
-          { top: insets.top + 8, right: insets.right + (fileURL ? 12 : 66) },
+          {
+            top: insets.top + 8,
+            right: insets.right + (fileURL || externalFileURL ? 12 : 66),
+          },
         ]}
       >
         <Text style={styles.statisticsLabel}>
@@ -704,7 +738,7 @@ export function RealtimeScreen({
           />
         </View>
       )}
-      {!fileURL && (
+      {!fileURL && !externalFileURL && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('realtime.flipCamera')}
@@ -723,7 +757,7 @@ export function RealtimeScreen({
           <Text style={styles.flipLabel}>{t('realtime.flip')}</Text>
         </Pressable>
       )}
-      {!fileURL && (
+      {!fileURL && !externalFileURL && (
         <View
           style={[
             styles.cameraPresetPanel,

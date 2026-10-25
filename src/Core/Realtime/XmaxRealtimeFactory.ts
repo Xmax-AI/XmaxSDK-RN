@@ -16,6 +16,7 @@ import { ImageManager } from '../../Foundation/Media/ImageManager';
 import { MediaController } from '../../Media/MediaController';
 import type { MediaControlling } from '../../Media/MediaControlling';
 import { CameraController } from '../../Media/Camera/CameraController';
+import { ExternalVideoController } from '../../Media/External/ExternalVideoController';
 import { ImageController } from '../../Media/Image/ImageController';
 import { InteractionController } from '../../Media/Interaction/InteractionController';
 import { RenderController } from '../../Render/RenderController';
@@ -151,6 +152,15 @@ export class XmaxRealtimeFactory {
         new ImageManager(),
       ),
       interactionController,
+      new ExternalVideoController(
+        rtcManager,
+        renderController,
+        mediaService,
+        error => errorManager.forward(
+          error,
+          'all'
+        ),
+      ),
     );
     const streamController = new StreamController(
       rtcManager,

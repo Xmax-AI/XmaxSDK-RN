@@ -131,6 +131,12 @@ export const english = {
   'feed.file.error': "Couldn't read the selected file. Please try again.",
   'feed.hero.subtitle': 'Experience streaming generation with XmaxSDK.',
   'feed.hero.title': 'Realtime Interactive Video',
+  'feed.external.title': 'External Capture',
+  'feed.external.subtitle':
+    'Choose a video and supply decoded video and PCM audio through an external source.',
+  'feed.external.pickError': 'Unable to select video',
+  'feed.external.error':
+    'Unable to read the selected video. Please select another file.',
   'feed.image.error': "Couldn't read the image. Please try again.",
   'feed.image.subtitle': 'Bring a local image to life with continuous motion.',
   'feed.image.title': 'Image Pipeline',
@@ -302,6 +308,11 @@ export const simplifiedChinese: Record<MessageKey, string> = {
   'feed.file.error': '无法读取所选文件，请重试',
   'feed.hero.subtitle': '体验 XmaxSDK 流式生成链路',
   'feed.hero.title': '实时交互视频模型',
+  'feed.external.title': '外部采集',
+  'feed.external.subtitle':
+    '选择视频，通过外部源提交解码后的视频帧和 PCM 音频。',
+  'feed.external.pickError': '无法选择视频',
+  'feed.external.error': '读取所选视频失败，请重新选择。',
   'feed.image.error': '读取图片失败，请重试',
   'feed.image.subtitle': '选择本地图片，让静态画面持续流动起来。',
   'feed.image.title': '图片生成管线',

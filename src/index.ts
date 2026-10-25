@@ -83,3 +83,8 @@ export type {
 } from './Render/Trajectory/TrajectoryEffectRendering';
 
 export * from './Service/Media/RealtimeMediaSource';
+
+export type {
+  RealtimeExternalVideoSource,
+  RealtimeExternalFrameSink,
+} from './Media/External/RealtimeExternalVideoSource';

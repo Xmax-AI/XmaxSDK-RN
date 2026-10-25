@@ -245,6 +245,7 @@ class FakeRtc {
   beginImageTask() {}
   endImageTask() {}
   configureImageSource() { this.imageSourceConfigured = true; }
+  async startExternalSource(nativeHandle, sourceFormat, format, hasAudio) { this.external = { nativeHandle, sourceFormat, format, hasAudio }; }
   switchCamera() {}
   async join() {
     this.joins++;
@@ -2067,3 +2068,144 @@ test('camera restart waits for a fresh quality stabilization window before autom
   assert.equal(manager.uplinkQualityLevel, 3);
   assert.equal(rtc.joins, 1);
 });
+
+
+function externalSource(overrides = {}) {
+  const source = {
+    videoFormat: { width: 1200, height: 1600, fps: 24 },
+    hasAudio: true,
+    starts: 0, stops: 0, sink: null,
+    async start(sink) { source.starts++; source.sink = sink; },
+    async stop() { source.stops++; },
+    ...overrides,
+  };
+  return source;
+}
+
+test('external sources preserve aspect ratio and optional audio without SDK capture permissions', async t => {
+  const manager = createManager(), source = externalSource();
+  t.after(() => manager.close());
+  const local = await manager.createExternalVideoStream(source);
+  const rtc = FakeRtc.instances.at(-1);
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.deepEqual(local.videoTrack.videoFormat, source.videoFormat);
+  assert.equal(local.videoTrack.position, null);
+  assert.equal(manager.currentCameraVideoFormat, null);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).microphoneCalls, 0);
+  assert.equal(source.sink.isRequestingFrames, true);
+  assert.equal(source.sink.nativeHandle, rtc.external.nativeHandle);
+  assert.equal(rtc.external.hasAudio, true);
+  assert.deepEqual(rtc.external.sourceFormat, source.videoFormat);
+  assert.equal(source.starts, 1);
+  assert.equal(manager.localAudioVolume, 0);
+  await manager.stopLocalCameraStream();
+  await manager.stopLocalImageStream();
+  assert.equal(source.sink.isRequestingFrames, true);
+  await manager.stopExternalVideoStream();
+  assert.equal(source.sink.isRequestingFrames, false);
+  assert.equal(source.stops, 1);
+  assert.equal(local.videoTrack.videoFormat, null);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+});
+
+test('external input is exclusive with image and camera input, and small inputs use resolved media dimensions', async t => {
+  const manager = createManager();
+  t.after(() => manager.close());
+  await manager.createLocalImageStream({ fileURL: '/image.jpg' });
+  const source = externalSource({ videoFormat: { width: 160, height: 90, fps: 30 }, hasAudio: undefined });
+  await assert.rejects(manager.createExternalVideoStream(source), { code: 'INVALID_CONFIGURATION' });
+  assert.equal(source.starts, 0);
+  await manager.stopLocalImageStream();
+  const local = await manager.createExternalVideoStream(source);
+  const format = local.videoTrack.videoFormat;
+  assert.ok(format.width * format.height >= 200000);
+  assert.equal(format.width % 4, 0);
+  assert.equal(format.height % 4, 0);
+  assert.equal(format.fps, 30);
+  assert.deepEqual(source.sink.videoFormat, format);
+  assert.equal(FakeRtc.instances.at(-1).external.hasAudio, false);
+  await assert.rejects(manager.createLocalCameraStream(), { code: 'INVALID_CONFIGURATION' });
+  await assert.rejects(manager.switchCamera(), { code: 'INVALID_CONFIGURATION' });
+});
+
+test('external generation and disconnect retain source preview until explicit detachment', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const manager = createManager(), source = externalSource();
+  t.after(() => manager.close());
+  const local = await manager.createExternalVideoStream(source);
+  const rtc = FakeRtc.instances.at(-1);
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'animate' } });
+  await nextTurn();
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  await assert.rejects(manager.stopExternalVideoStream(), { code: 'INVALID_CONFIGURATION' });
+  await manager.disconnect();
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.equal(source.sink.isRequestingFrames, true);
+  assert.equal(source.stops, 0);
+  assert.deepEqual(local.videoTrack.videoFormat, source.videoFormat);
+  await manager.close();
+  assert.equal(source.sink.isRequestingFrames, false);
+  assert.equal(source.stops, 1);
+});
+
+test('external failures invalidate the attachment and cannot terminate a replacement source', async t => {
+  const manager = createManager(), first = externalSource();
+  t.after(() => manager.close());
+  await manager.createExternalVideoStream(first);
+  first.sink.reportError(new Error('Capture failed'));
+  await nextTurn();
+  assert.equal(first.sink.isRequestingFrames, false);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+  assert.equal(manager.currentState.reason.error.code, 'MEDIA_ERROR');
+  assert.equal(first.stops, 1);
+  const second = externalSource();
+  await manager.createExternalVideoStream(second);
+  first.sink.reportError(new Error('Late failure'));
+  await nextTurn();
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.equal(second.sink.isRequestingFrames, true);
+});
+
+test('failed external startup stops the producer and permits a new attachment', async t => {
+  const manager = createManager(), source = externalSource({ async start(sink) { this.sink = sink; throw new Error('Startup failed'); } });
+  t.after(() => manager.close());
+  await assert.rejects(manager.createExternalVideoStream(source));
+  assert.equal(source.sink.isRequestingFrames, false);
+  assert.equal(source.stops, 1);
+  assert.equal(FakeRtc.instances.at(-1).closed, true);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+  const second = externalSource();
+  await manager.createExternalVideoStream(second);
+  assert.equal(second.sink.isRequestingFrames, true);
+});
+
+test('cancelling external startup invalidates a late producer without releasing its replacement', async t => {
+  const manager = createManager(), gate = defer(), abort = new AbortController();
+  t.after(() => manager.close());
+  const source = externalSource({ async start(sink) { this.sink = sink; await gate.promise; } });
+  const pending = manager.createExternalVideoStream(source, { signal: abort.signal });
+  await nextTurn();
+  abort.abort();
+  await assert.rejects(pending, { code: 'CANCELLED' });
+  assert.equal(source.sink.isRequestingFrames, false);
+  const second = externalSource();
+  await manager.createExternalVideoStream(second);
+  gate.resolve();
+  await nextTurn();
+  assert.ok(source.stops >= 1);
+  assert.equal(second.stops, 0);
+  assert.equal(second.sink.isRequestingFrames, true);
+  assert.equal(manager.currentState.connectionState, 'Ready');
+});
+
+for (const override of [{ videoFormat: { width: 0, height: 720, fps: 30 } }, { videoFormat: { width: 1280, height: 720, fps: 0 } }, { hasAudio: 'yes' }]) {
+  test(`invalid external declarations reject before starting native input (${JSON.stringify(override)})`, async t => {
+    const manager = createManager(), source = externalSource(override);
+    t.after(() => manager.close());
+    await assert.rejects(manager.createExternalVideoStream(source), { code: 'INVALID_CONFIGURATION' });
+    assert.equal(source.starts, 0);
+    assert.equal(FakeRtc.instances.at(-1).external, undefined);
+  });
+}

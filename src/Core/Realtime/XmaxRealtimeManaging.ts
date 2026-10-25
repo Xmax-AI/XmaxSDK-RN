@@ -8,6 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeExternalVideoSource } from '../../Media/External/RealtimeExternalVideoSource';
+
 import type { RealtimeConfiguration } from './RealtimeConfiguration';
 import type { RealtimeCameraPreset } from '../../Service/Realtime/RealtimeCameraPreset';
 import type { RealtimeQualityLevel } from '../../Stream/Quality/RealtimeQualityLevel';
@@ -158,12 +160,12 @@ export interface XmaxRealtimeManaging {
   ): Promise<void>;
 
   /**
-   * The local preview volume; camera input does not play local audio, so this is always 0.
+   * The local preview volume; camera, image, and external input do not play local audio, so this is always 0.
    */
   readonly localAudioVolume: number;
 
   /**
-   * The remote playback volume, from 0 to 1. Creating camera or image input resets it to 0; set
+   * The remote playback volume, from 0 to 1. Creating local input resets it to 0; set
    * playback volume after local stream creation.
    */
   readonly remoteAudioVolume: number;
@@ -298,6 +300,29 @@ export interface XmaxRealtimeManaging {
    *   applies when no signal is provided.
    */
   stopLocalImageStream(
+    options?: RealtimeOperationOptions
+  ): Promise<void>;
+
+  /**
+   * Binds an app-owned external video source and optional PCM audio without requesting permissions.
+   * Disconnect preserves capture and preview; stopping or closing invalidates the native sink.
+   *
+   * @param source The source owning native capture or decoding and its stable format.
+   * @param options The operation cancellation settings.
+   * @returns The local stream after source startup; rejects invalid formats or startup failures.
+   */
+  createExternalVideoStream(
+    source: RealtimeExternalVideoSource,
+    options?: RealtimeOperationOptions,
+  ): Promise<RealtimeMediaStream>;
+
+  /**
+   * Stops external frame delivery after disconnection without affecting camera or image input.
+   * Your app retains ownership of its capture resources.
+   *
+   * @param options The operation cancellation settings.
+   */
+  stopExternalVideoStream(
     options?: RealtimeOperationOptions
   ): Promise<void>;
 

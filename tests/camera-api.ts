@@ -15,6 +15,8 @@ import {
   type RealtimeState,
   type MediaSize,
   type XmaxRealtimeManaging,
+  type RealtimeExternalVideoSource,
+  type RealtimeExternalFrameSink,
   XmaxRealtimeVideo,
   XmaxRealtimeDualVideo,
   type XmaxRealtimeVideoProps,
@@ -132,6 +134,20 @@ export async function cameraContract(client: XmaxClient) {
   void image;
   // @ts-expect-error Image input requires a fileURL.
   manager.createLocalImageStream({ uri: 'file:///image.jpg' });
+  const source: RealtimeExternalVideoSource = {
+    videoFormat: { width: 1280, height: 720, fps: 30 },
+    hasAudio: true,
+    async start(sink: RealtimeExternalFrameSink) {
+      const handle: string = sink.nativeHandle;
+      const active: boolean = sink.isRequestingFrames;
+      const width: number = sink.videoFormat.width;
+      void [handle, active, width];
+    },
+    async stop() {},
+  };
+  const external: RealtimeMediaStream = await manager.createExternalVideoStream(source);
+  await manager.stopExternalVideoStream();
+  void external;
   const storage = client.createStorageManager();
   const uploaded = await storage.uploadImage({fileURL: 'file:///tmp/example.png', progress: p => { const n: number | null = p.fractionCompleted; return n; }});
   const downloaded = await storage.downloadImage({remoteURL: uploaded.url, destinationURL: 'file:///tmp/result.png'});

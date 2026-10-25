@@ -399,6 +399,54 @@ See the [example project](#example-project) for state binding and a complete imp
 
 <br>
 
+### External capture
+
+Implement `RealtimeExternalVideoSource` to supply frames from your app's native capture,
+decoding, or processing code. XmaxSDK manages the attachment; your app owns permissions,
+capture resources, and pacing. No camera or microphone permission is requested by the SDK.
+
+```ts
+import { NativeModules } from 'react-native';
+import type { RealtimeExternalVideoSource } from '@xmaxai/react-native-sdk';
+
+const source: RealtimeExternalVideoSource = {
+  videoFormat: { width: 1280, height: 720, fps: 30 },
+  hasAudio: true,
+  async start(sink) {
+    await NativeModules.MyCapture.start(sink.nativeHandle);
+  },
+  async stop() {
+    await NativeModules.MyCapture.stop();
+  },
+};
+const localStream = await realtime.createExternalVideoStream(source);
+// Bind localStream.videoTrack, then connect and start generation as usual.
+await realtime.disconnect();
+await realtime.stopExternalVideoStream();
+```
+
+`MyCapture` represents your app's native module. Resolve the handle with
+`RealtimeExternalFrameSink.find` from `XmaxReactNativeSDK` on iOS or
+`ai.xmax.reactnative` on Android. Call native `pushVideo`, `pushAudio`, and
+`reportError` directly; raw video and PCM stay off the JavaScript bridge.
+
+- iOS accepts upright source-sized BGRA or NV12 video-range pixel buffers and ready
+  linear PCM sample buffers. Android accepts YUV_420_888 images with a declared rotation,
+  or upright direct RGBA8888 buffers, and interleaved little-endian PCM16.
+- Video timestamps must be nonnegative and strictly increasing. iOS uses `CMTime`;
+  Android uses microseconds. Audio and video share one monotonic timeline, including
+  across loops. The source format must remain stable while attached.
+- The sink copies and resizes video into the model's supported pixel area. Buffers
+  can be reused after native submission returns. PCM is converted to 48 kHz mono
+  10 ms packets, uploaded only while published, without local playback.
+- Disconnect retains source delivery and preview. Stop, close, source failure, and
+  background release invalidate the sink. `stop()` must be safe to call repeatedly.
+
+The XLab **External Capture** card demonstrates this API using an app-owned file
+video/PCM decoder on each platform.
+
+<br>
+
 ### Listen for events
 
 After creating `realtime`, register the listeners you need before creating the

@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RealtimeExternalVideoSource } from './External/RealtimeExternalVideoSource';
 import type { InteractionControlling } from './Interaction/InteractionControlling';
 
 import type {
@@ -25,7 +26,7 @@ export interface MediaControlling extends InteractionControlling {
   /**
    * The current local input type.
    */
-  readonly source: 'camera' | 'image' | null;
+  readonly source: 'camera' | 'image' | 'external' | null;
 
   /**
    * The currently held local stream.
@@ -63,6 +64,18 @@ export interface MediaControlling extends InteractionControlling {
   ): Promise<RealtimeMediaStream>;
 
   /**
+   * Attaches native frames from an app-owned source without requesting permissions.
+   *
+   * @param source The native video and optional audio producer.
+   * @param signal The attachment cancellation signal.
+   * @returns The manager-owned local stream.
+   */
+  createExternal(
+    source: RealtimeExternalVideoSource,
+    signal: AbortSignal,
+  ): Promise<RealtimeMediaStream>;
+
+  /**
    * Switches the current camera; rejects when the input is an image or no camera is active.
    *
    * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
@@ -89,7 +102,7 @@ export interface MediaControlling extends InteractionControlling {
    * @param source The local media source.
    */
   stop(
-    source: 'camera' | 'image'
+    source: 'camera' | 'image' | 'external'
   ): Promise<void>;
 
   /**

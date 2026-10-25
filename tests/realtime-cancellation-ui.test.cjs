@@ -168,7 +168,7 @@ function screenFixture(t, options = {}) {
   const cancelled = () => ({ code: 'CANCELLED' });
   const manager = {
     currentCameraPreset: null,
-    currentCameraVideoFormat: options.fileURL ? null : { width: 1024, height: 1920, fps: 30 },
+    currentCameraVideoFormat: options.fileURL || options.externalFileURL ? null : { width: 1024, height: 1920, fps: 30 },
     uplinkQualityLevel: null, downlinkQualityLevel: null,
     async updateCameraFormat(format) { manager.currentCameraVideoFormat = format; },
     async setUplinkQualityLevel(level) { manager.uplinkQualityLevel = level; },
@@ -179,6 +179,7 @@ function screenFixture(t, options = {}) {
     setDownlinkVideoStatisticsListener: async () => {},
     createLocalCameraStream: async () => { previews++; return { videoTrack: localTrack }; },
     createLocalImageStream: async () => { previews++; return { videoTrack: localTrack }; },
+    async createExternalVideoStream(source) { previews++; manager.externalSource = source; await source.start({ nativeHandle: 'native-sink' }); return { videoTrack: localTrack }; },
     async _startGeneration({ context, signal }) {
       const updating = manager.currentState.connectionState === 'generating';
       try {
@@ -243,6 +244,7 @@ function screenFixture(t, options = {}) {
     return manager._disconnect();
   };
   const { RealtimeScreen: Screen } = load('screens/RealtimeScreen.tsx', h.react, {
+    '../external/RealtimeFileVideoSource': { makeRealtimeFileVideoSource: options.externalSource ?? (async () => { throw new Error('No external source fixture'); }) },
     '../realtime/RealtimeGenerationOperations': load('realtime/RealtimeGenerationOperations.ts', {}),
     '../realtime/XLabTrajectoryRenderer': {},
     '../realtime/TouchAnimationReference': { uploadTouchAnimationReference: options.prepareTouch },
@@ -261,7 +263,7 @@ function screenFixture(t, options = {}) {
     '../realtime/RealtimeLoadingOverlay': { RealtimeLoadingOverlay: 'Loading' },
     '../realtime/RealtimeErrorToast': { RealtimeErrorToast: 'Toast' },
   });
-  const draw = () => h.render(Screen, { apiKey: 'fixture', environment: 'china', fileURL: options.fileURL, model: options.model, entryReady: options.entryReady });
+  const draw = () => h.render(Screen, { apiKey: 'fixture', environment: 'china', fileURL: options.fileURL, externalFileURL: options.externalFileURL, model: options.model, entryReady: options.entryReady });
   const props = type => find(draw(), node => node.type === type).props;
   t.after(() => { h.dispose(); native.AppState.currentState = 'active'; });
   draw();
@@ -791,7 +793,7 @@ test('all home feature entries require the current endpoint key before navigatio
   const configuration = { keys: { china: 'cn-fixture', global: '' }, endpoint: 'global', language: 'en', loaded: true,
     minBitrate: '', maxBitrate: '', downMinBitrate: '', downMaxBitrate: '' };
   const props = { configuration, onCamera: (...args) => navigations.push(['camera', ...args]),
-    onImage: (...args) => navigations.push(['image', ...args]), onStorage: (...args) => navigations.push(['storage', ...args]),
+    onImage: (...args) => navigations.push(['image', ...args]), onExternalVideo: (...args) => navigations.push(['external', ...args]), onStorage: (...args) => navigations.push(['storage', ...args]),
     onEndpointChange: endpoint => { configuration.endpoint = endpoint; },
     onBitrateChange: (field, value) => { configuration[field] = value; },
     onModelChange: model => { configuration.model = model; } };
@@ -810,14 +812,15 @@ test('all home feature entries require the current endpoint key before navigatio
     const tree = draw();
     find(tree, node => target === 'camera' || target === 'image'
       ? node.type === 'Pipeline' && node.props.sequence === (target === 'camera' ? '01' : '02')
-      : node.type === target).props.onPress();
+      : target === 'external' ? node.type === 'Feature' && node.props.category === 'SDK MEDIA / EXTERNAL'
+      : node.type === target && (target !== 'Feature' || node.props.category === 'SDK RENDERING / TRAJECTORY')).props.onPress();
   };
   locale = 'en';
   for (const empty of ['', ' \n\t ']) {
     configuration.keys.global = empty;
-    for (const target of ['camera', 'image', 'Feature', 'Storage']) press(target);
+    for (const target of ['camera', 'image', 'Feature', 'Storage', 'external']) press(target);
   }
-  assert.equal(alerts.length, 8);
+  assert.equal(alerts.length, 10);
   assert.equal(alerts[0][1], 'Please enter your API Key first');
   assert.equal(picks, 0, 'Missing keys must be rejected before photo permissions or picker UI');
   assert.deepEqual(navigations, [], 'A saved China key cannot authorize overseas entry');
@@ -844,6 +847,10 @@ test('all home feature entries require the current endpoint key before navigatio
   ]);
   assert.equal(navigations[2][4], false);
   assert.equal(navigations[3][4], true);
+  press('external');
+  await tick();
+  assert.equal(picks, 3);
+  assert.deepEqual(navigations.at(-1).slice(0, 3), ['external', 'cn-fixture', 'china']);
 });
 
 
@@ -1110,4 +1117,34 @@ test('XLab statistics forwards quality changes only during generation and refres
   assert.equal(screen.props('RealtimeStatisticsPanel').downlinkLevel, 3);
   screen.state({ connectionState: 'ready' });
   assert.equal(screen.props('RealtimeStatisticsPanel').canChange, false);
+});
+
+
+test('XLab external capture binds app-owned native decoding without using camera or image creation', async t => {
+  const calls = [];
+  const source = { videoFormat: { width: 1200, height: 1600, fps: 30 }, hasAudio: true,
+    async start(sink) { calls.push(['start', sink.nativeHandle]); }, async stop() {} };
+  const screen = screenFixture(t, { externalFileURL: 'file:///external.mp4',
+    externalSource: async (fileURL, format) => { calls.push(['prepare', fileURL, format.fps]); return source; } });
+  await tick();
+  assert.deepEqual(calls, [['prepare', 'file:///external.mp4', 30], ['start', 'native-sink']]);
+  assert.equal(screen.manager.externalSource, source);
+  assert.equal(screen.props('Video').localTrack, screen.localTrack);
+  assert.equal(screen.props('Video').remoteVideoFadeInDuration, 0);
+  assert.equal(screen.props('Video').videoContentMode, 'fit');
+  assert.equal(screen.props('Panel').initialCategoryID, 'charx');
+  assert.equal(screen.counts().starts, 0);
+});
+
+test('a late XLab decoder preparation is stopped when its page has already unmounted', async t => {
+  const preparing = deferred(); let stopped = 0;
+  const source = { videoFormat: { width: 1280, height: 720, fps: 30 },
+    async start() { throw new Error('Must not attach'); }, async stop() { stopped++; } };
+  const screen = screenFixture(t, { externalFileURL: 'file:///external.mp4', externalSource: () => preparing.promise });
+  await tick();
+  screen.dispose();
+  preparing.resolve(source);
+  await tick();
+  assert.equal(stopped, 1);
+  assert.equal(screen.counts().previews, 0);
 });

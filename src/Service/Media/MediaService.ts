@@ -37,7 +37,7 @@ export class MediaService implements MediaServicing {
    * needed. Camera dimensions must match a supported model format.
    *
    * @param size The source media dimensions, in pixels.
-   * @param source The camera or image input type. Camera dimensions must match a supported model
+   * @param source The camera, image, or external input type. Camera dimensions must match a supported model
    *   format.
    */
   resolveMediaSize(

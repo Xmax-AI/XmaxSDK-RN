@@ -128,6 +128,21 @@ export interface RtcManaging {
   configureImageSource(): Promise<void>;
 
   /**
+   * Creates a native receiver for upright external frames and optional PCM audio.
+   *
+   * @param sinkID The attachment identity passed to the app's native producer.
+   * @param sourceFormat The declared input dimensions and cadence.
+   * @param format The processed preview and encoding baseline dimensions.
+   * @param hasAudio Whether the source supplies external audio without microphone capture.
+   */
+  startExternalSource(
+    sinkID: string,
+    sourceFormat: RealtimeVideoFormat,
+    format: RealtimeVideoFormat,
+    hasAudio: boolean,
+  ): Promise<void>;
+
+  /**
    * Repeats native image frames at the requested cadence without passing pixels through JS.
    *
    * Completes after native decoding and periodic frame delivery are configured.

@@ -38,6 +38,12 @@ export type XLabStackParamList = {
     customTrajectory: boolean;
     contentType: string | undefined;
   };
+  External: {
+    endpoint: XLabApiEndpoint;
+    model: RealtimeModel;
+    bitrate: BitrateOverride | null;
+    fileURL: string;
+  };
   Storage: { endpoint: XLabApiEndpoint };
 };
 
@@ -107,6 +113,15 @@ function FeedRoute({
             contentType,
           });
       }}
+      onExternalVideo={(_apiKey, endpoint, fileURL) => {
+        if (navigation.isFocused())
+          navigation.navigate('External', {
+            endpoint,
+            fileURL,
+            model: configuration.model,
+            bitrate: bitrateParam(configuration),
+          });
+      }}
       onStorage={(_apiKey, endpoint) => {
         if (navigation.isFocused())
           navigation.navigate('Storage', { endpoint });
@@ -156,6 +171,26 @@ function ImageRoute({
   );
 }
 
+/** Keeps the external source bound to this route's lifecycle and selected environment. */
+function ExternalRoute({
+  route,
+  navigation,
+}: NativeStackScreenProps<XLabStackParamList, 'External'>) {
+  const { configuration } = useXLabConfiguration();
+  const entryReady = useRealtimeEntryReady(navigation);
+  return (
+    <RealtimeScreen
+      entryReady={entryReady}
+      model={route.params.model}
+      bitrate={route.params.bitrate}
+      apiKey={configuration.keys[route.params.endpoint].trim()}
+      environment={environmentForEndpoint(route.params.endpoint)}
+      externalFileURL={route.params.fileURL}
+      onBack={navigation.goBack}
+    />
+  );
+}
+
 function StorageRoute({
   route,
   navigation,
@@ -190,6 +225,7 @@ export function XLabNavigator(props: ConfigurationContextValue) {
           <Stack.Screen name="Feed" component={FeedRoute} />
           <Stack.Screen name="Camera" component={CameraRoute} />
           <Stack.Screen name="Image" component={ImageRoute} />
+          <Stack.Screen name="External" component={ExternalRoute} />
           <Stack.Screen name="Storage" component={StorageRoute} />
         </Stack.Navigator>
       </NavigationContainer>

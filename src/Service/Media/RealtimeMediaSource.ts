@@ -22,4 +22,9 @@ export enum RealtimeMediaSource {
    * Local image input delivered as repeated, orientation-corrected video frames.
    */
   image = 'image',
+
+  /**
+   * App-owned native video and optional PCM audio input.
+   */
+  external = 'external',
 }
