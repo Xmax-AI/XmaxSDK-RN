@@ -8,6 +8,10 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { DataFileManager } from '../../Foundation/Storage/DataFileManager';
+import type { DataFileManaging } from '../../Foundation/Storage/DataFileManaging';
+import { copyEncodedData } from '../../Foundation/Storage/EncodedData';
+import { invalid } from '../../Foundation/Errors/XmaxError';
 import type { StorageServicing } from './StorageServicing';
 import { XmaxLogger } from '../../Foundation/Logging/XmaxLogger';
 import type { ApiServicing } from '../Network/ApiServicing';
@@ -19,7 +23,7 @@ import type {
   UploadFileOptions,
   DownloadFileOptions,
 } from '../../Core/Storage/XmaxStorageManaging';
-import type { StorageManaging } from './StorageTypes';
+import type { StorageManaging } from '../../Foundation/Storage/StorageManaging';
 import {
   uploadMetadata,
   parseStorageConfiguration,
@@ -57,13 +61,18 @@ export class StorageService implements StorageServicing {
      * @returns The current system time, in milliseconds.
      */
     private readonly now: () => number = Date.now,
+
+    /**
+     * The private staging files for encoded memory uploads.
+     */
+    private readonly dataFiles: DataFileManaging = new DataFileManager(),
   ) {}
 
   /**
    * Validates local media, requests temporary credentials, and uploads, optionally checking image
    * safety afterward.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @param media The image or video category used for file validation and MIME inference.
    * @param checksSafety Whether to check image safety after upload.
    * @returns The uploaded URL, object key, and available ETag.
@@ -73,83 +82,114 @@ export class StorageService implements StorageServicing {
     media: 'image' | 'video',
     checksSafety: boolean,
   ) {
+    if (
+      !options ||
+      (options.fileURL !== undefined) === (options.data !== undefined)
+    )
+      throw invalid('Supply exactly one upload fileURL or data source');
+    const data =
+      options.data !== undefined ? copyEncodedData(options.data) : null;
+    if (
+      data &&
+      (typeof options.fileName !== 'string' ||
+        !options.fileName.trim() ||
+        /[\\/\0]/.test(options.fileName) ||
+        typeof options.contentType !== 'string')
+    )
+      throw invalid(
+        'Memory uploads require a filename without path separators and a MIME type',
+      );
     return this.operation(
       options,
       XmaxErrorCode.uploadError,
       async (signal, progress) => {
         const metadata = uploadMetadata(
-          options.fileURL,
+          data
+            ? `file:///memory/${encodeURIComponent(options.fileName!)}`
+            : options.fileURL!,
           media,
           options.contentType,
         );
 
-        await abortable(
-          this.storage.fileSize(options.fileURL),
-          signal
-        );
-
-        const config = parseStorageConfiguration(
+        let temporary: string | null = null;
+        try {
+          if (data) temporary = await this.dataFiles.create(data);
+          if (signal.aborted)
+            throw new XmaxError({
+              code: XmaxErrorCode.cancelled,
+              message: 'Storage operation cancelled',
+            });
+          const fileURL = temporary ?? options.fileURL!;
           await abortable(
-            this.api.request(
-              'GET',
-              '/cos/sts',
-              undefined,
-              signal
-            ),
-            signal,
-          ),
-        );
-        const objectKey = `${
-          config.prefix
-        }${this.now()}_${this.uuid().toLowerCase()}_${metadata.fileName}`;
-        const stored = await this.storage.upload({
-          fileURL: options.fileURL,
-          objectKey,
-          contentType: metadata.contentType,
-          configuration: config,
-          signal,
-          progress,
-        });
+            this.storage.fileSize(fileURL),
+            signal
+          );
 
-        if (signal.aborted)
-          throw new XmaxError({
-            code: XmaxErrorCode.cancelled,
-            message: 'Storage operation cancelled',
-          });
-        if (!checksSafety) return stored;
-
-        const payload = record(
-          await abortable(
-            this.api.request(
-              'POST',
-              '/cos/image/check',
-              { url: stored.url },
+          const config = parseStorageConfiguration(
+            await abortable(
+              this.api.request(
+                'GET',
+                '/cos/sts',
+                undefined,
+                signal
+              ),
               signal,
             ),
+          );
+          const objectKey = `${
+            config.prefix
+          }${this.now()}_${this.uuid().toLowerCase()}_${metadata.fileName}`;
+          const stored = await this.storage.upload({
+            fileURL,
+            objectKey,
+            contentType: metadata.contentType,
+            configuration: config,
             signal,
-          ),
-        );
-
-        if (typeof payload?.safe !== 'boolean')
-          throw new XmaxError({
-            code: XmaxErrorCode.apiError,
-            message: 'Invalid image safety check payload',
-          });
-        if (!payload.safe)
-          throw new XmaxError({
-            code: XmaxErrorCode.unsafeImage,
-            message: 'The image did not pass the safety check',
+            progress,
           });
 
-        const checkedURL = nonEmpty(payload.url);
+          if (signal.aborted)
+            throw new XmaxError({
+              code: XmaxErrorCode.cancelled,
+              message: 'Storage operation cancelled',
+            });
+          if (!checksSafety) return stored;
 
-        if (!checkedURL)
-          throw new XmaxError({
-            code: XmaxErrorCode.apiError,
-            message: 'Safety check returned no URL',
-          });
+          const payload = record(
+            await abortable(
+              this.api.request(
+                'POST',
+                '/cos/image/check',
+                { url: stored.url },
+                signal,
+              ),
+              signal,
+            ),
+          );
 
-        return { ...stored, url: httpURL(checkedURL).href };
+          if (typeof payload?.safe !== 'boolean')
+            throw new XmaxError({
+              code: XmaxErrorCode.apiError,
+              message: 'Invalid image safety check payload',
+            });
+          if (!payload.safe)
+            throw new XmaxError({
+              code: XmaxErrorCode.unsafeImage,
+              message: 'The image did not pass the safety check',
+            });
+
+          const checkedURL = nonEmpty(payload.url);
+
+          if (!checkedURL)
+            throw new XmaxError({
+              code: XmaxErrorCode.apiError,
+              message: 'Safety check returned no URL',
+            });
+
+          return { ...stored, url: httpURL(checkedURL).href };
+        } finally {
+          if (temporary) await this.dataFiles.remove(temporary);
+        }
       },
     );
   }

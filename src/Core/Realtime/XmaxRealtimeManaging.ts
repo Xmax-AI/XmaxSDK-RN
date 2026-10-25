@@ -272,14 +272,15 @@ export interface XmaxRealtimeManaging {
   ): Promise<void>;
 
   /**
-   * Creates a continuous video frame stream from a local image file.
+   * Creates a continuous video frame stream from a local file or encoded image data.
    *
    * Uses a private, orientation-corrected copy retaining the image aspect ratio for RTC and local
    * preview. No camera or microphone permission is requested. Disconnect and stop the current input
-   * before replacement. Your app owns the original; the manager owns the copy.
+   * before replacement. Your app owns the original; the manager owns the copy. Encoded bytes are
+   * copied when this method is called and can be reused or modified afterward.
    *
-   * @param options The local image URL, encoding settings, frame rate, and cancellation signal;
-   *   dimensions are resolved from the file.
+   * @param options The image file URL or encoded bytes, encoding settings, frame rate, and
+   *   cancellation signal; dimensions are resolved from the encoded image.
    * @returns The manager-owned image stream after its copy and frame source are prepared.
    */
   createLocalImageStream(

@@ -52,19 +52,46 @@ export interface CameraStreamOptions extends RealtimeOperationOptions {
 }
 
 /**
- * The options for a local image repeatedly sent as video frames.
+ * The encoding and cancellation settings for continuous image frame delivery.
  */
-export interface ImageStreamOptions extends RealtimeOperationOptions {
-
-  /**
-   * A local file URL or absolute path. Android also accepts a readable content URI.
-   */
-  readonly fileURL: string;
+export interface ImageStreamConfiguration extends RealtimeOperationOptions {
 
   /**
    * Overrides the frame rate, bitrate, or encoding preference. Dimensions remain subject to the
-   * file and model limits. Image input supports 1–60 fps and defaults to the model frame rate, SDK
+   * image and model limits. Image input supports 1–60 fps and defaults to the model frame rate, SDK
    * bitrate policy, and maintainFramerate preference.
    */
   readonly videoFormat?: RealtimeVideoFormat | null;
 }
+
+/**
+ * An image file URL or encoded image data for continuous native video frame delivery.
+ * Supply exactly one source. Data is copied when createLocalImageStream() is called.
+ */
+export type ImageStreamOptions = ImageStreamConfiguration &
+  (
+    | {
+
+        /**
+         * A local file URL or absolute path; Android also accepts readable content URIs.
+         */
+        readonly fileURL: string;
+
+        /**
+         * Encoded bytes cannot be combined with a file URL.
+         */
+        readonly imageData?: never;
+      }
+    | {
+
+        /**
+         * Encoded image bytes, such as JPEG or PNG, rather than raw pixel data.
+         */
+        readonly imageData: Uint8Array;
+
+        /**
+         * A file URL cannot be combined with encoded bytes.
+         */
+        readonly fileURL?: never;
+      }
+  );

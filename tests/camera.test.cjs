@@ -806,7 +806,7 @@ test('generation sends face restoration and preserved-image canvas padding', asy
   assert.equal(start.params.face_replace, true);
   assert.equal(start.params.padding, 'contain');
   assert.equal(start.session_uid, start.uid);
-  assert.equal(start.params.min_bitrate, 100);
+  assert.equal(start.params.min_bitrate, 500);
   rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
   await pending;
   await manager.startGeneration({ faceRestoration: false });
@@ -1899,4 +1899,19 @@ test('automatic quality is inactive before generation and respects the initial s
   assert.equal(manager.uplinkQualityLevel, 2);
   for (const time of [8000, 9000, 10000]) await sample(time);
   assert.equal(manager.uplinkQualityLevel, 3);
+});
+
+test('public image-data creation snapshots bytes at invocation before lifecycle work starts', async t => {
+  const manager = createManager(); t.after(() => manager.close());
+  const bytes = new Uint8Array([0, 128, 255]), seen = [];
+  t.mock.method(manager.mediaController, 'createImage', async options => {
+    seen.push([...options.imageData]);
+    return { id: 'encoded', videoTrack: null };
+  });
+  const pending = manager.createLocalImageStream({ imageData: bytes });
+  bytes.fill(7);
+  await pending;
+  assert.deepEqual(seen, [[0, 128, 255]]);
+  for (const options of [{}, { imageData: new Uint8Array() }, { fileURL: 'file:///a.jpg', imageData: bytes }])
+    await assert.rejects(manager.createLocalImageStream(options), { code: 'INVALID_CONFIGURATION' });
 });

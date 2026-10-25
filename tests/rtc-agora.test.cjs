@@ -296,3 +296,106 @@ test('first-frame timeout and audio subscription remain separate from video subs
   await timedOut;
   assert.equal(calls.at(-1).operation, 'clearRemoteFrame');
 });
+
+test('engine leases queue in order, cancel pending acquisition and ignore stale release', async t => {
+  const { RtcEngineManager } = require('../lib/commonjs/Foundation/RTC/RtcEngineManager');
+  const engines = new RtcEngineManager();
+  let active = null, count = 0;
+  const platform = { prepareRuntime: async () => {}, randomUUID: () => `lease-${++count}`, acquire(id) { assert.equal(active, null); active = id; return true; }, release(id) { assert.equal(active, id); active = null; } };
+  const first = await engines.acquire(platform, new AbortController().signal);
+  const abort = new AbortController();
+  const second = engines.acquire(platform, abort.signal);
+  const cancelled = assert.rejects(second, { code: 'CANCELLED' });
+  let third;
+  const next = engines.acquire(platform, new AbortController().signal).then(lease => { third = lease; return lease; });
+  abort.abort(); await cancelled; await tick();
+  assert.equal(third, undefined);
+  engines.release(first); const thirdLease = await next;
+  assert.equal(active, thirdLease.id); assert.equal(count, 2);
+  engines.release(first); assert.equal(active, thirdLease.id);
+  engines.release(thirdLease); assert.equal(active, null);
+});
+
+test('closing a manager cancels its queued acquisition without closing another owner', async t => {
+  const first = await fixture(t, false);
+  const second = new RtcManager();
+  const waiting = second.open(new AbortController().signal);
+  const cancelled = assert.rejects(waiting, { code: 'CANCELLED' });
+  await tick(); const current = owner;
+  await second.close(); await cancelled;
+  assert.equal(owner, current);
+  await first.startImage('/prepared/image.jpg', format);
+});
+
+test('failed native engine startup returns its lease and removes its native subscription', async t => {
+  const first = new RtcManager(), original = native.rtcCommand;
+  native.rtcCommand = async (lease, value) => {
+    if (JSON.parse(value).operation === 'open') throw new Error('engine initialization');
+    return original(lease, value);
+  };
+  try { await assert.rejects(first.open(new AbortController().signal), /engine initialization/); }
+  finally { native.rtcCommand = original; }
+  assert.equal(owner, null); assert.equal(callbacks.size, 0);
+  await fixture(t, false);
+});
+
+test('room retirement clears deferred mappings and remote bindings without invalidating local preview', async t => {
+  const rtc = await fixture(t), events = [];
+  await rtc.bind('local-preview', null, 'fit');
+  rtc.onEvent(event => events.push(event));
+  emit({ type: 'account', uid: 20, userID: 'bot' });
+  await rtc.bind('remote-preview', { roomID: 'room', userID: 'bot' }, 'fit');
+  await rtc.leave();
+  const start = calls.length;
+  emit({ type: 'account', uid: 20, userID: 'bot', roomID: 'retired-room' });
+  rtc.unbind('remote-preview', { roomID: 'room', userID: 'bot' });
+  await tick(); assert.equal(calls.length, start);
+  rtc.unbind('local-preview', null); await tick();
+  assert.equal(calls.at(-1).operation, 'unbind'); assert.equal(calls.at(-1).uid, 0);
+  assert.deepEqual(rtc.publishedStreams, []);
+});
+
+test('permission manager requests camera and microphone independently and normalizes denial', async () => {
+  const { PermissionManager } = require('../lib/commonjs/Foundation/Permissions/PermissionManager');
+  const requested = [];
+  const permissions = new PermissionManager(async permission => { requested.push(permission); return permission === 'camera'; });
+  await permissions.ensureCameraPermission();
+  await assert.rejects(permissions.ensureMicrophonePermission(), { code: 'MICROPHONE_PERMISSION_DENIED' });
+  assert.deepEqual(requested, ['camera', 'microphone']);
+  const failure = new PermissionManager(async () => { throw new Error('native authorization'); });
+  await assert.rejects(failure.ensureCameraPermission(), { code: 'CAMERA_PERMISSION_DENIED' });
+});
+
+test('RTC facade accepts an injected platform, room, lease manager and permission interface', async () => {
+  const { RtcEngineManager } = require('../lib/commonjs/Foundation/RTC/RtcEngineManager');
+  const activity = [], permissions = [];
+  let rawListener, roomListener, held = false;
+  const room = {
+    publishedStreams: [],
+    setEventListener(listener) { roomListener = listener; },
+    async join(microphone) { activity.push(['join', microphone]); roomListener({ type: 'joined' }); },
+    receive(event) { if (event.type === 'test-publication') roomListener({ type: 'publication', published: true, stream: { roomID: 'injected', userID: 'result' } }); },
+    async destroy() { activity.push(['destroy']); },
+  };
+  const platform = {
+    runtime: { platform: 'ios', os_version: '27', sdk_version: 'fixture', device_model: 'test' },
+    randomUUID: () => 'injected-owner', prepareRuntime: async () => {},
+    acquire() { held = true; return true; }, isActive() { return held; }, release() { held = false; },
+    onEvent(_owner, listener) { rawListener = listener; return () => { rawListener = null; }; },
+    async execute(_owner, operation) { activity.push([operation]); return 'null'; },
+    createRoom() { return room; },
+  };
+  const rtc = new RtcManager(platform, new RtcEngineManager(), {
+    ensureCameraPermission: async () => permissions.push('camera'),
+    ensureMicrophonePermission: async () => permissions.push('microphone'),
+  });
+  await rtc.permissions(true); assert.deepEqual(permissions, ['camera', 'microphone']);
+  const events = []; rtc.onEvent(event => events.push(event));
+  await rtc.open(new AbortController().signal);
+  await rtc.join({ roomID: 'injected', userID: 'local', token: 'test' }, true, new AbortController().signal);
+  rawListener({ type: 'test-publication' });
+  assert.equal(events[0].stream.userID, 'result');
+  await rtc.close();
+  assert.equal(held, false); assert.equal(rawListener, null);
+  assert(activity.some(([kind]) => kind === 'destroy'));
+});

@@ -190,19 +190,18 @@ RCT_EXPORT_MODULE(XmaxRuntime)
 }
 
 /**
- * Requests camera and microphone permissions without starting media capture.
+ * Requests one media permission without starting capture.
  *
- * Resolves or rejects the bridge Promise when the native operation completes.
- *
- * @param useMicrophone Whether to request microphone permission and publish audio; false disables
- *   audio.
- * @param resolve The React Native Promise completion callback for this operation.
- * @param reject The Promise failure callback receiving a stable SDK error code.
+ * @param permission The camera or microphone permission to request.
+ * @param resolve The callback receiving whether access is authorized.
+ * @param reject The callback receiving invalid permission requests.
  */
-- (void)requestPermissions:(BOOL)useMicrophone
+- (void)requestMediaPermission:(NSString *)permission
     resolve:(RCTPromiseResolveBlock)resolve
     reject:(RCTPromiseRejectBlock)reject {
-  [self.implementation requestPermissions:useMicrophone resolve:resolve reject:reject];
+  [self.implementation requestMediaPermission:permission
+      resolve:resolve
+      reject:reject];
 }
 
 /**

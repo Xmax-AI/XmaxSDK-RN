@@ -18,15 +18,9 @@ export type { XmaxUploadedFile } from './XmaxUploadedFile';
 export type { XmaxDownloadedFile } from './XmaxDownloadedFile';
 
 /**
- * Options for uploading a local image or video.
+ * The progress, cancellation, and optional MIME settings shared by upload sources.
  */
-export interface UploadFileOptions {
-
-  /**
-   * An absolute file:// URL. Copy content:// or photo-library assets to a readable local file
-   * first.
-   */
-  readonly fileURL: string;
+export interface UploadTransferOptions {
 
   /**
    * The media MIME type; inferred from the filename when omitted or null.
@@ -44,6 +38,54 @@ export interface UploadFileOptions {
    */
   readonly signal?: AbortSignal;
 }
+
+/**
+ * A readable local file or encoded media data to upload.
+ * Supply exactly one source. Memory uploads require a filename and MIME type; bytes are copied
+ * when the upload method is called and can be reused or modified afterward.
+ */
+export type UploadFileOptions = UploadTransferOptions &
+  (
+    | {
+
+        /**
+         * An absolute file:// URL owned by your app.
+         */
+        readonly fileURL: string;
+
+        /**
+         * Encoded bytes cannot be combined with a file URL.
+         */
+        readonly data?: never;
+
+        /**
+         * File uploads derive the filename from fileURL.
+         */
+        readonly fileName?: never;
+      }
+    | {
+
+        /**
+         * Encoded image or video file bytes, rather than raw media frames.
+         */
+        readonly data: Uint8Array;
+
+        /**
+         * The filename, including its extension, used for object naming and media validation.
+         */
+        readonly fileName: string;
+
+        /**
+         * The encoded media MIME type, such as image/jpeg or video/mp4.
+         */
+        readonly contentType: string;
+
+        /**
+         * A file URL cannot be combined with encoded bytes.
+         */
+        readonly fileURL?: never;
+      }
+  );
 
 /**
  * Options for downloading a remote file into the app sandbox.
@@ -82,7 +124,7 @@ export interface XmaxStorageManaging {
   /**
    * Uploads an image using temporary COS credentials without a safety check.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The uploaded image URL, object key, and available ETag.
    */
   uploadImage(
@@ -94,7 +136,7 @@ export interface XmaxStorageManaging {
    *
    * A rejected safety check reports UNSAFE_IMAGE.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The approved image URL and upload metadata.
    */
   uploadImageWithSafetyCheck(
@@ -104,7 +146,7 @@ export interface XmaxStorageManaging {
   /**
    * Uploads a video using temporary COS credentials.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The uploaded video URL, object key, and available ETag.
    */
   uploadVideo(

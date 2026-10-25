@@ -188,3 +188,21 @@ export function realtimeConfigurationContract(client: XmaxClient) {
     isAdaptiveQualityEnabled: 'false',
   });
 }
+
+export async function encodedMemoryContract(client: XmaxClient) {
+  const realtime = client.createRealtimeManager({ model: RealtimeModel.x2_1_1_preview_cn });
+  const bytes = new Uint8Array([255, 216, 255]);
+  await realtime.createLocalImageStream({ imageData: bytes });
+  // @ts-expect-error A memory source cannot be combined with a file URL.
+  await realtime.createLocalImageStream({ imageData: bytes, fileURL: 'file:///tmp/image.jpg' });
+  // @ts-expect-error One source must be provided.
+  await realtime.createLocalImageStream({});
+  const storage = client.createStorageManager();
+  await storage.uploadImage({ data: bytes, fileName: 'image.jpg', contentType: 'image/jpeg' });
+  await storage.uploadImageWithSafetyCheck({ data: bytes, fileName: 'image.jpg', contentType: 'image/jpeg' });
+  await storage.uploadVideo({ data: bytes, fileName: 'video.mp4', contentType: 'video/mp4' });
+  // @ts-expect-error Memory uploads require a filename and MIME type.
+  await storage.uploadImage({ data: bytes });
+  // @ts-expect-error A memory source cannot be combined with a file URL.
+  await storage.uploadImage({ data: bytes, fileName: 'image.jpg', contentType: 'image/jpeg', fileURL: 'file:///tmp/image.jpg' });
+}

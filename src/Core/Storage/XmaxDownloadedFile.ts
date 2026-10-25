@@ -8,18 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { DownloadedFile as TransferValue } from '../../Foundation/Storage/DownloadedFile';
+
 /**
  * The location and size of a downloaded file.
  */
-export interface XmaxDownloadedFile {
-
-  /**
-   * The destination file URL supplied by your app.
-   */
-  readonly fileURL: string;
-
-  /**
-   * The number of saved bytes.
-   */
-  readonly byteCount: number;
-}
+export type XmaxDownloadedFile = TransferValue;

@@ -310,22 +310,17 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     metadata
   }
 
-  // MARK: - Camera Permissions
+  // MARK: - Media Permissions
 
-  /// Requests camera permission and requests recording permission only when microphone input is
-  /// explicitly enabled.
-  ///
-  /// Resolves the Promise with the permission result or a permission delegation marker; rejects
-  /// failures with an SDK error code.
+  /// Requests one media permission without starting capture.
   ///
   /// - Parameters:
-  ///   - useMicrophone: Whether to request microphone permission and publish audio; false disables
-  ///     audio.
-  ///   - resolve: The React Native Promise completion callback.
-  ///   - reject: The React Native Promise failure callback.
-  @objc(requestPermissions:resolve:reject:)
-  public func requestPermissions(
-    _ useMicrophone: Bool,
+  ///   - permission: The camera or microphone permission to request.
+  ///   - resolve: The callback receiving whether access is authorized.
+  ///   - reject: The callback receiving invalid permission requests.
+  @objc(requestMediaPermission:resolve:reject:)
+  public func requestMediaPermission(
+    _ permission: String,
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
@@ -333,38 +328,19 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
       resolve: resolve,
       reject: reject
     )
-
-    let cameraDone: @Sendable (Bool) -> Void = { granted in
-      guard granted else {
-        promise.resolve("camera")
-        return
-      }
-
-      guard useMicrophone else {
-        promise.resolve("granted")
-        return
-      }
-
-      let status = AVCaptureDevice.authorizationStatus(for: .audio)
-
-      if status == .notDetermined {
-        AVCaptureDevice.requestAccess(for: .audio) { allowed in
-          promise.resolve(allowed ? "granted" : "microphone")
-        }
-      } else {
-        promise.resolve(status == .authorized ? "granted" : "microphone")
-      }
-    }
-
-    let status = AVCaptureDevice.authorizationStatus(for: .video)
-
-    if status == .notDetermined {
-      AVCaptureDevice.requestAccess(
-        for: .video,
-        completionHandler: cameraDone
+    guard permission == "camera" || permission == "microphone" else {
+      promise.reject(
+        "Invalid media permission",
+        code: "INVALID_CONFIGURATION"
       )
+      return
+    }
+    let media: AVMediaType = permission == "camera" ? .video : .audio
+    let status = AVCaptureDevice.authorizationStatus(for: media)
+    if status == .notDetermined {
+      AVCaptureDevice.requestAccess(for: media) { allowed in promise.resolve(allowed) }
     } else {
-      cameraDone(status == .authorized)
+      promise.resolve(status == .authorized)
     }
   }
 

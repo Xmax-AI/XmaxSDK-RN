@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { copyEncodedData } from '../../Foundation/Storage/EncodedData';
 import {
   XmaxRealtimeFactory,
   type XmaxRealtimeComponents,
@@ -710,17 +711,26 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
    * Creates an orientation-corrected image copy for continuous frame delivery; your app retains
    * ownership of the original.
    *
-   * @param options The local image URL, encoding settings, frame rate, and cancellation signal;
-   *   dimensions are resolved from the file.
+   * @param options The image file URL or encoded bytes, encoding settings, frame rate, and
+   *   cancellation signal; dimensions are resolved from the encoded image.
    * @returns The manager-owned image stream after its copy and frame source are prepared.
    */
-  createLocalImageStream(
+  async createLocalImageStream(
     options: ImageStreamOptions,
   ): Promise<RealtimeMediaStream> {
+    if (
+      !options ||
+      (options.fileURL !== undefined) === (options.imageData !== undefined)
+    )
+      throw invalid('Supply exactly one image fileURL or imageData source');
+    const input: ImageStreamOptions =
+      options.imageData !== undefined
+        ? { ...options, imageData: copyEncodedData(options.imageData) }
+        : { ...options };
     return this.createLocal(
       'image',
       token => this.mediaController.createImage(
-        options,
+        input,
         token.signal
       ),
       options.signal,

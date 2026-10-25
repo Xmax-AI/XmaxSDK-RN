@@ -25,7 +25,7 @@ export interface StorageServicing {
    * Validates local media, requests temporary credentials, and uploads, optionally checking image
    * safety afterward.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @param media The image or video category used for file validation and MIME inference.
    * @param checksSafety Whether to check image safety after upload.
    * @returns The uploaded URL, object key, and available ETag.

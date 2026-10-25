@@ -33,9 +33,9 @@ export class XmaxStorageManager implements XmaxStorageManaging {
   ) {}
 
   /**
-   * Uploads a local image using temporary credentials without a safety check.
+   * Uploads an image using temporary credentials without a safety check.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The uploaded image URL, object key, and available ETag.
    */
   uploadImage(
@@ -49,10 +49,10 @@ export class XmaxStorageManager implements XmaxStorageManaging {
   }
 
   /**
-   * Uploads a local image and returns only after its safety check passes. Rejection reports
+   * Uploads an image and returns only after its safety check passes. Rejection reports
    * UNSAFE_IMAGE.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The approved image URL and upload metadata.
    */
   uploadImageWithSafetyCheck(
@@ -66,9 +66,9 @@ export class XmaxStorageManager implements XmaxStorageManaging {
   }
 
   /**
-   * Uploads a local video using temporary credentials.
+   * Uploads a video using temporary credentials.
    *
-   * @param options The source file, MIME type, progress handler, and cancellation signal.
+   * @param options The file URL or encoded bytes, filename, MIME type, progress handler, and cancellation signal.
    * @returns The uploaded video URL, object key, and available ETag.
    */
   uploadVideo(

@@ -81,16 +81,14 @@ export interface Spec extends TurboModule {
   ): Promise<void>;
 
   /**
-   * Requests camera permission and, when enabled, microphone permission before capture.
+   * Requests the specified media permission without starting capture.
    *
-   * @param useMicrophone Whether to request microphone permission and publish audio; false disables
-   *   audio.
-   * @returns Granted indicates success; camera or microphone identifies the first denied
-   *   permission.
+   * @param permission The camera or microphone permission to request.
+   * @returns Whether the requested access is authorized.
    */
-  requestPermissions(
-    useMicrophone: boolean
-  ): Promise<string>;
+  requestMediaPermission(
+    permission: string
+  ): Promise<boolean>;
 
   /**
    * Reads orientation-corrected image dimensions without passing pixels to JS.

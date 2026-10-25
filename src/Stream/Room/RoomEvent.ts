@@ -120,7 +120,10 @@ function downlinkBitrates(
   max_bitrate: number;
 } {
   const budget = resolveBitrates({ ...size, fps: 24 });
-  return { min_bitrate: 100, max_bitrate: Math.min(10000, budget.maximum) };
+  return {
+    min_bitrate: 500,
+    max_bitrate: Math.min(10000, Math.max(500, budget.maximum)),
+  };
 }
 
 /**

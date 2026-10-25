@@ -316,7 +316,25 @@ Initial quality is recorded after generation becomes ready; automatic adjustment
 observe the stabilization window before changing it.
 The default upload minimum bitrate is 500 kbps, capped by the maximum bitrate;
 an explicit `minimumBitrate: 0` is preserved.
+Downlink signaling uses a 500 kbps minimum and a size-based maximum between 500
+and 10000 kbps.
 Pass `faceRestoration: true` to `startGeneration()` to restore the source face.
+
+For encoded image bytes, use `createLocalImageStream({ imageData: bytes })`, where
+`bytes` is a `Uint8Array` containing JPEG, PNG, or another supported encoded image.
+Storage uploads also accept memory data:
+
+```ts
+await client.createStorageManager().uploadImage({
+  data: bytes,
+  fileName: 'reference.jpg',
+  contentType: 'image/jpeg',
+});
+```
+
+The same data options work with `uploadImageWithSafetyCheck()` and `uploadVideo()`.
+Provide either bytes or a file URL. Bytes are copied when the method is called;
+private staging files are removed after processing. Prefer file URLs for large files.
 
 A new `startGeneration()` call replaces an unfinished generation request after
 required cleanup. The replaced Promise rejects with `XmaxErrorCode.cancelled`.

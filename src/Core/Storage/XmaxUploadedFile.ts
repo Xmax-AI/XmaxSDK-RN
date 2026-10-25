@@ -8,23 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { StoredFile as TransferValue } from '../../Foundation/Storage/StoredFile';
+
 /**
  * The remote location and metadata of an uploaded file.
  */
-export interface XmaxUploadedFile {
-
-  /**
-   * The remote file URL, or the safety service's approved URL for checked uploads.
-   */
-  readonly url: string;
-
-  /**
-   * The object key within the credential-authorized directory.
-   */
-  readonly objectKey: string;
-
-  /**
-   * The ETag returned by COS, or null if absent.
-   */
-  readonly etag: string | null;
-}
+export type XmaxUploadedFile = TransferValue;

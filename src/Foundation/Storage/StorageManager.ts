@@ -15,15 +15,9 @@ import type {
 } from 'react-native-cos-sdk-nobeacon/lib/typescript/data_model/errors';
 import { CosUploadAdapter, type CosUploadTask } from './CosUploadAdapter';
 import Blob from './BlobTransport';
-import type {
-  StorageManaging,
-  StorageConfiguration,
-} from '../../Service/Storage/StorageTypes';
-import {
-  filePath,
-  storageEndpoint,
-  objectURL,
-} from '../../Service/Storage/StorageValidation';
+import type { StorageManaging } from './StorageManaging';
+import type { StorageConfiguration } from './StorageConfiguration';
+import { filePath, storageEndpoint, objectURL } from './StorageValidation';
 import { invalid, XmaxError, XmaxErrorCode } from '../Errors/XmaxError';
 import NativeRuntime from '../Native/NativeXmaxRuntime';
 

@@ -8,23 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { StorageProgress as TransferValue } from '../../Foundation/Storage/StorageProgress';
+
 /**
  * Byte-based transfer progress. Total size and fraction are null when the total is unknown.
  */
-export interface StorageProgress {
-
-  /**
-   * The number of bytes transferred.
-   */
-  readonly completedUnitCount: number;
-
-  /**
-   * The total number of bytes.
-   */
-  readonly totalUnitCount: number | null;
-
-  /**
-   * The completed fraction, from 0 to 1.
-   */
-  readonly fractionCompleted: number | null;
-}
+export type StorageProgress = TransferValue;

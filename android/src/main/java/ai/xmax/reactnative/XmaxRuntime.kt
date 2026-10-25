@@ -433,22 +433,32 @@ class XmaxRuntime(
   ).toString()
 
   /**
-   * Requests camera permission and requests recording permission only when microphone input is
-   * explicitly enabled.
+   * Checks media authorization requested through the React Native permission client.
    *
-   * Returns a native permission delegation marker so the SDK permission layer can request the
-   * required permissions; failures use an SDK error code.
-   *
-   * @param useMicrophone Whether to request microphone permission and publish audio; false disables
-   *   audio.
-   * @param promise The React Native Promise resolved or rejected when the asynchronous native
-   *   operation completes.
+   * @param permission The camera or microphone permission to check.
+   * @param promise The callback receiving whether the permission is granted.
    */
-  override fun requestPermissions(
-    useMicrophone: Boolean,
+  override fun requestMediaPermission(
+    permission: String,
     promise: Promise
   ) {
-    promise.resolve("android-use-PermissionsAndroid")
+    val name = when (permission) {
+      "camera" -> android.Manifest.permission.CAMERA
+      "microphone" -> android.Manifest.permission.RECORD_AUDIO
+      else -> {
+        promise.reject(
+          "INVALID_CONFIGURATION",
+          "Invalid media permission"
+        )
+        return
+      }
+    }
+    promise.resolve(
+      androidx.core.content.ContextCompat.checkSelfPermission(
+        reactApplicationContext,
+        name
+      ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    )
   }
 
   /**

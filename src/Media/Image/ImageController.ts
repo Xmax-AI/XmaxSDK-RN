@@ -8,6 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { DataFileManager } from '../../Foundation/Storage/DataFileManager';
+import type { DataFileManaging } from '../../Foundation/Storage/DataFileManaging';
 import type { MediaServicing } from '../../Service/Media/MediaServicing';
 import type { ImageControlling } from './ImageControlling';
 import type { ImageManaging } from '../../Foundation/Media/ImageManaging';
@@ -46,6 +48,7 @@ export class ImageController implements ImageControlling {
    * @param render The render controller for stream and video-track bindings.
    * @param media The shared model sizing and capability service.
    * @param images The service managing image metadata, prepared copies, and copy cleanup.
+   * @param dataFiles The private staging files for encoded memory input.
    */
   constructor(
     /**
@@ -67,14 +70,19 @@ export class ImageController implements ImageControlling {
      * The service for image metadata, copy preparation, and cache cleanup.
      */
     private readonly images: ImageManaging,
+
+    /**
+     * The private encoded-data file manager used for memory input.
+     */
+    private readonly dataFiles: DataFileManaging = new DataFileManager(),
   ) {}
 
   /**
    * Prepares an upright private image copy and starts repeated native frame submission. Copies
    * completed after cancellation are removed.
    *
-   * @param options The local image URL, encoding settings, frame rate, and cancellation signal;
-   *   dimensions are resolved from the file.
+   * @param options The image file URL or encoded bytes, encoding settings, frame rate, and
+   *   cancellation signal; dimensions are resolved from the encoded image.
    * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
    * @returns The local image stream after the native frame scheduler is ready.
    */
@@ -86,9 +94,16 @@ export class ImageController implements ImageControlling {
     if (!options) throw invalid('Image stream options are required');
 
     let prepared: string | null = null;
+    let temporary: string | null = null;
 
     try {
-      const size = await this.images.size(options.fileURL);
+      if ((options.fileURL !== undefined) === (options.imageData !== undefined))
+        throw invalid('Supply exactly one image fileURL or imageData source');
+      if (options.imageData !== undefined)
+        temporary = await this.dataFiles.create(options.imageData);
+      ensureActive(signal);
+      const sourceURL = temporary ?? options.fileURL!;
+      const size = await this.images.size(sourceURL);
 
       ensureActive(signal);
 
@@ -111,7 +126,7 @@ export class ImageController implements ImageControlling {
 
       const bitrates = EncodingController.bitrates(format);
       prepared = await this.images.prepare(
-        options.fileURL,
+        sourceURL,
         format
       );
       ensureActive(signal);
@@ -148,6 +163,8 @@ export class ImageController implements ImageControlling {
         if (prepared) await this.images.remove(prepared).catch(() => {});
       }
       throw error;
+    } finally {
+      if (temporary) await this.dataFiles.remove(temporary);
     }
   }
 

@@ -11,12 +11,14 @@
 import type { RtcManaging } from './RtcManaging';
 import type { RemoteStream } from './RemoteStream';
 import type { RtcEvent } from './RtcEvent';
-import {
-  PermissionsAndroid,
-  Platform,
-  type EventSubscription,
-} from 'react-native';
-import NativeRuntime from '../Native/NativeXmaxRuntime';
+import { AgoraRtcPlatform } from './AgoraRtcPlatform';
+import type { RtcPlatform, RtcPlatformEvent } from './RtcPlatform';
+import type { RtcRoom } from './RtcRoom';
+import type { RtcEngineManaging } from './RtcEngineManaging';
+import { RtcEngineManager } from './RtcEngineManager';
+import type { RtcEngineLease } from './RtcEngineLease';
+import type { PermissionManaging } from '../Permissions/PermissionManaging';
+import { PermissionManager } from '../Permissions/PermissionManager';
 import {
   cancelledError,
   invalid,
@@ -24,28 +26,11 @@ import {
   XmaxErrorCode,
 } from '../Errors/XmaxError';
 import { ensureActive, waitFor } from '../Runtime/Async';
-import { RtcMessageQueue } from './RtcMessageQueue';
-import { RtcStatsLogger } from './RtcStatsLogger';
-import { XmaxLogger } from '../Logging/XmaxLogger';
 import { CameraPosition } from '../Media/Camera/CameraPosition';
-import { RealtimeNetworkQualityLevel } from '../../Service/Realtime/RealtimeNetworkQuality';
-import {
-  RealtimePerformanceStatus,
-  type RealtimePerformanceAlarm,
-} from '../../Service/Realtime/RealtimePerformanceAlarm';
 import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
-import type {
-  UplinkVideoStatistics,
-  DownlinkVideoStatistics,
-} from './VideoStatistics';
 import type { VideoContentMode } from '../Media/Video/VideoContentMode';
 import type { RealtimeSessionConnection } from '../../Service/Realtime/RealtimeSessionConnection';
 import type { RuntimeInfo } from '../Runtime/RuntimeInfo';
-
-/**
- * The network quality levels ordered by native quality value.
- */
-const qualities = Object.values(RealtimeNetworkQualityLevel);
 
 /**
  * Manages RTC leases, connection waits, and event validity.
@@ -53,14 +38,19 @@ const qualities = Object.values(RealtimeNetworkQualityLevel);
 export class RtcManager implements RtcManaging {
 
   /**
-   * The ownership identity used to reject retired resource holders.
+   * The exclusive native engine lease retained until media resources are released.
    */
-  private owner: string | null = null;
+  private lease: RtcEngineLease | null = null;
 
   /**
    * The shared engine-acquisition task.
    */
   private opening: Promise<void> | null = null;
+
+  /**
+   * Cancels pending lease acquisition when the manager closes.
+   */
+  private acquisition: AbortController | null = null;
 
   /**
    * The shared engine-destruction task for concurrent close calls.
@@ -70,7 +60,7 @@ export class RtcManager implements RtcManaging {
   /**
    * The native event subscription removed before media ownership release.
    */
-  private nativeEvents: EventSubscription | null = null;
+  private nativeEvents: (() => void) | null = null;
 
   /**
    * The active room connection and server session.
@@ -78,34 +68,14 @@ export class RtcManager implements RtcManaging {
   private connection: RealtimeSessionConnection | null = null;
 
   /**
-   * The ordered room message queue for this connection.
+   * The vendor-independent adapter for the active connection.
    */
-  private queue: RtcMessageQueue | null = null;
+  private room: RtcRoom | null = null;
 
   /**
-   * The mapping from native numeric UIDs to public string accounts.
+   * The currently bound local video container.
    */
-  private accounts = new Map<number, string>();
-
-  /**
-   * The latest video publication state for each numeric UID.
-   */
-  private publications = new Map<number, boolean>();
-
-  /**
-   * The latest frame events awaiting string-account mapping.
-   */
-  private frames = new Map<number, Record<string, unknown>[]>();
-
-  /**
-   * The mounted video containers indexed by local or remote stream identity.
-   */
-  private views = new Map<string, string>();
-
-  /**
-   * The scaling mode required by each container binding.
-   */
-  private modes = new Map<string, VideoContentMode>();
+  private localView: string | null = null;
 
   /**
    * The subscribers to binding or resource changes.
@@ -127,18 +97,30 @@ export class RtcManager implements RtcManaging {
   /**
    * Creates a media resource manager and reads runtime metadata without acquiring an engine.
    */
-  constructor() {
-    this.runtime = {
-      ...JSON.parse(NativeRuntime.runtimeInfo()),
-      sdk_version: '1.0.4',
-    };
+  constructor(
+    /**
+     * The native engine and room adapter.
+     */
+    private readonly platform: RtcPlatform = new AgoraRtcPlatform(),
+
+    /**
+     * The exclusive process-wide engine lease manager.
+     */
+    private readonly engines: RtcEngineManaging = RtcEngineManager.shared,
+
+    /**
+     * The camera and microphone authorization interface.
+     */
+    private readonly authorization: PermissionManaging = new PermissionManager(),
+  ) {
+    this.runtime = platform.runtime;
   }
 
   /**
    * Creates a UUID for a stream, operation, or media owner.
    */
   randomUUID(): string {
-    return NativeRuntime.randomUUID();
+    return this.platform.randomUUID();
   }
 
   /**
@@ -162,11 +144,7 @@ export class RtcManager implements RtcManaging {
    * The remote string accounts currently publishing in the room.
    */
   get publishedStreams(): readonly RemoteStream[] {
-    return [...this.publications].flatMap(([uid, published]) =>
-      published && this.accounts.has(uid) && this.connection
-        ? [{ roomID: this.connection.roomID, userID: this.accounts.get(uid)! }]
-        : [],
-    );
+    return this.room?.publishedStreams ?? [];
   }
 
   /**
@@ -184,7 +162,7 @@ export class RtcManager implements RtcManaging {
    * Whether this instance retains active foreground media ownership.
    */
   private get active(): boolean {
-    return this.owner !== null && NativeRuntime.isActive(this.owner);
+    return this.lease !== null && this.platform.isActive(this.lease.id);
   }
 
   /**
@@ -199,10 +177,11 @@ export class RtcManager implements RtcManaging {
     operation: string,
     params: object = {}
   ): Promise<void> {
-    if (!this.owner || !this.active) throw cancelledError();
-    await NativeRuntime.rtcCommand(
-      this.owner,
-      JSON.stringify({ operation, ...params }),
+    if (!this.lease || !this.active) throw cancelledError();
+    await this.platform.execute(
+      this.lease.id,
+      operation,
+      params
     );
   }
 
@@ -215,10 +194,11 @@ export class RtcManager implements RtcManaging {
   async readPreference(
     key: string
   ): Promise<string> {
-    if (!this.owner || !this.active) throw cancelledError();
-    return NativeRuntime.rtcCommand(
-      this.owner,
-      JSON.stringify({ operation: 'readPreference', key }),
+    if (!this.lease || !this.active) throw cancelledError();
+    return this.platform.execute(
+      this.lease.id,
+      'readPreference',
+      { key }
     );
   }
 
@@ -249,32 +229,8 @@ export class RtcManager implements RtcManaging {
   async permissions(
     microphone: boolean
   ): Promise<void> {
-    let result = 'granted';
-    if (Platform.OS === 'android') {
-      if (
-        (await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.CAMERA,
-        )) !== PermissionsAndroid.RESULTS.GRANTED
-      )
-        result = 'camera';
-      else if (
-        microphone &&
-        (await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        )) !== PermissionsAndroid.RESULTS.GRANTED
-      )
-        result = 'microphone';
-    } else result = await NativeRuntime.requestPermissions(microphone);
-    if (result !== 'granted')
-      throw new XmaxError({
-        code:
-          result === 'camera'
-            ? XmaxErrorCode.cameraPermissionDenied
-            : XmaxErrorCode.microphonePermissionDenied,
-        message: `${
-          result === 'camera' ? 'Camera' : 'Microphone'
-        } permission is required. Enable it in Settings.`,
-      });
+    await this.authorization.ensureCameraPermission();
+    if (microphone) await this.authorization.ensureMicrophonePermission();
   }
 
   /**
@@ -286,40 +242,61 @@ export class RtcManager implements RtcManaging {
     signal: AbortSignal
   ): Promise<void> {
     ensureActive(signal);
-    if (this.owner) {
+    if (this.lease) {
       if (!this.active) throw cancelledError();
       return;
     }
     if (this.opening || this.closing) throw invalid('RTC engine is busy');
-    const owner = this.randomUUID();
+    const acquisition = new AbortController();
+    this.acquisition = acquisition;
+    const cancel = () => acquisition.abort();
+    signal.addEventListener(
+      'abort',
+      cancel,
+      { once: true }
+    );
+    if (signal.aborted) acquisition.abort();
     this.opening = (async () => {
-      await NativeRuntime.prepareRuntime();
-      ensureActive(signal);
-      if (!NativeRuntime.acquire(owner))
-        throw invalid(
-          'Another manager owns the media engine, or the app is in the background',
-        );
-      this.owner = owner;
-      this.nativeEvents = NativeRuntime.onRtcEvent(value => {
-        if (this.owner !== owner || !this.active) return;
-        try {
-          const event = JSON.parse(value);
-          if (event.owner === owner) this.receive(event);
-        } catch {
-          XmaxLogger.rtc.warn(
-            XmaxLogger.localized(
-              '无效的原生 RTC 事件',
-              'Invalid native RTC event',
-            ),
-          );
+      this.lease = await this.engines.acquire(
+        this.platform,
+        acquisition.signal,
+      );
+      const lease = this.lease;
+      this.nativeEvents = this.platform.onEvent(
+        lease.id,
+        event => {
+          if (this.lease !== lease || !this.active) return;
+          this.receive(event);
         }
-      });
+      );
       await this.command('open');
-      ensureActive(signal);
+      ensureActive(acquisition.signal);
     })();
     try {
       await this.opening;
+    } catch (error) {
+      this.nativeEvents?.();
+      this.nativeEvents = null;
+      const lease = this.lease as RtcEngineLease | null;
+      this.lease = null;
+      if (lease) {
+        try {
+          if (lease.engine.isActive(lease.id))
+            await lease.engine.execute(
+              lease.id,
+              'close'
+            );
+        } finally {
+          this.engines.release(lease);
+        }
+      }
+      throw error;
     } finally {
+      signal.removeEventListener(
+        'abort',
+        cancel
+      );
+      if (this.acquisition === acquisition) this.acquisition = null;
       this.opening = null;
     }
   }
@@ -475,23 +452,25 @@ export class RtcManager implements RtcManaging {
   ): Promise<void> {
     if (this.connection) throw invalid('Leave the current RTC room first');
     this.connection = connection;
-    this.queue = new RtcMessageQueue(
-      packet => this.command(
-        'send',
-        { message: packet }
-      ),
-      () => this.randomUUID(),
+    if (!this.lease || !this.active) throw cancelledError();
+    const room = this.platform.createRoom(
+      this.lease.id,
+      connection
     );
+    this.room = room;
+    room.setEventListener(event => {
+      if (this.room !== room) return;
+      if (event.type === 'joined') {
+        for (const listener of this.joinListeners) listener();
+      } else this.emit(event);
+    });
     await waitFor<void>(
       (resolve, reject) => {
         this.joinListeners.add(resolve);
         const failure = this.onEvent(event => {
           if (event.type === 'error') reject(event.error);
         });
-        void this.command(
-          'join',
-          { ...connection, microphone }
-        ).catch(reject);
+        void room.join(microphone).catch(reject);
         return () => {
           this.joinListeners.delete(resolve);
           failure();
@@ -519,7 +498,8 @@ export class RtcManager implements RtcManaging {
     signal: AbortSignal,
   ): Promise<void> {
     const connection = this.connection;
-    const uid = this.requireRemoteUID(stream);
+    const room = this.room;
+    if (!room) throw invalid('Remote RTC room is unavailable');
     const token = this.randomUUID();
     await waitFor<void>(
       (resolve, reject) => {
@@ -533,17 +513,14 @@ export class RtcManager implements RtcManaging {
             resolve();
           else if (event.type === 'error') reject(event.error);
         });
-        void this.command(
-          'observeRemoteFrame',
-          { uid, token }
+        void room.observeRemoteFrame(
+          stream,
+          token
         ).catch(reject);
         return () => {
           off();
-          if (this.connection === connection)
-            void this.command(
-              'clearRemoteFrame',
-              { token }
-            ).catch(() => {});
+          if (this.connection === connection && this.room === room)
+            void room.clearRemoteFrame(token).catch(() => {});
         };
       },
       signal,
@@ -562,29 +539,11 @@ export class RtcManager implements RtcManaging {
     stream: RemoteStream,
     enabled: boolean,
   ): Promise<void> {
-    const uid = this.requireRemoteUID(stream);
-    await this.command(
-      'remoteAudio',
-      { uid, enabled }
+    if (!this.room) throw invalid('Remote RTC room is unavailable');
+    await this.room.subscribeRemoteAudio(
+      stream,
+      enabled
     );
-  }
-
-  /**
-   * Requires a mapped result account belonging to the current RTC room.
-   *
-   * @param stream The expected result stream identity.
-   * @returns The mapped native user identifier.
-   */
-  private requireRemoteUID(
-    stream: RemoteStream
-  ): number {
-    if (this.connection?.roomID !== stream.roomID)
-      throw invalid('Remote RTC room is unavailable');
-    const entry = [...this.accounts].find(
-      ([, account]) => account === stream.userID,
-    );
-    if (!entry) throw invalid('Remote RTC account is unavailable');
-    return entry[0];
   }
 
   /**
@@ -605,7 +564,7 @@ export class RtcManager implements RtcManaging {
     message: string,
     interaction = false
   ): Promise<void> {
-    if (!this.queue || !this.active) throw cancelledError();
+    if (!this.room || !this.active) throw cancelledError();
     const task = interaction
       ? (
           JSON.parse(message) as {
@@ -617,9 +576,9 @@ export class RtcManager implements RtcManaging {
           }
         ).uid
       : undefined;
-    await this.queue.enqueue(
+    await this.room.sendRoomMessage(
       message,
-      task ? `tracks:${task}` : undefined
+      task ? `tracks:${task}` : undefined,
     );
   }
 
@@ -631,7 +590,7 @@ export class RtcManager implements RtcManaging {
   discardTracks(
     taskID: string
   ): void {
-    this.queue?.drop(`tracks:${taskID}`);
+    this.room?.discardPendingMessages(`tracks:${taskID}`);
   }
 
   /**
@@ -667,77 +626,55 @@ export class RtcManager implements RtcManaging {
     stream: RemoteStream | null,
     mode: VideoContentMode,
   ): Promise<void> {
-    const uid = stream
-      ? [...this.accounts].find(([, account]) => account === stream.userID)?.[0]
-      : 0;
-    const key = stream ? JSON.stringify(stream) : 'local';
-    this.views.set(
-      key,
-      viewID
-    );
-    this.modes.set(
-      key,
-      mode
-    );
-    if (uid === undefined) return Promise.resolve();
+    if (stream) {
+      if (!this.room)
+        return Promise.reject(invalid('Remote RTC room is unavailable'));
+      return this.room.bind(
+        viewID,
+        stream,
+        mode
+      );
+    }
+    this.localView = viewID;
     return this.command(
       'bind',
-      { viewID, uid, mode }
+      { viewID, uid: 0, mode }
     );
   }
 
   /**
-   * Detaches a container only while it still belongs to this stream, preserving replacement
-   * bindings.
+   * Detaches only the container still owned by the stream.
    *
-   * @param viewID The unique native identity of the mounted container.
-   * @param stream The remote room and account, or null for local input.
+   * @param viewID The native mount identity.
+   * @param stream The result room and account, or null for local input.
    */
   unbind(
     viewID: string,
     stream: RemoteStream | null
   ): void {
-    const key = stream ? JSON.stringify(stream) : 'local';
-    if (this.views.get(key) !== viewID || !this.active) return;
-    this.views.delete(key);
-    this.modes.delete(key);
-    const uid = stream
-      ? [...this.accounts].find(([, account]) => account === stream.userID)?.[0]
-      : 0;
-    if (uid !== undefined) void this.command(
+    if (stream) {
+      this.room?.unbind(
+        viewID,
+        stream
+      );
+      return;
+    }
+    if (this.localView !== viewID || !this.active) return;
+    this.localView = null;
+    void this.command(
       'unbind',
-      { uid }
+      { uid: 0 }
     ).catch(() => {});
   }
 
   /**
-   * Cancels pending messages, detaches result rendering, and leaves the room while retaining local
-   * input.
-   *
-   * Completes after queue cancellation and RTC room exit.
+   * Leaves the current room while retaining local capture and rendering.
    */
   async leave(): Promise<void> {
-    this.queue?.close();
-    this.queue = null;
-    for (const [key] of this.views) {
-      if (key === 'local') continue;
-      const stream = JSON.parse(key) as RemoteStream;
-      const uid = [...this.accounts].find(
-        ([, account]) => account === stream.userID,
-      )?.[0];
-      this.views.delete(key);
-      this.modes.delete(key);
-      if (uid !== undefined && this.active)
-        await this.command(
-          'unbind',
-          { uid }
-        );
-    }
+    const room = this.room;
+    this.room = null;
     this.connection = null;
-    this.accounts.clear();
-    this.publications.clear();
-    this.frames.clear();
-    if (this.active) await this.command('leave');
+    if (room) await room.destroy();
   }
 
   /**
@@ -753,24 +690,22 @@ export class RtcManager implements RtcManaging {
    */
   close(): Promise<void> {
     if (this.closing) return this.closing;
+    this.acquisition?.abort();
     this.stopLocalCapture();
     const completion = (async () => {
       try {
         await this.opening?.catch(() => {});
-        this.queue?.close();
+        await this.leave().catch(() => {});
         if (this.active) await this.command('close');
       } finally {
-        this.nativeEvents?.remove();
+        this.nativeEvents?.();
         this.nativeEvents = null;
-        if (this.owner) NativeRuntime.release(this.owner);
-        this.owner = null;
+        const lease = this.lease;
+        this.lease = null;
         this.connection = null;
-        this.queue = null;
-        this.accounts.clear();
-        this.publications.clear();
-        this.frames.clear();
-        this.views.clear();
-        this.modes.clear();
+        this.room = null;
+        this.localView = null;
+        if (lease) this.engines.release(lease);
       }
     })();
     this.closing = completion;
@@ -780,29 +715,16 @@ export class RtcManager implements RtcManaging {
   }
 
   /**
-   * Normalizes current-owner events, deferring account-dependent events until string mapping
-   * completes.
+   * Routes engine events and delegates room-specific mapping to the room adapter.
    *
-   * @param event The event type or content to send.
+   * @param event The scalar event received under current ownership.
    */
   private receive(
-    event: Record<string, unknown>
+    event: RtcPlatformEvent
   ): void {
-    if (event.type === 'joined') {
-      if (!this.connection || event.roomID !== this.connection.roomID) return;
-      for (const listener of this.joinListeners) listener();
-      return;
-    }
-    if (event.type === 'localPublished') {
-      if (this.connection && event.roomID === this.connection.roomID)
-        this.emit({ type: 'localPublished' });
-      return;
-    }
     if (event.type === 'localFrame' || event.type === 'captureReady') {
       this.emit({ type: event.type });
-      return;
-    }
-    if (event.type === 'error') {
+    } else if (event.type === 'error') {
       this.emit({
         type: 'error',
         error: new XmaxError({
@@ -811,181 +733,6 @@ export class RtcManager implements RtcManaging {
         }),
         ...(event.scope === 'all' ? { scope: 'all' as const } : {}),
       });
-      return;
-    }
-    if (!this.connection || event.roomID !== this.connection.roomID) return;
-    const uid = Number(event.uid);
-    if (event.type === 'account') {
-      if (
-        !Number.isInteger(uid) ||
-        typeof event.userID !== 'string' ||
-        !event.userID ||
-        this.accounts.get(uid) === event.userID
-      )
-        return;
-      this.accounts.set(
-        uid,
-        String(event.userID)
-      );
-      for (const [key, viewID] of this.views) {
-        if (key === 'local') continue;
-        const stream = JSON.parse(key) as RemoteStream;
-        if (stream.userID === event.userID)
-          void this.bind(
-            viewID,
-            stream,
-            this.modes.get(key)!
-          ).catch(error =>
-            this.emit({ type: 'error', error: XmaxError.from(error) }),
-          );
-      }
-      if (this.publications.has(uid))
-        this.receive({
-          ...event,
-          type: 'publication',
-          published: this.publications.get(uid),
-        });
-      for (const frame of this.frames.get(uid) ?? []) this.receive(frame);
-      this.frames.delete(uid);
-      return;
-    }
-    if (event.type === 'publication')
-      this.publications.set(
-        uid,
-        event.published === true
-      );
-    const userID = this.accounts.get(uid);
-    if (
-      [
-        'publication',
-        'rendered',
-        'decoded',
-        'remoteFrameReady',
-        'downlinkStatistics',
-      ].includes(String(event.type)) &&
-      !userID
-    ) {
-      if (
-        event.type === 'rendered' ||
-        event.type === 'decoded' ||
-        event.type === 'remoteFrameReady'
-      )
-        this.frames.set(
-          uid,
-          [
-            ...(this.frames.get(uid) ?? []).filter(
-              frame => frame.type !== event.type,
-            ),
-            event,
-          ]
-        );
-      return;
-    }
-    if (userID && this.connection.botName && userID !== this.connection.botName)
-      return;
-    if (event.type === 'publication') {
-      if (event.published)
-        void this.command(
-          'subscribe',
-          { uid }
-        ).catch(error =>
-          this.emit({ type: 'error', error: XmaxError.from(error) }),
-        );
-      this.emit({
-        type: 'publication',
-        stream: { roomID: this.connection.roomID, userID: userID! },
-        published: event.published === true,
-      });
-    } else if (
-      event.type === 'remoteFrameReady' &&
-      typeof event.token === 'string'
-    ) {
-      this.emit({
-        type: 'remoteFrameReady',
-        stream: { roomID: this.connection.roomID, userID: userID! },
-        token: event.token,
-      });
-    } else if (event.type === 'rendered' || event.type === 'decoded') {
-      this.emit({
-        type: event.type,
-        stream: { roomID: this.connection.roomID, userID: userID! },
-        width: Number(event.width),
-        height: Number(event.height),
-      });
-    } else if (event.type === 'quality') {
-      this.emit({
-        type: 'quality',
-        quality: {
-          uplink: qualities[Number(event.uplink)] ?? qualities[0]!,
-          downlink: qualities[Number(event.downlink)] ?? qualities[0]!,
-        },
-      });
-    } else if (
-      event.type === 'uplinkStatistics' ||
-      event.type === 'downlinkStatistics'
-    ) {
-      const statistics: Record<string, unknown> =
-        event.type === 'downlinkStatistics' ? { userID } : {};
-      const metrics =
-        event.type === 'uplinkStatistics'
-          ? [
-              'width',
-              'height',
-              'captureFrameRate',
-              'encodeFrameRate',
-              'sendFrameRate',
-              'bitrateKbps',
-              'packetLossPercent',
-            ]
-          : [
-              'width',
-              'height',
-              'decodeFrameRate',
-              'renderFrameRate',
-              'bitrateKbps',
-              'packetLossPercent',
-              'endToEndDelayMs',
-            ];
-      for (const key of metrics) {
-        const value = event[key];
-        statistics[key] =
-          typeof value === 'number' &&
-          Number.isFinite(value) &&
-          value >= 0 &&
-          (!['width', 'height'].includes(key) || value > 0) &&
-          (key !== 'packetLossPercent' || value <= 100)
-            ? value
-            : null;
-      }
-      if (event.type === 'uplinkStatistics') {
-        const sample = statistics as unknown as UplinkVideoStatistics;
-        RtcStatsLogger.local(sample);
-        this.emit({ type: 'uplinkStatistics', statistics: sample });
-      } else {
-        const sample = statistics as unknown as DownlinkVideoStatistics;
-        RtcStatsLogger.remote(sample);
-        this.emit({ type: 'downlinkStatistics', statistics: sample });
-      }
-      if (event.adaptation === 1 || event.adaptation === 2) {
-        const width = statistics.width,
-          height = statistics.height,
-          fps = statistics.encodeFrameRate;
-        const alarm: RealtimePerformanceAlarm = {
-          status:
-            event.adaptation === 2
-              ? RealtimePerformanceStatus.limited
-              : RealtimePerformanceStatus.recovered,
-          suggestedVideoFormat:
-            typeof width === 'number' &&
-            typeof height === 'number' &&
-            typeof fps === 'number' &&
-            fps > 0
-              ? { width, height, fps }
-              : null,
-        };
-        RtcStatsLogger.alarm(alarm);
-        this.emit({ type: 'performance', alarm });
-      }
-    }
+    } else this.room?.receive(event);
   }
 }
