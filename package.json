@@ -1,6 +1,6 @@
 {
   "name": "@xmaxai/react-native-sdk",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Xmax SDK for React Native",
   "license": "MIT",
   "publishConfig": {

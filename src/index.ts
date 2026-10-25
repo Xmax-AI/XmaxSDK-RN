@@ -11,7 +11,7 @@
 /**
  * Version information for XmaxSDK React Native.
  */
-export const XmaxSDKInfo = Object.freeze({ version: '1.0.4' });
+export const XmaxSDKInfo = Object.freeze({ version: '1.0.5' });
 
 export { XmaxClient } from './Core/XmaxClient';
 

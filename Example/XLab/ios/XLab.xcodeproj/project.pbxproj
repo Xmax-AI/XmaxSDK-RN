@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		EB0000000000000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000004 /* InfoPlist.xcstrings */; };
 		0C80B921A6F3F58F76C31292 /* libPods-XLab.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-XLab.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		238740C3A06AAE67B731BF71 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A794D2F5D52398ECC3820932 /* SceneDelegate.swift */; };
@@ -17,13 +16,13 @@
 		EB0000000000000000000001 /* RealtimeFileVideoSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000001 /* RealtimeFileVideoSource.swift */; };
 		EB0000000000000000000002 /* XLabExternalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000002 /* XLabExternalCapture.swift */; };
 		EB0000000000000000000003 /* XLabExternalCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000003 /* XLabExternalCapture.m */; };
+		EB0000000000000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000004 /* InfoPlist.xcstrings */; };
 		EB0000000000000000000005 /* XLabRemoteMediaFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000005 /* XLabRemoteMediaFrames.swift */; };
 		EB0000000000000000000006 /* XLabRemoteMediaFrames.m in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000006 /* XLabRemoteMediaFrames.m */; };
 		EB0000000000000000000007 /* RealtimeVideoRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000007 /* RealtimeVideoRecorder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		EA0000000000000000000004 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = XLab/InfoPlist.xcstrings; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* XLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = XLab/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = XLab/Info.plist; sourceTree = "<group>"; };
@@ -37,10 +36,11 @@
 		EA0000000000000000000001 /* RealtimeFileVideoSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeFileVideoSource.swift; path = XLab/RealtimeFileVideoSource.swift; sourceTree = "<group>"; };
 		EA0000000000000000000002 /* XLabExternalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XLabExternalCapture.swift; path = XLab/XLabExternalCapture.swift; sourceTree = "<group>"; };
 		EA0000000000000000000003 /* XLabExternalCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = XLabExternalCapture.m; path = XLab/XLabExternalCapture.m; sourceTree = "<group>"; };
-		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EA0000000000000000000004 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = XLab/InfoPlist.xcstrings; sourceTree = "<group>"; };
 		EA0000000000000000000005 /* XLabRemoteMediaFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XLabRemoteMediaFrames.swift; path = XLab/XLabRemoteMediaFrames.swift; sourceTree = "<group>"; };
 		EA0000000000000000000006 /* XLabRemoteMediaFrames.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = XLabRemoteMediaFrames.m; path = XLab/XLabRemoteMediaFrames.m; sourceTree = "<group>"; };
 		EA0000000000000000000007 /* RealtimeVideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XLab/RealtimeVideoRecorder.swift; sourceTree = "<group>"; };
+		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
