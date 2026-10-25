@@ -5,10 +5,10 @@ const {
 } = require('../lib/commonjs/Service/Storage/StorageService');
 const {
   uploadMetadata,
-  parseStorageConfiguration,
   objectURL,
   filePath,
-} = require('../lib/commonjs/Service/Storage/StorageValidation');
+} = require('../lib/commonjs/Foundation/Storage/StorageValidation');
+const { parseStorageConfiguration } = require('../lib/commonjs/Service/Storage/StorageValidation');
 const payload = {
   bucket: 'fixture-123',
   region: 'ap-nanjing',

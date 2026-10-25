@@ -13,15 +13,6 @@ import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
 import type { StorageConfiguration } from '../../Foundation/Storage/StorageConfiguration';
 import { storageEndpoint } from '../../Foundation/Storage/StorageValidation';
 
-export {
-  httpURL,
-  filePath,
-  uploadMetadata,
-  uploadDataMetadata,
-  storageEndpoint,
-  objectURL,
-} from '../../Foundation/Storage/StorageValidation';
-
 /**
  * Validates upload endpoints, directories, and temporary credentials before transfer.
  *

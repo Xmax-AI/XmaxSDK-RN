@@ -32,39 +32,28 @@ struct XmaxExternalPCMPacketizer {
   /// The bytes per 10 ms packet.
   private static let frameByteCount = XmaxExternalAudioFrame.samplesPerFrame * bytesPerSample
 
-  /// The optional sample limit for a finite playback cycle.
-  private let totalSamples: Int?
-
   /// The pending audio and silence segments.
   private var segments: [Segment] = []
 
   /// The segment being consumed.
   private var segmentIndex = 0
 
-  /// The samples written in this playback cycle.
+  /// The samples written in this contiguous audio segment.
   private var timelineWriteCursor = 0
 
-  /// The samples emitted in this playback cycle.
+  /// The samples emitted in this contiguous audio segment.
   private var outputCursor = 0
-
-  /// Creates a PCM packetizer with an optional playback cycle limit.
-  init(
-    totalSamples: Int? = nil
-  ) {
-    self.totalSamples = totalSamples
-  }
 
   /// Appends PCM at a sample position, filling gaps and skipping overlaps.
   ///
   /// - Parameters:
   ///   - data: The mono PCM16 data.
-  ///   - requestedStartSample: The starting sample position in this cycle.
+  ///   - requestedStartSample: The starting sample position in this segment.
   mutating func append(
     _ data: Data,
     at requestedStartSample: Int
   ) {
-    let sampleLimit = totalSamples ?? Int.max
-    guard !data.isEmpty, timelineWriteCursor < sampleLimit else {
+    guard !data.isEmpty else {
       return
     }
 
@@ -74,10 +63,7 @@ struct XmaxExternalPCMPacketizer {
     )
     if startSample > timelineWriteCursor {
       appendSilence(
-        sampleCount: min(
-          startSample - timelineWriteCursor,
-          sampleLimit - timelineWriteCursor
-        )
+        sampleCount: startSample - timelineWriteCursor
       )
     }
 
@@ -89,11 +75,7 @@ struct XmaxExternalPCMPacketizer {
       data.count,
       overlapSamples * Self.bytesPerSample
     )
-    let availableSamples = (data.count - overlapBytes) / Self.bytesPerSample
-    let acceptedSamples = min(
-      availableSamples,
-      sampleLimit - timelineWriteCursor
-    )
+    let acceptedSamples = (data.count - overlapBytes) / Self.bytesPerSample
     guard acceptedSamples > 0 else {
       return
     }
@@ -110,17 +92,9 @@ struct XmaxExternalPCMPacketizer {
     timelineWriteCursor += acceptedSamples
   }
 
-  /// Pads the rest of the playback cycle with silence.
-  mutating func finishWithSilence() {
-    guard let totalSamples else {
-      return
-    }
-    appendSilence(sampleCount: totalSamples - timelineWriteCursor)
-  }
-
   /// Returns the next complete 10 ms PCM frame.
   ///
-  /// - Returns: The audio and cycle sample offset, or `nil` if no complete frame remains.
+  /// - Returns: The audio and segment sample offset, or `nil` if no complete frame remains.
   mutating func nextFrame() -> (data: Data, sampleOffset: Int)? {
     guard timelineWriteCursor - outputCursor >= XmaxExternalAudioFrame.samplesPerFrame else {
       return nil

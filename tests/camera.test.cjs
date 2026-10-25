@@ -357,7 +357,7 @@ test('client accepts regional preview models and sends their values to the sessi
     defaultExport: { configureLogging(options) { configured.push(options); }, writeLog(level, message) { nativeLogs.push({ level, message }); } },
   });
   const { XmaxClient } = require('../lib/commonjs/Core/XmaxClient');
-  const { RealtimeModel } = require('../lib/commonjs/Service/Realtime/RealtimeTypes');
+  const { RealtimeModel } = require('../lib/commonjs/Service/Realtime/RealtimeModel');
   const client = new XmaxClient(config);
   const { XmaxLogger } = require('../lib/commonjs/Foundation/Logging/XmaxLogger');
   new XmaxClient({ ...config, loggerOptions: 3 });
@@ -430,7 +430,7 @@ for (const environment of ['china', 'global']) {
         { method: 'PUT', url: `${base}/session/session-1/heartbeat`, body: undefined },
         { method: 'DELETE', url: `${base}/session/session-1`, body: undefined },
       ]);
-      const { apiBaseURLs } = require('../lib/commonjs/Core/XmaxConfiguration');
+      const { apiBaseURLs } = require('../lib/commonjs/Core/XmaxEnvironment');
       assert.equal(apiBaseURLs.global, 'https://api.xmax.cloud/open/api/v1', 'Model selection must not change the shared storage backend');
     });
   }
@@ -1477,7 +1477,9 @@ test('adaptive changes adjust only transport sizes and reuse the active room and
   assert.equal(local.videoTrack.videoFormat.width, 1024);
 });
 
-const { RealtimeCameraPreset, RealtimeQualityLevel, realtimeModelSpecifications } = require('../lib/commonjs/Service/Realtime/RealtimeTypes');
+const { RealtimeCameraPreset } = require('../lib/commonjs/Service/Realtime/RealtimeCameraPreset');
+const { RealtimeQualityLevel } = require('../lib/commonjs/Stream/Quality/RealtimeQualityLevel');
+const { realtimeModelSpecifications } = require('../lib/commonjs/Service/Realtime/RealtimeModel');
 
 async function readyCamera(t, options) {
   const manager = createManager();

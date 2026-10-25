@@ -8,7 +8,7 @@ const ts = require('typescript');
 const filename = resolve(__dirname, '../Example/XLab/src/configuration/ConfigurationStore.ts');
 const compiled = new Module(filename, module);
 compiled.require = name => name === '@xmaxai/react-native-sdk'
-  ? { XmaxEnvironment: { china: 'china', global: 'global' }, RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel }
+  ? { XmaxEnvironment: { china: 'china', global: 'global' }, RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel }
   : require(name);
 compiled._compile(ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },

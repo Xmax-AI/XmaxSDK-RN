@@ -27,13 +27,13 @@ import type {
   DownloadFileOptions,
 } from '../../Core/Storage/XmaxStorageManaging';
 import type { StorageManaging } from '../../Foundation/Storage/StorageManaging';
+import { parseStorageConfiguration } from './StorageValidation';
 import {
   uploadMetadata,
   uploadDataMetadata,
-  parseStorageConfiguration,
   httpURL,
   filePath,
-} from './StorageValidation';
+} from '../../Foundation/Storage/StorageValidation';
 
 /**
  * Coordinates media transfers, temporary credentials, and image safety checks.

@@ -10,14 +10,6 @@
 
 import type { XmaxEnvironment } from './XmaxEnvironment';
 
-export {
-  XmaxEnvironment,
-  apiBaseURLs,
-  realtimeAPIBaseURL,
-} from './XmaxEnvironment';
-
-export { XmaxLoggerOption } from '../Foundation/Logging/XmaxLoggerOption';
-
 /**
  * The credentials, service environment, and logging options for an Xmax client.
  */

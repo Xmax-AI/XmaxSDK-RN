@@ -210,7 +210,7 @@ interface PixelLimits {
  * @returns Aligned dimensions within the area bounds or requested scale.
  * @throws A configuration error if the scale cannot fit one alignment unit.
  */
-export function alignedSize(
+function alignedSize(
   size: MediaSize,
   scale: number,
   alignment: number,

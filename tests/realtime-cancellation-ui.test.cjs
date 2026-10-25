@@ -170,10 +170,8 @@ function screenFixture(t, options = {}) {
     remoteAudioVolume: 0,
     async setRemoteAudioVolume(value) { manager.remoteAudioVolume = value; },
     setNetworkQualityListener: async listener => { networkListener = listener; },
-    currentCameraPreset: null,
     currentCameraVideoFormat: options.fileURL || options.externalFileURL ? null : { width: 1024, height: 1920, fps: 30 },
     uplinkQualityLevel: null, downlinkQualityLevel: null,
-    async updateCameraFormat(format) { manager.currentCameraVideoFormat = format; },
     async setUplinkQualityLevel(level) { manager.uplinkQualityLevel = level; },
     async setDownlinkQualityLevel(level) { manager.downlinkQualityLevel = level; },
     currentState: { connectionState: options.preparing ? 'preparing' : 'ready', reason: null },
@@ -257,10 +255,9 @@ function screenFixture(t, options = {}) {
     '../realtime/TouchAnimationReference': { uploadTouchAnimationReference: options.prepareTouch },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     '@xmaxai/react-native-sdk': {
-      RealtimeCameraPreset: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeCameraPreset,
       XmaxLoggerOption: { all: 3 },
       XmaxClient: class { createRealtimeManager({ model }) { models.push(model); return manager; } createStorageManager() { return {}; } },
-      XmaxRealtimeDualVideo: 'Video', RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, realtimeModelSpecifications: require('../lib/commonjs/Service/Realtime/RealtimeTypes').realtimeModelSpecifications, VideoContentMode: { fit: 'fit', fill: 'fill' },
+      XmaxRealtimeDualVideo: 'Video', RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel, realtimeModelSpecifications: require('../lib/commonjs/Service/Realtime/RealtimeModel').realtimeModelSpecifications, VideoContentMode: { fit: 'fit', fill: 'fill' },
       RealtimeConnectionState: { idle: 'idle', connecting: 'connecting', connected: 'connected',
         generating: 'generating', preparing: 'preparing', ready: 'ready' },
       XmaxError: { from: value => value },
@@ -667,7 +664,7 @@ test('storage selection, progress, safety errors and results follow the current 
   const storage = { file: null, busy: null, result: null, progress: null, error: null, safe: false };
   const { StorageScreen: Screen } = load('screens/StorageScreen.tsx', h.react, {
     'react-native-safe-area-context': { SafeAreaView: 'SafeArea' },
-    '@xmaxai/react-native-sdk': { RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, XmaxSDKInfo: { version: '1.0.0' } },
+    '@xmaxai/react-native-sdk': { RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel, XmaxSDKInfo: { version: '1.0.0' } },
     '@react-native-clipboard/clipboard': { setString() {} },
     'react-native-video': 'Video',
     '../storage/useStorage': { useStorage: () => storage, formatFileSize: () => '1 KB' },
@@ -718,7 +715,7 @@ test('locale selects regional keys and models while active routes retain their c
     selectLanguage() {}, selectModel: model => { configuration.model = model; } } };
   const react = { createContext: () => ({ Provider: 'Provider' }), useContext: () => context };
   const sdk = { XmaxEnvironment: { china: 'china', global: 'global' },
-    RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel };
+    RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel };
   const { XLabNavigator } = load('navigation/XLabNavigator.tsx', react, {
     '../configuration/ConfigurationStore': load('configuration/ConfigurationStore.ts', {}, { '@xmaxai/react-native-sdk': sdk }),
     '@react-navigation/native': { NavigationContainer: 'Navigation', DarkTheme: {} },
@@ -787,7 +784,7 @@ test('all home feature entries require the current endpoint key before navigatio
   const originalAlert = native.Alert;
   native.Alert = { alert: (...args) => alerts.push(args) };
   t.after(() => { native.Alert = originalAlert; locale = 'zh-Hans'; h.dispose(); });
-  const sdk = { XmaxEnvironment: { china: 'china', global: 'global' }, RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, XmaxSDKInfo: { version: '1.0.0' } };
+  const sdk = { XmaxEnvironment: { china: 'china', global: 'global' }, RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel, XmaxSDKInfo: { version: '1.0.0' } };
   const { FeedScreen } = load('screens/FeedScreen.tsx', h.react, {
     'react-native-image-picker': { launchImageLibrary: async () => {
       picks++;
@@ -1086,12 +1083,11 @@ test('storage selection retains native error explanations and falls back only wh
   }
 });
 
-test('XLab uses the camera action toolbar without extra format controls', async t => {
+test('XLab supplies camera actions to the realtime toolbar', async t => {
   const f = screenFixture(t);
   await tick();
   assert.equal(f.props('Toolbar').camera, true);
   assert.equal(f.props('Toolbar').canFlip, true);
-  assert.equal(find(f.draw(), node => node.props?.accessibilityLabel === translateUI('realtime.cameraPreset')), undefined);
 });
 
 test('XLab statistics forwards quality changes only during generation and refreshes acknowledged levels', async t => {
