@@ -203,7 +203,7 @@ mock.module('react-native', {
   },
 });
 class FakeRtc {
-  discardTracks() {}
+  discardPendingMessages() {}
   async waitUntilRemoteFrameReady() {}
   async setRemoteAudioSubscription(stream, enabled) { this.remoteAudio = { stream, enabled }; }
   static instances = [];

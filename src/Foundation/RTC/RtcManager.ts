@@ -587,14 +587,14 @@ export class RtcManager implements RtcManaging {
   }
 
   /**
-   * Discards pending task interactions before enqueuing its stop signal.
+   * Discards unsent room messages, including remaining fragments of an active message.
    *
-   * @param taskID The generation task identifier for signaling and interaction messages.
+   * @param key The optional coalescing key; omission discards all pending messages.
    */
-  discardTracks(
-    taskID: string
+  discardPendingMessages(
+    key?: string
   ): void {
-    this.room?.discardPendingMessages(`tracks:${taskID}`);
+    this.room?.discardPendingMessages(key);
   }
 
   /**

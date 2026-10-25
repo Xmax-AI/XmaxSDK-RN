@@ -207,7 +207,6 @@ export class StreamController implements StreamControlling {
   async stopGeneration(
     taskID: string
   ): Promise<void> {
-    this.rtc.discardTracks(taskID);
     const remote = this.audioStream;
     this.audioStream = null;
     try {

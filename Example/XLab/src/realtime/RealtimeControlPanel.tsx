@@ -38,13 +38,10 @@ import {
  * submits its remote path. Touch animation starts through its own preparation callback.
  */
 export function RealtimeControlPanel({
-  faceRestoration = false,
-  onFaceRestorationChange,
   initialCategoryID = 'charx',
   bottomInset,
   apiKey,
   environment,
-  baseURL,
   prompt,
   onPromptChange,
   onSubmit,
@@ -55,9 +52,6 @@ export function RealtimeControlPanel({
   connected,
   canSubmit,
 }: {
-  /** Face restoration changes a generation option, independently of the selected reference. */
-  faceRestoration?: boolean;
-  onFaceRestorationChange?: (enabled: boolean) => void;
   /** Initial tab only; selecting it does not start generation or reset later user choices. */
   initialCategoryID?: RealtimeCategory['id'];
   /** Keeps reference thumbnails and prompt controls above the home indicator. */
@@ -65,10 +59,13 @@ export function RealtimeControlPanel({
   apiKey: string;
   environment: XmaxEnvironment;
   /** Explicit API backend for reference uploads. */
-  baseURL?: string | undefined;
   prompt: string;
   onPromptChange: (text: string) => void;
-  onSubmit: (context: RealtimeContext, onFailure?: () => void) => void;
+  onSubmit: (
+    context: RealtimeContext,
+    faceRestoration: boolean,
+    onFailure?: () => void,
+  ) => void;
   onStop: () => void;
   /** Prepares the source reference, then starts touch animation with the iOS prompt. */
   onInstruction: () => void;
@@ -107,19 +104,14 @@ export function RealtimeControlPanel({
   const categoryViewport = useRef(0),
     categoryOffset = useRef(0);
   const editor = useRef<ComponentRef<typeof TextInput>>(null);
-  const uploads = useReferenceUploads(
-    apiKey,
-    environment,
-    baseURL,
-    (id, update) => {
-      setReferences(current =>
-        current.map(item => (item.id === id ? { ...item, ...update } : item)),
-      );
-      setPromptReference(current =>
-        current?.id === id ? { ...current, ...update } : current,
-      );
-    },
-  );
+  const uploads = useReferenceUploads(apiKey, environment, (id, update) => {
+    setReferences(current =>
+      current.map(item => (item.id === id ? { ...item, ...update } : item)),
+    );
+    setPromptReference(current =>
+      current?.id === id ? { ...current, ...update } : current,
+    );
+  });
 
   useEffect(() => {
     mounted.current = true;
@@ -172,6 +164,7 @@ export function RealtimeControlPanel({
         prompt: reference.prompt,
         referencePath: reference.referencePath,
       },
+      reference.categoryID === 'clothx',
       () => {
         if (mounted.current && selectionVersion.current === version)
           setSelectedID(null);
@@ -322,7 +315,10 @@ export function RealtimeControlPanel({
     setSelectedID(null);
     submittedReference.current = null;
     pendingReference.current = null;
-    onSubmit({ prompt, referencePath: promptReference?.referencePath ?? null });
+    onSubmit(
+      { prompt, referencePath: promptReference?.referencePath ?? null },
+      false,
+    );
   }
 
   const referenceButton = (
@@ -406,24 +402,6 @@ export function RealtimeControlPanel({
 
   return (
     <View style={[styles.panel, { paddingBottom: bottomInset + 10 }]}>
-      {onFaceRestorationChange && (
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{
-            checked: faceRestoration,
-            disabled: !canSubmit,
-          }}
-          disabled={!canSubmit}
-          onPress={() => onFaceRestorationChange(!faceRestoration)}
-          style={styles.faceButton}
-        >
-          <Text
-            style={[styles.faceLabel, faceRestoration && styles.faceSelected]}
-          >
-            {t('realtime.faceRestoration')} {faceRestoration ? '✓' : ''}
-          </Text>
-        </Pressable>
-      )}
       <View style={styles.categoryRow}>
         <Pressable
           accessibilityRole="button"
@@ -694,13 +672,7 @@ const styles = StyleSheet.create({
   submit: { backgroundColor: '#FF2E88' },
   submitIcon: { width: 11, height: 12, tintColor: '#FFF' },
   disabled: { opacity: 0.2 },
-  faceButton: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  faceLabel: { color: '#888', fontSize: 12 },
-  faceSelected: { color: '#8EF0C8' },
+
   pressed: { opacity: 0.7, transform: [{ scale: 0.94 }] },
   editorOverlay: { flex: 1, justifyContent: 'flex-end' },
   editorBackdrop: { flex: 1 },

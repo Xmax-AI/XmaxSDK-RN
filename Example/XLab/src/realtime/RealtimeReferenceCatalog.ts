@@ -32,7 +32,7 @@ export const realtimeCategories = [
     id: 'mox',
     name: '触控动图',
     content: 'instruction',
-    defaultPrompt: '让画面自然动起来',
+    defaultPrompt: '',
   },
   { id: 'free', name: '自由', content: 'prompt', defaultPrompt: '' },
 ] as const;

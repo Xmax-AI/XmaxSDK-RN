@@ -8,7 +8,6 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import { validateAPIBaseURL } from '../Service/Network/ApiRequestURL';
 import { XmaxLogger } from '../Foundation/Logging/XmaxLogger';
 import { XmaxStorageManager } from './Storage/XmaxStorageManager';
 import type { XmaxStorageManaging } from './Storage/XmaxStorageManaging';
@@ -54,7 +53,6 @@ export class XmaxClient {
 
     const environment = configuration.environment ?? XmaxEnvironment.china;
     const loggerOptions = configuration.loggerOptions ?? 0;
-    const trimmedBaseURL = configuration.baseURL?.trim() ?? '';
 
     if (
       !Object.values(XmaxEnvironment).includes(environment) ||
@@ -63,16 +61,11 @@ export class XmaxClient {
       (loggerOptions & ~3) !== 0
     )
       throw invalid('Invalid Xmax configuration');
-    if (trimmedBaseURL) validateAPIBaseURL(trimmedBaseURL);
 
     this.configuration = Object.freeze({
       apiKey: configuration.apiKey.trim(),
       environment,
       loggerOptions,
-      baseURL: trimmedBaseURL ? trimmedBaseURL.replace(
-        /\/+$/,
-        ''
-      ) : null,
     });
 
     NativeRuntime.configureLogging(loggerOptions);
@@ -130,8 +123,7 @@ export class XmaxClient {
       new StorageService(
         new ApiService(
           this.configuration.apiKey,
-          this.configuration.baseURL ??
-            apiBaseURLs[this.configuration.environment],
+          apiBaseURLs[this.configuration.environment],
           runtime,
         ),
         new StorageManager(),

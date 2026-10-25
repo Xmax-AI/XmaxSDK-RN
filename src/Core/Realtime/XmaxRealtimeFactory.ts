@@ -180,8 +180,7 @@ export class XmaxRealtimeFactory {
       new RealtimeSessionService(
         new ApiService(
           configuration.apiKey,
-          configuration.baseURL ??
-            realtimeAPIBaseURL(configuration.environment),
+          realtimeAPIBaseURL(configuration.environment),
           rtcManager.runtime,
         ),
       ),

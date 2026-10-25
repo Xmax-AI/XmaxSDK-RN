@@ -28,6 +28,8 @@ import { XmaxVideo } from '../lib/typescript';
 
 // Compile the emitted consumer declarations, including negative calls. Never executed.
 export async function cameraContract(client: XmaxClient) {
+  // @ts-expect-error Public clients route services through environment rather than an API URL override.
+  new XmaxClient({ apiKey: 'fixture', baseURL: 'https://example.com' });
   const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1_1_preview_cn].supportedVideoFormats;
   // @ts-expect-error Model buckets cannot be changed by callers.
   bucket.push({ width: 640, height: 480 });

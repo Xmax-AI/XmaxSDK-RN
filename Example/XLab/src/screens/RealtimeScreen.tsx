@@ -1,3 +1,6 @@
+import { launchImageLibrary } from 'react-native-image-picker';
+import { RealtimeToolbar } from '../realtime/RealtimeToolbar';
+import { RealtimeAudioVolumeMenu } from '../realtime/RealtimeAudioVolumeMenu';
 import { makeRealtimeFileVideoSource } from '../external/RealtimeFileVideoSource';
 import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
 import type {
@@ -20,7 +23,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -43,6 +45,7 @@ import {
   type RealtimeMediaStream,
   type RealtimeVideoTrack,
   type RealtimeState,
+  type RealtimeNetworkQuality,
 } from '@xmaxai/react-native-sdk';
 import { RealtimeControlPanel } from '../realtime/RealtimeControlPanel';
 import { RealtimeLoadingOverlay } from '../realtime/RealtimeLoadingOverlay';
@@ -50,6 +53,19 @@ import {
   RealtimeErrorToast,
   type RealtimeErrorNotice,
 } from '../realtime/RealtimeErrorToast';
+
+/** Generation options retained when replacing local file input. */
+interface GenerationOptions {
+  readonly touchAnimation?: boolean;
+  readonly faceRestoration?: boolean;
+}
+
+/** The selected generation conditions, independent of the local file. */
+interface GenerationIntent {
+  readonly context: RealtimeContext;
+  readonly options: GenerationOptions;
+  readonly onFailure?: (() => void) | undefined;
+}
 
 /**
  * Owns camera or image preview and its prompt/reference generation lifecycle.
@@ -64,12 +80,11 @@ export function RealtimeScreen({
   model = RealtimeModel.x2_1_1_preview_cn,
   apiKey,
   environment,
-  baseURL,
   onBack,
-  fileURL,
-  externalFileURL,
+  fileURL: initialFileURL,
+  externalFileURL: initialExternalFileURL,
   customTrajectory = false,
-  imageContentType,
+  imageContentType: initialImageContentType,
   entryReady = true,
 }: {
   /** Model captured when entering the page; defaults to the China X2.1.1 preview model. */
@@ -77,8 +92,6 @@ export function RealtimeScreen({
   /** Credential captured for the selected service region. */
   apiKey: string;
   environment: XmaxEnvironment;
-  /** Explicit API backend captured when entering the page. */
-  baseURL?: string | undefined;
   onBack: () => void;
   /** Omit for camera capture; otherwise keep this source readable until exit. */
   fileURL?: string;
@@ -91,8 +104,31 @@ export function RealtimeScreen({
   entryReady?: boolean;
 }) {
   const { t } = useLocalization();
-  const faceUpdateVersion = useRef(0);
-  const [faceRestoration, setFaceRestoration] = useState(false);
+  const [input, setInput] = useState({
+    fileURL: initialFileURL,
+    externalFileURL: initialExternalFileURL,
+    contentType: initialImageContentType,
+  });
+  const { fileURL, externalFileURL, contentType: imageContentType } = input;
+  const [audioMenuVisible, setAudioMenuVisible] = useState(false);
+  const [remoteVolume, setRemoteVolume] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const savedRemoteVolume = useRef(0);
+  const volumeVersion = useRef(0);
+  const pickerOpen = useRef(false);
+  const [pickingMedia, setPickingMedia] = useState(false);
+  const lastIntent = useRef<GenerationIntent | null>(null);
+  const pendingRestart = useRef<GenerationIntent | null>(null);
+  const submitLatest = useRef<
+    (
+      context: RealtimeContext,
+      options?: GenerationOptions,
+      onFailure?: () => void,
+    ) => Promise<void>
+  >(async () => {});
+  const [networkQuality, setNetworkQuality] =
+    useState<RealtimeNetworkQuality | null>(null);
+  const [controlPanelHeight, setControlPanelHeight] = useState(0);
   const [statisticsVisible, setStatisticsVisible] = useState(false);
   const [uplinkStatistics, setUplinkStatistics] =
     useState<UplinkVideoStatistics | null>(null);
@@ -102,7 +138,6 @@ export function RealtimeScreen({
   const [cameraFormat, setCameraFormat] = useState<RealtimeVideoFormat | null>(
     null,
   );
-  const [presetMenuVisible, setPresetMenuVisible] = useState(false);
   const [uplinkLevel, setUplinkLevel] = useState<RealtimeQualityLevel | null>(
     null,
   );
@@ -187,9 +222,9 @@ export function RealtimeScreen({
 
       try {
         let stream: RealtimeMediaStream;
-        if (externalFileURL) {
+        if (input.externalFileURL) {
           const source = await makeRealtimeFileVideoSource(
-            externalFileURL,
+            input.externalFileURL,
             realtimeModelSpecifications[model].defaultCameraVideoFormat,
           );
           if (!alive.current || token !== epoch.current) {
@@ -203,14 +238,34 @@ export function RealtimeScreen({
             throw failure;
           }
         } else
-          stream = fileURL
-            ? await realtime.createLocalImageStream({ fileURL })
+          stream = input.fileURL
+            ? await realtime.createLocalImageStream({ fileURL: input.fileURL })
             : await realtime.createLocalCameraStream();
 
         if (alive.current && token === epoch.current) {
           local.current = stream;
           setLocalTrack(stream.videoTrack);
           refreshConfiguration(realtime);
+          setRemoteVolume(realtime.remoteAudioVolume);
+          savedRemoteVolume.current = realtime.remoteAudioVolume;
+          setMuted(false);
+          const restart = pendingRestart.current;
+          pendingRestart.current = null;
+          if (restart) {
+            mediaBusy.current = false;
+            void Promise.resolve().then(() => {
+              if (
+                alive.current &&
+                manager.current === realtime &&
+                token === epoch.current
+              )
+                return submitLatest.current(
+                  restart.context,
+                  restart.options,
+                  restart.onFailure,
+                );
+            });
+          }
         }
       } catch (failure) {
         if (token === epoch.current) showError(failure);
@@ -225,18 +280,12 @@ export function RealtimeScreen({
         }
       }
     },
-    [
-      showError,
-      nextOperation,
-      fileURL,
-      externalFileURL,
-      model,
-      refreshConfiguration,
-    ],
+    [showError, nextOperation, input, model, refreshConfiguration],
   );
 
   useEffect(() => {
     if (!entryReady) return;
+    let active = true;
 
     alive.current = true;
     mediaBusy.current = true;
@@ -255,11 +304,12 @@ export function RealtimeScreen({
     const configuredClient = new XmaxClient({
       apiKey,
       environment,
-      baseURL: baseURL ?? null,
       loggerOptions: XmaxLoggerOption.all,
     });
     client.current = configuredClient;
     touchReference.current = null;
+    setAudioMenuVisible(false);
+    setNetworkQuality(null);
     const realtime = configuredClient.createRealtimeManager({
       model,
     });
@@ -270,20 +320,27 @@ export function RealtimeScreen({
     operations.current = generation;
     manager.current = realtime;
     void realtime.setUplinkVideoStatisticsListener(value => {
-      if (alive.current && manager.current === realtime) {
+      if (active && alive.current && manager.current === realtime) {
         setUplinkStatistics(value);
         refreshConfiguration(realtime);
       }
     });
     void realtime.setDownlinkVideoStatisticsListener(value => {
-      if (alive.current && manager.current === realtime) {
+      if (active && alive.current && manager.current === realtime) {
         setDownlinkStatistics(value);
         refreshConfiguration(realtime);
       }
     });
 
+    void realtime.setNetworkQualityListener(value => {
+      if (active && alive.current && manager.current === realtime) {
+        setNetworkQuality(value);
+        refreshConfiguration(realtime);
+      }
+    });
+
     void realtime.setStateListener(value => {
-      if (!alive.current || manager.current !== realtime) return;
+      if (!active || !alive.current || manager.current !== realtime) return;
 
       setState(value);
       refreshConfiguration(realtime);
@@ -318,6 +375,7 @@ export function RealtimeScreen({
     });
     void teardown.current.then(() => {
       if (
+        active &&
         alive.current &&
         manager.current === realtime &&
         AppState.currentState === 'active'
@@ -333,6 +391,9 @@ export function RealtimeScreen({
         mediaBusy.current = true;
         setBusy(true);
         setGenerationRequested(false);
+        pendingRestart.current = null;
+        lastIntent.current = null;
+        setAudioMenuVisible(false);
         setLoading(false);
         local.current = null;
         setLocalTrack(null);
@@ -351,6 +412,7 @@ export function RealtimeScreen({
         const token = nextOperation();
         void closing.then(() => {
           if (
+            active &&
             alive.current &&
             manager.current === realtime &&
             token === epoch.current &&
@@ -365,6 +427,7 @@ export function RealtimeScreen({
     // Release on unmount without cancelling and replaying the native back gesture.
     // Invalidate pending work first so late results cannot restore the removed screen.
     return () => {
+      active = false;
       alive.current = false;
       nextOperation();
       mediaBusy.current = true;
@@ -374,15 +437,21 @@ export function RealtimeScreen({
       local.current = null;
       appState.remove();
       void realtime.setStateListener(null);
-      teardown.current = generation
+      void realtime.setNetworkQualityListener(null);
+      void realtime.setUplinkVideoStatisticsListener(null);
+      void realtime.setDownlinkVideoStatisticsListener(null);
+      const precedingCleanup = teardown.current;
+      const cleaning = generation
         .cancel(() => realtime.close())
         .catch(() => {});
+      teardown.current = Promise.all([precedingCleanup, cleaning]).then(
+        () => {},
+      );
     };
   }, [
     entryReady,
     apiKey,
     environment,
-    baseURL,
     model,
     preview,
     refreshConfiguration,
@@ -395,7 +464,7 @@ export function RealtimeScreen({
    */
   const submit = async (
     context: RealtimeContext,
-    touchAnimation = false,
+    options: GenerationOptions = {},
     onFailure?: () => void,
   ) => {
     if (
@@ -416,7 +485,7 @@ export function RealtimeScreen({
       onFailure?.();
       return;
     }
-    if (!context.prompt.trim()) {
+    if (!options.touchAnimation && !context.prompt.trim()) {
       setError({
         message: t('realtime.prompt.required'),
         messageKey: 'realtime.prompt.required',
@@ -434,6 +503,7 @@ export function RealtimeScreen({
     const stream = local.current;
     const configuredClient = client.current!;
 
+    lastIntent.current = { context, options, onFailure };
     setGenerationRequested(true);
     setBusy(true);
     setLoading(true);
@@ -441,7 +511,7 @@ export function RealtimeScreen({
 
     try {
       await generation.run(async signal => {
-        if (touchAnimation && fileURL && !touchReference.current) {
+        if (options.touchAnimation && fileURL && !touchReference.current) {
           const reference = await uploadTouchAnimationReference(
             configuredClient.createStorageManager(),
             fileURL,
@@ -452,7 +522,7 @@ export function RealtimeScreen({
             return;
           touchReference.current = reference;
         }
-        if (touchAnimation)
+        if (options.touchAnimation)
           context = {
             ...context,
             referencePath: fileURL ? touchReference.current : null,
@@ -461,7 +531,7 @@ export function RealtimeScreen({
         const remote = await realtime.startGeneration({
           localStream: stream,
           context,
-          faceRestoration,
+          faceRestoration: options.faceRestoration ?? false,
         });
         if (signal.aborted || !alive.current || token !== epoch.current) return;
         setRemoteTrack(remote.videoTrack);
@@ -486,6 +556,8 @@ export function RealtimeScreen({
     }
   };
 
+  submitLatest.current = submit;
+
   /**
    * Disconnects generation while preserving the local media preview.
    */
@@ -493,6 +565,8 @@ export function RealtimeScreen({
     if (!alive.current || !operations.current || mediaBusy.current) return;
     const token = nextOperation();
 
+    lastIntent.current = null;
+    pendingRestart.current = null;
     setGenerationRequested(false);
     setBusy(true);
     setLoading(false);
@@ -539,65 +613,6 @@ export function RealtimeScreen({
     }
   };
 
-  /** Updates an active task without reconnecting; idle changes apply to the next start. */
-  async function changeFaceRestoration(next: boolean) {
-    const realtime = manager.current;
-    if (busy || !realtime) return;
-    const version = ++faceUpdateVersion.current;
-    const previous = faceRestoration;
-    setFaceRestoration(next);
-    if (
-      realtime.currentState.connectionState ===
-      RealtimeConnectionState.generating
-    ) {
-      try {
-        await operations.current?.run(() =>
-          realtime.startGeneration({ faceRestoration: next }),
-        );
-      } catch (failure) {
-        if (
-          alive.current &&
-          version === faceUpdateVersion.current &&
-          XmaxError.from(failure).code !== XmaxErrorCode.cancelled
-        ) {
-          setFaceRestoration(previous);
-          showError(failure);
-        }
-      }
-    }
-  }
-
-  /** Updates camera dimensions in place while the preview is ready and disconnected. */
-  async function changeCameraFormat(format: RealtimeVideoFormat) {
-    const realtime = manager.current;
-    if (
-      !realtime ||
-      busy ||
-      mediaBusy.current ||
-      realtime.currentState.connectionState !== RealtimeConnectionState.ready
-    )
-      return;
-    const token = nextOperation();
-    mediaBusy.current = true;
-    setBusy(true);
-    setPresetMenuVisible(false);
-    try {
-      await realtime.updateCameraFormat({
-        ...realtime.currentCameraVideoFormat!,
-        ...format,
-      });
-      if (alive.current && token === epoch.current)
-        refreshConfiguration(realtime);
-    } catch (failure) {
-      if (token === epoch.current) showError(failure);
-    } finally {
-      if (alive.current && token === epoch.current) {
-        mediaBusy.current = false;
-        setBusy(false);
-      }
-    }
-  }
-
   /** Applies a manual transport tier through the SDK; subsequent network adaptation remains enabled. */
   async function changeQualityLevel(
     level: RealtimeQualityLevel,
@@ -625,6 +640,73 @@ export function RealtimeScreen({
         refreshConfiguration(realtime);
         mediaBusy.current = false;
         setBusy(false);
+      }
+    }
+  }
+
+  /** Replaces file input after cleanup and restores the previous generation conditions. */
+  async function replaceMedia() {
+    if (pickerOpen.current || (!fileURL && !externalFileURL)) return;
+    pickerOpen.current = true;
+    setPickingMedia(true);
+    setAudioMenuVisible(false);
+    const token = epoch.current;
+    try {
+      const result = await launchImageLibrary({
+        mediaType: externalFileURL ? 'video' : 'photo',
+        selectionLimit: 1,
+        assetRepresentationMode: 'current',
+      });
+      if (
+        !alive.current ||
+        token !== epoch.current ||
+        result.didCancel ||
+        AppState.currentState !== 'active'
+      )
+        return;
+      const asset = result.assets?.[0];
+      if (result.errorCode || !asset?.uri)
+        throw new Error(t('realtime.reference.readError'));
+      pendingRestart.current =
+        pendingRestart.current ??
+        (generationRequested ? lastIntent.current : null);
+      nextOperation();
+      mediaBusy.current = true;
+      setBusy(true);
+      setLoading(true);
+      setInput({
+        fileURL: externalFileURL ? undefined : asset.uri,
+        externalFileURL: externalFileURL ? asset.uri : undefined,
+        contentType: asset.type,
+      });
+    } catch (failure) {
+      if (alive.current && token === epoch.current) showError(failure);
+    } finally {
+      pickerOpen.current = false;
+      if (alive.current) setPickingMedia(false);
+    }
+  }
+
+  /** Applies remote playback volume while ignoring completions from retired managers. */
+  async function applyRemoteVolume(value: number, remember = true) {
+    const realtime = manager.current;
+    if (!realtime) return;
+    const version = ++volumeVersion.current;
+    if (remember) {
+      savedRemoteVolume.current = value;
+      setMuted(false);
+    }
+    setRemoteVolume(value);
+    try {
+      await realtime.setRemoteAudioVolume(value);
+    } catch (failure) {
+      if (
+        alive.current &&
+        manager.current === realtime &&
+        version === volumeVersion.current
+      ) {
+        setRemoteVolume(realtime.remoteAudioVolume);
+        showError(failure);
       }
     }
   }
@@ -677,39 +759,62 @@ export function RealtimeScreen({
           style={styles.backIcon}
         />
       </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('realtime.statistics.title')}
-        accessibilityState={{ selected: statisticsVisible }}
-        onPress={() => setStatisticsVisible(value => !value)}
-        style={[
-          styles.statisticsButton,
-          {
-            top: insets.top + 8,
-            right: insets.right + (fileURL || externalFileURL ? 12 : 66),
-          },
-        ]}
-      >
-        <Text style={styles.statisticsLabel}>
-          {t('realtime.statistics.title')}
-        </Text>
-      </Pressable>
+      <RealtimeToolbar
+        camera={!fileURL && !externalFileURL}
+        external={!!externalFileURL}
+        canFlip={!busy && !!localTrack}
+        picking={pickingMedia}
+        statisticsVisible={statisticsVisible}
+        muted={muted}
+        top={insets.top}
+        right={insets.right}
+        onFlip={flip}
+        onStatistics={() => setStatisticsVisible(value => !value)}
+        onVolume={() => setAudioMenuVisible(value => !value)}
+        onMute={() => {
+          const next = !muted;
+          setMuted(next);
+          void applyRemoteVolume(next ? 0 : savedRemoteVolume.current, false);
+        }}
+        onGallery={() => {
+          void replaceMedia();
+        }}
+      />
+      {audioMenuVisible && (
+        <RealtimeAudioVolumeMenu
+          value={remoteVolume}
+          top={insets.top + 62}
+          right={insets.right + (!fileURL && !externalFileURL ? 72 : 12)}
+          onChange={value => {
+            void applyRemoteVolume(value);
+          }}
+          onDismiss={() => setAudioMenuVisible(false)}
+        />
+      )}
       {statisticsVisible && (
         <View
           style={[
             styles.statisticsPanel,
-            { top: insets.top + 62, right: insets.right + 12 },
+            {
+              top: insets.top + 64,
+              left: insets.left + 12,
+              maxHeight: Math.max(
+                0,
+                height - insets.top - 64 - controlPanelHeight - 8,
+              ),
+            },
           ]}
         >
           <RealtimeStatisticsPanel
             uplink={uplinkStatistics}
             downlink={downlinkStatistics}
+            networkQuality={networkQuality}
             uplinkLevel={uplinkLevel}
             downlinkLevel={downlinkLevel}
             canChange={
-              !busy &&
               state.connectionState === RealtimeConnectionState.generating
             }
+            adjusting={busy}
             onUplinkChange={level => {
               void changeQualityLevel(level, false);
             }}
@@ -719,79 +824,10 @@ export function RealtimeScreen({
           />
         </View>
       )}
-      {!fileURL && !externalFileURL && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('realtime.flipCamera')}
-          onPress={flip}
-          disabled={busy}
-          style={({ pressed }) => [
-            styles.flip,
-            { top: insets.top + 6, right: insets.right + 8 },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Image
-            source={require('../assets/realtime/realtime_camera_rotate.png')}
-            style={styles.flipIcon}
-          />
-          <Text style={styles.flipLabel}>{t('realtime.flip')}</Text>
-        </Pressable>
-      )}
-      {!fileURL && !externalFileURL && (
-        <View
-          style={[
-            styles.cameraPresetPanel,
-            { top: insets.top + 8, left: insets.left + 66 },
-          ]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('realtime.cameraPreset')}
-            accessibilityState={{ expanded: presetMenuVisible }}
-            disabled={
-              busy || state.connectionState !== RealtimeConnectionState.ready
-            }
-            onPress={() => setPresetMenuVisible(value => !value)}
-            style={styles.cameraPresetButton}
-          >
-            <Text style={styles.statisticsLabel}>
-              {cameraFormat
-                ? `${cameraFormat.width} × ${cameraFormat.height}`
-                : t('realtime.cameraPreset')}
-            </Text>
-          </Pressable>
-          {presetMenuVisible &&
-            !busy &&
-            state.connectionState === RealtimeConnectionState.ready &&
-            realtimeModelSpecifications[model].supportedVideoFormats.map(
-              format => (
-                <Pressable
-                  key={`${format.width}x${format.height}`}
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    selected:
-                      format.width === cameraFormat?.width &&
-                      format.height === cameraFormat?.height,
-                  }}
-                  style={styles.cameraPresetButton}
-                  onPress={() => {
-                    void changeCameraFormat(format);
-                  }}
-                >
-                  <Text style={styles.statisticsLabel}>
-                    {format.width === cameraFormat?.width &&
-                    format.height === cameraFormat?.height
-                      ? '✓ '
-                      : ''}
-                    {`${format.width} × ${format.height}`}
-                  </Text>
-                </Pressable>
-              ),
-            )}
-        </View>
-      )}
       <KeyboardAvoidingView
+        onLayout={event =>
+          setControlPanelHeight(event.nativeEvent.layout.height)
+        }
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={[
           styles.bottom,
@@ -799,19 +835,14 @@ export function RealtimeScreen({
         ]}
       >
         <RealtimeControlPanel
-          faceRestoration={faceRestoration}
-          onFaceRestorationChange={next => {
-            void changeFaceRestoration(next);
-          }}
           initialCategoryID={fileURL ? 'mox' : 'charx'}
           bottomInset={insets.bottom}
           apiKey={apiKey}
           environment={environment}
-          baseURL={baseURL}
           prompt={prompt}
           onPromptChange={setPrompt}
-          onSubmit={(context, onFailure) => {
-            void submit(context, false, onFailure);
+          onSubmit={(context, faceRestoration, onFailure) => {
+            void submit(context, { faceRestoration }, onFailure);
           }}
           onStop={() => {
             void stop();
@@ -827,7 +858,7 @@ export function RealtimeScreen({
                   category => category.id === 'mox',
                 )!.defaultPrompt,
               },
-              true,
+              { touchAnimation: true },
             );
           }}
           connected={connected}
@@ -858,13 +889,6 @@ export function RealtimeScreen({
 }
 
 const styles = StyleSheet.create({
-  cameraPresetPanel: {
-    position: 'absolute',
-    borderRadius: 10,
-    backgroundColor: '#000B',
-    overflow: 'hidden',
-  },
-  cameraPresetButton: { paddingHorizontal: 10, paddingVertical: 10 },
   page: { flex: 1, backgroundColor: '#000' },
   preview: { flex: 1, minHeight: 0, overflow: 'hidden' },
   backButton: {
@@ -875,41 +899,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backIcon: { width: 32, height: 32, resizeMode: 'contain' },
-  flip: {
-    position: 'absolute',
-    width: 58,
-    height: 62,
-    paddingTop: 9,
-    alignItems: 'center',
-  },
-  flipIcon: {
-    width: 22,
-    height: 22,
-    resizeMode: 'contain',
-    tintColor: '#fff',
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-  },
-  flipLabel: {
-    marginTop: 5,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#fff',
-    includeFontPadding: false,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  statisticsButton: {
-    position: 'absolute',
-    padding: 10,
-    backgroundColor: '#0007',
-    borderRadius: 12,
-  },
-  statisticsLabel: { color: '#FFF', fontSize: 12 },
-  statisticsPanel: { position: 'absolute' },
+  statisticsPanel: { position: 'absolute', width: 184 },
   pressed: { opacity: 0.7 },
   bottom: { flexShrink: 0 },
 });

@@ -108,12 +108,12 @@ export interface RtcRoom {
   ): Promise<void>;
 
   /**
-   * Discards pending coalescible messages.
+   * Discards unsent messages; omission retires every pending message.
    *
-   * @param key The message coalescing key.
+   * @param key The optional coalescing key; omission discards all pending messages.
    */
   discardPendingMessages(
-    key: string
+    key?: string
   ): void;
 
   /**

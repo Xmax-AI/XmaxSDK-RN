@@ -71,7 +71,7 @@ const native = {
 };
 const catalog = {
   realtimeCategories: [{ id: 'charx', content: 'references', name: 'Character' },
-    { id: 'mox', content: 'instruction', defaultPrompt: 'Animate' }],
+    { id: 'mox', content: 'instruction', defaultPrompt: '' }],
   realtimeReferences: [{ id: 'first', categoryID: 'charx', uploadState: 'ready',
     referencePath: 'reference.jpg', prompt: 'Transform' },
     { id: 'second', categoryID: 'charx', uploadState: 'ready', referencePath: 'second.jpg', prompt: 'Second' }],
@@ -119,23 +119,23 @@ function find(tree, predicate) {
 }
 
 function panelFixture(t, initialCategoryID) {
-  const h = hooks(), submitted = [], failures = [];
+  const h = hooks(), submitted = [], failures = [], faceOptions = [];
   let stopped = 0, update;
   const { RealtimeControlPanel: Panel } = load('realtime/RealtimeControlPanel.tsx', h.react, {
     'react-native-image-picker': {},
     './RealtimeReferenceList': { RealtimeReferenceList: 'ReferenceList' },
     './ReferenceThumbnail': { ReferenceThumbnail: 'Thumbnail' },
     './ReferenceUploadOverlay': { ReferenceUploadOverlay: 'UploadOverlay' },
-    './useReferenceUploads': { useReferenceUploads: (_key, _env, _baseURL, callback) => { update = callback; return {}; } },
+    './useReferenceUploads': { useReferenceUploads: (_key, _env, callback) => { update = callback; return {}; } },
   });
   const props = { initialCategoryID, bottomInset: 0, prompt: '', canSubmit: true, connected: false,
-    generating: false, generationRequested: false, onSubmit: (value, failure) => { submitted.push(value); failures.push(failure); },
+    generating: false, generationRequested: false, onSubmit: (value, faceRestoration, failure) => { submitted.push(value); faceOptions.push(faceRestoration); failures.push(failure); },
     onStop: () => stopped++ };
   const draw = () => h.render(Panel, props);
   const list = () => find(draw(), node => node.type === 'ReferenceList').props;
   t.after(h.dispose);
   draw();
-  return { props, draw, list, submitted, failures, update: (...args) => update(...args), stopped: () => stopped };
+  return { props, draw, list, submitted, failures, faceOptions, update: (...args) => update(...args), stopped: () => stopped };
 }
 
 test('selected reference and stop button remain cancellable before connection while submission is busy', t => {
@@ -162,11 +162,14 @@ function screenFixture(t, options = {}) {
   const h = hooks(), connect = deferred(), start = deferred(), disconnect = deferred();
   const localTrack = { id: 'local' }, remoteTrack = { id: 'remote' };
   let starts = 0, stops = 0, connects = 0, previews = 0, closes = 0;
-  const contexts = [], models = [];
-  let stateListener = null;
+  const contexts = [], models = [], inputFiles = [], faceOptions = [];
+  let stateListener = null, networkListener = null;
   let cleanup = null;
   const cancelled = () => ({ code: 'CANCELLED' });
   const manager = {
+    remoteAudioVolume: 0,
+    async setRemoteAudioVolume(value) { manager.remoteAudioVolume = value; },
+    setNetworkQualityListener: async listener => { networkListener = listener; },
     currentCameraPreset: null,
     currentCameraVideoFormat: options.fileURL || options.externalFileURL ? null : { width: 1024, height: 1920, fps: 30 },
     uplinkQualityLevel: null, downlinkQualityLevel: null,
@@ -178,9 +181,9 @@ function screenFixture(t, options = {}) {
     setUplinkVideoStatisticsListener: async () => {},
     setDownlinkVideoStatisticsListener: async () => {},
     createLocalCameraStream: async () => { previews++; return { videoTrack: localTrack }; },
-    createLocalImageStream: async () => { previews++; return { videoTrack: localTrack }; },
+    createLocalImageStream: async ({ fileURL }) => { previews++; inputFiles.push(fileURL); return { videoTrack: localTrack }; },
     async createExternalVideoStream(source) { previews++; manager.externalSource = source; await source.start({ nativeHandle: 'native-sink' }); return { videoTrack: localTrack }; },
-    async _startGeneration({ context, signal }) {
+    async _startGeneration({ context, signal, faceRestoration }) {
       const updating = manager.currentState.connectionState === 'generating';
       try {
         if (updating && options.failUpdate) throw { code: 'RTC_ERROR', message: 'Update failed' };
@@ -193,6 +196,7 @@ function screenFixture(t, options = {}) {
           manager.currentState = { connectionState: 'connected' };
         }
         contexts.push(context);
+        faceOptions.push(faceRestoration);
         starts++;
         if (starts === 1) await new Promise((resolve, reject) => {
           const abort = () => reject(cancelled());
@@ -244,6 +248,9 @@ function screenFixture(t, options = {}) {
     return manager._disconnect();
   };
   const { RealtimeScreen: Screen } = load('screens/RealtimeScreen.tsx', h.react, {
+    'react-native-image-picker': { launchImageLibrary: options.pickMedia ?? (async () => ({ didCancel: true })) },
+    '../realtime/RealtimeToolbar': { RealtimeToolbar: 'Toolbar' },
+    '../realtime/RealtimeAudioVolumeMenu': { RealtimeAudioVolumeMenu: 'VolumeMenu' },
     '../external/RealtimeFileVideoSource': { makeRealtimeFileVideoSource: options.externalSource ?? (async () => { throw new Error('No external source fixture'); }) },
     '../realtime/RealtimeGenerationOperations': load('realtime/RealtimeGenerationOperations.ts', {}),
     '../realtime/XLabTrajectoryRenderer': {},
@@ -267,10 +274,11 @@ function screenFixture(t, options = {}) {
   const props = type => find(draw(), node => node.type === type).props;
   t.after(() => { h.dispose(); native.AppState.currentState = 'active'; });
   draw();
-  return { props, draw, manager, connect, start, disconnect, localTrack, remoteTrack, contexts, models,
+  return { props, draw, manager, connect, start, disconnect, localTrack, remoteTrack, contexts, models, inputFiles, faceOptions,
     dispose: h.dispose,
     setEntryReady(value) { options.entryReady = value; draw(); },
     state(value) { manager.currentState = value; stateListener?.(value); },
+    network(value) { networkListener?.(value); },
     background(state) {
       native.AppState.currentState = state;
       for (const listener of appStateListeners) listener(state);
@@ -579,7 +587,7 @@ test('only the latest failing request reports failure after cleanup, and a later
   const f = screenFixture(t);
   let failures = 0;
   await tick();
-  f.props('Panel').onSubmit({ prompt: 'A' }, () => failures++);
+  f.props('Panel').onSubmit({ prompt: 'A' }, false, () => failures++);
   f.connect.resolve({ videoTrack: f.remoteTrack });
   await tick();
   f.start.reject({ code: 'NETWORK_ERROR', message: 'Generation failed' });
@@ -916,7 +924,7 @@ test('a failed context update keeps the current generated video and reference se
   f.start.resolve();
   f.props('Panel').onSubmit({ prompt: 'first' });
   await tick();
-  f.props('Panel').onSubmit({ prompt: 'second' }, () => cleared++);
+  f.props('Panel').onSubmit({ prompt: 'second' }, false, () => cleared++);
   await tick();
   assert.equal(f.counts().stops, 0);
   assert.equal(f.props('Panel').generationRequested, true);
@@ -1078,31 +1086,18 @@ test('storage selection retains native error explanations and falls back only wh
   }
 });
 
-test('XLab offers current model formats and updates preview without replacing its track', async t => {
-  const screen = screenFixture(t);
+test('XLab uses the camera action toolbar without extra format controls', async t => {
+  const f = screenFixture(t);
   await tick();
-  const menu = () => find(screen.draw(), node => node.props?.accessibilityLabel === '分辨率');
-  screen.state({ connectionState: 'ready' });
-  assert.equal(menu().props.disabled, false);
-  menu().props.onPress();
-  const landscape = find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1920 × 1024'));
-  assert(landscape);
-  assert(!find(screen.draw(), node => node.props?.children?.props?.children?.includes?.('1408 × 1408')));
-  const track = screen.props('Video').localTrack, before = screen.counts();
-  landscape.props.onPress();
-  await tick();
-  assert.deepEqual(screen.manager.currentCameraVideoFormat, { width: 1920, height: 1024, fps: 30 });
-  assert.equal(screen.props('Video').videoContentMode, 'fit');
-  assert.equal(screen.props('Video').localTrack, track);
-  assert.deepEqual(screen.counts(), before);
-  screen.state({ connectionState: 'connected' });
-  assert.equal(menu().props.disabled, true);
+  assert.equal(f.props('Toolbar').camera, true);
+  assert.equal(f.props('Toolbar').canFlip, true);
+  assert.equal(find(f.draw(), node => node.props?.accessibilityLabel === translateUI('realtime.cameraPreset')), undefined);
 });
 
 test('XLab statistics forwards quality changes only during generation and refreshes acknowledged levels', async t => {
   const screen = screenFixture(t);
   await tick();
-  find(screen.draw(), node => node.props?.accessibilityLabel === '统计').props.onPress();
+  screen.props('Toolbar').onStatistics();
   assert.equal(screen.props('RealtimeStatisticsPanel').canChange, false);
   screen.manager.uplinkQualityLevel = 2;
   screen.manager.downlinkQualityLevel = 2;
@@ -1146,4 +1141,168 @@ test('a late XLab decoder preparation is stopped when its page has already unmou
   await tick();
   assert.equal(stopped, 1);
   assert.equal(screen.counts().previews, 0);
+});
+
+test('reference selection derives face restoration from its category and ordinary prompts reset it', t => {
+  const f = panelFixture(t);
+  f.update('first', { categoryID: 'clothx' });
+  f.list().onSelect('first');
+  f.draw();
+  assert.equal(f.faceOptions.at(-1), true);
+  f.list().onSelect('second');
+  f.draw();
+  assert.equal(f.faceOptions.at(-1), false);
+  f.props.prompt = 'A custom instruction';
+  find(f.draw(), node => node.props?.accessibilityLabel === translateUI('realtime.prompt.submit')).props.onPress();
+  assert.equal(f.faceOptions.at(-1), false);
+  assert.equal(find(f.draw(), node => node.props?.accessibilityRole === 'switch'), undefined);
+});
+
+test('touch animation submits an empty prompt and the uploaded image reference', async t => {
+  const f = screenFixture(t, { fileURL: 'file:///image.jpg', prepareTouch: async () => 'https://fixture.example/image.jpg' });
+  f.connect.resolve(); f.start.resolve();
+  await tick();
+  f.props('Panel').onInstruction();
+  await tick();
+  assert.deepEqual(f.contexts, [{ prompt: '', referencePath: 'https://fixture.example/image.jpg' }]);
+  assert.equal(f.faceOptions[0], false);
+});
+
+test('cancelling media reselection retains the existing preview and generation', async t => {
+  const f = screenFixture(t, { fileURL: 'file:///image.jpg', pickMedia: async () => ({ didCancel: true }) });
+  f.connect.resolve(); f.start.resolve();
+  await tick();
+  f.props('Panel').onSubmit({ prompt: 'Transform' }, false);
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick();
+  assert.deepEqual(f.inputFiles, ['file:///image.jpg']);
+  assert.equal(f.counts().closes, 0);
+  assert.equal(f.counts().starts, 1);
+});
+
+test('reselecting an image in preview releases old resources and does not start generation', async t => {
+  const f = screenFixture(t, { fileURL: 'file:///first.jpg', pickMedia: async () => ({ assets: [{ uri: 'file:///second.jpg', type: 'image/jpeg' }] }) });
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick(); f.draw();
+  assert.deepEqual(f.inputFiles, ['file:///first.jpg', 'file:///second.jpg']);
+  assert.equal(f.counts().closes, 1);
+  assert.equal(f.counts().starts, 0);
+});
+
+test('reselecting during generation waits for cleanup and restores conditions including face restoration', async t => {
+  const f = screenFixture(t, { fileURL: 'file:///first.jpg', pickMedia: async () => ({ assets: [{ uri: 'file:///second.jpg', type: 'image/jpeg' }] }) });
+  f.connect.resolve(); f.start.resolve();
+  await tick();
+  f.props('Panel').onSubmit({ prompt: 'Clothes', referencePath: 'https://fixture.example/clothes.jpg' }, true);
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick();
+  assert.equal(f.counts().previews, 1, 'Replacement preview waits for the old disconnect');
+  f.disconnect.resolve();
+  await tick(); f.draw(); await tick(); f.draw();
+  assert.deepEqual(f.inputFiles, ['file:///first.jpg', 'file:///second.jpg']);
+  assert.deepEqual(f.contexts[1], f.contexts[0]);
+  assert.deepEqual(f.faceOptions, [true, true]);
+  assert.equal(f.counts().starts, 2);
+});
+
+test('touch animation on a replacement image uploads the new source rather than reusing the old reference', async t => {
+  const uploaded = [];
+  const f = screenFixture(t, { fileURL: 'file:///first.jpg', pickMedia: async () => ({ assets: [{ uri: 'file:///second.jpg', type: 'image/jpeg' }] }),
+    prepareTouch: async (_storage, file) => { uploaded.push(file); return `https://fixture.example/${uploaded.length}.jpg`; } });
+  f.connect.resolve(); f.start.resolve(); f.disconnect.resolve();
+  await tick();
+  f.props('Panel').onInstruction();
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick(); f.draw(); await tick();
+  assert.deepEqual(uploaded, ['file:///first.jpg', 'file:///second.jpg']);
+  assert.equal(f.contexts[1].prompt, '');
+  assert.equal(f.contexts[1].referencePath, 'https://fixture.example/2.jpg');
+});
+
+test('backgrounding while the media picker is open ignores its late selection', async t => {
+  const picker = deferred();
+  const f = screenFixture(t, { fileURL: 'file:///first.jpg', pickMedia: () => picker.promise });
+  await tick();
+  f.props('Toolbar').onGallery();
+  f.background('background');
+  picker.resolve({ assets: [{ uri: 'file:///late.jpg' }] });
+  await tick();
+  f.background('active');
+  await tick(); f.draw(); await tick();
+  assert(f.inputFiles.every(file => file === 'file:///first.jpg'));
+  assert.equal(f.counts().starts, 0);
+});
+
+test('statistics receives network quality and retains its latest measured values', async t => {
+  const f = screenFixture(t);
+  await tick();
+  f.props('Toolbar').onStatistics();
+  f.network({ uplink: 'Good', downlink: 'Bad' });
+  assert.deepEqual(f.props('RealtimeStatisticsPanel').networkQuality, { uplink: 'Good', downlink: 'Bad' });
+});
+
+test('volume and mute update remote playback without recreating media or generation', async t => {
+  const source = { videoFormat: { width: 1024, height: 1920, fps: 30 }, async start() {}, async stop() {} };
+  const f = screenFixture(t, { externalFileURL: 'file:///external.mp4', externalSource: async () => source });
+  await tick();
+  f.props('Toolbar').onVolume();
+  f.props('VolumeMenu').onChange(0.7);
+  await tick();
+  assert.equal(f.manager.remoteAudioVolume, 0.7);
+  f.props('Toolbar').onMute();
+  await tick();
+  assert.equal(f.manager.remoteAudioVolume, 0);
+  f.props('Toolbar').onMute();
+  await tick();
+  assert.equal(f.manager.remoteAudioVolume, 0.7);
+  assert.equal(f.counts().previews, 1);
+  assert.equal(f.counts().starts, 0);
+});
+
+test('reselecting the same file still rebuilds preview once without starting generation', async t => {
+  const f = screenFixture(t, { fileURL: 'file:///same.jpg', pickMedia: async () => ({ assets: [{ uri: 'file:///same.jpg' }] }) });
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick(); f.draw();
+  assert.equal(f.counts().previews, 2);
+  assert.equal(f.counts().closes, 1);
+  assert.equal(f.counts().starts, 0);
+});
+
+test('external media replacement keeps native external capture and never switches to the image or camera path', async t => {
+  const prepared = [];
+  const f = screenFixture(t, { externalFileURL: 'file:///first.mp4',
+    externalSource: async file => { prepared.push(file); return { videoFormat: { width: 1024, height: 1920, fps: 30 }, async start() {}, async stop() {} }; },
+    pickMedia: async options => { assert.equal(options.mediaType, 'video'); return { assets: [{ uri: 'file:///second.mp4' }] }; } });
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick(); f.draw();
+  assert.deepEqual(prepared, ['file:///first.mp4', 'file:///second.mp4']);
+  assert.deepEqual(f.inputFiles, []);
+  assert.equal(f.counts().closes, 1);
+  assert.equal(f.counts().starts, 0);
+});
+
+test('multiple file replacements retain the last selection and wait for the original cleanup', async t => {
+  let picks = 0;
+  const f = screenFixture(t, { fileURL: 'file:///first.jpg',
+    pickMedia: async () => ({ assets: [{ uri: ++picks === 1 ? 'file:///second.jpg' : 'file:///third.jpg' }] }) });
+  f.connect.resolve(); f.start.resolve();
+  await tick();
+  f.props('Panel').onSubmit({ prompt: 'Transform' }, false);
+  await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick();
+  f.props('Toolbar').onGallery();
+  await tick(); f.draw(); await tick();
+  assert.deepEqual(f.inputFiles, ['file:///first.jpg']);
+  f.disconnect.resolve();
+  await tick(); f.draw(); await tick(); f.draw();
+  assert.deepEqual(f.inputFiles, ['file:///first.jpg', 'file:///third.jpg']);
+  assert.equal(f.counts().starts, 2);
+  assert.deepEqual(f.contexts[1], { prompt: 'Transform' });
 });

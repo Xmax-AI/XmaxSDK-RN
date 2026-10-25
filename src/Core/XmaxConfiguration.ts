@@ -35,11 +35,6 @@ export interface XmaxConfiguration {
   readonly environment?: XmaxEnvironment;
 
   /**
-   * An absolute HTTPS API root override. Empty, null, or omitted values use environment routing.
-   */
-  readonly baseURL?: string | null;
-
-  /**
    * The global XmaxLoggerOption bitmask. Defaults to 0. The most recently created client determines
    * logging for all services.
    */

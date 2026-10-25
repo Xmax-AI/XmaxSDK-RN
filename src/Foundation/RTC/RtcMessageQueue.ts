@@ -224,16 +224,21 @@ export class RtcMessageQueue {
   }
 
   /**
-   * Discards pending interactions for a finished task; transmitted packets cannot be recalled.
+   * Discards unsent messages; transmitted packets cannot be recalled.
    *
-   * @param key The lookup key for resources, preferences, or message coalescing.
+   * @param key The optional coalescing key; omission discards all pending messages.
    */
   drop(
-    key: string
+    key?: string
   ): void {
-    const retired = this.pending.filter(message => message.key === key);
-    this.pending = this.pending.filter(message => message.key !== key);
-    if (this.current?.key === key) this.current.cancelled = true;
+    const retired = this.pending.filter(
+      message => key === undefined || message.key === key,
+    );
+    this.pending = this.pending.filter(
+      message => key !== undefined && message.key !== key,
+    );
+    if (this.current && (key === undefined || this.current.key === key))
+      this.current.cancelled = true;
     for (const message of retired)
       for (const completion of message.completions)
         completion.reject(cancelledError());

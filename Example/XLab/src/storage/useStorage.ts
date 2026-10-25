@@ -54,11 +54,7 @@ function storageErrorNotice(
  * Copies picker assets into screen-owned cache files. Unmounting cancels
  * the active operation and cleans up those files after it settles.
  */
-export function useStorage(
-  apiKey: string,
-  environment: XmaxEnvironment,
-  baseURL?: string | undefined,
-) {
+export function useStorage(apiKey: string, environment: XmaxEnvironment) {
   const { t } = useLocalization();
   const [file, setFile] = useState<SelectedFile | null>(null);
   const [busy, setBusy] = useState<'picking' | 'uploading' | null>(null);
@@ -217,7 +213,6 @@ export function useStorage(
         const storage = new XmaxClient({
           apiKey,
           environment,
-          baseURL: baseURL ?? null,
           loggerOptions: XmaxLoggerOption.all,
         }).createStorageManager();
         const options = {

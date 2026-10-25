@@ -297,7 +297,6 @@ enabled by default.
 
 Select `RealtimeModel.x2_1_1_preview_cn` or `RealtimeModel.x2_1_1_preview_us`.
 `XmaxEnvironment` independently selects the realtime and storage backends.
-An optional `baseURL` override must be an absolute HTTPS API root.
 Both models support camera formats of 1024 × 1920 and 1920 × 1024 at 30 fps;
 portrait is the default. Read `realtimeModelSpecifications[model].supportedVideoFormats`
 and pass `videoFormat` when creating a camera stream, or call

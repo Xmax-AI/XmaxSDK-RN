@@ -9,7 +9,7 @@
 //
 
 /**
- * The realtime and storage service environment; an explicit baseURL overrides service routing.
+ * The realtime and storage service environment.
  */
 export enum XmaxEnvironment {
 

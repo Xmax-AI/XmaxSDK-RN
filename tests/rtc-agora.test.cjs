@@ -412,3 +412,42 @@ test('RTC room admission times out at fifteen seconds and removes its waiter', a
   await rtc.leave();
   assert.deepEqual(rtc.publishedStreams, []);
 });
+
+for (const event of ['start', 'change_condition', 'stop']) {
+  test(`${event} discards pending control messages and unsent fragments before submission`, async () => {
+    const { RoomController } = require('../lib/commonjs/Stream/Room/RoomController');
+    let release;
+    const sent = [];
+    const queue = new RtcMessageQueue(async packet => {
+      sent.push(packet);
+      if (sent.length === 1) await new Promise(resolve => { release = resolve; });
+    }, () => 'id');
+    const old = queue.enqueue('x'.repeat(2000));
+    const rejectedOld = assert.rejects(old, { code: 'CANCELLED' });
+    await tick();
+    const stale = queue.enqueue('stale-condition');
+    const rejectedStale = assert.rejects(stale, { code: 'CANCELLED' });
+    const rtc = { runtime: { platform: 'ios' }, discardPendingMessages: key => queue.drop(key),
+      send: value => queue.enqueue(value) };
+    const room = new RoomController(rtc);
+    room.connection = { userID: 'fixture' };
+    const latest = room.send(event, 'task', format, { prompt: 'fixture' });
+    release();
+    await Promise.all([rejectedOld, rejectedStale, latest]);
+    assert.equal(sent.length, 2, 'Only the in-flight old fragment and latest control may be sent');
+    assert.equal(JSON.parse(sent[1]).event, event);
+    queue.close();
+  });
+}
+
+test('target size updates keep earlier messages ordered rather than discarding them', async () => {
+  const { RoomController } = require('../lib/commonjs/Stream/Room/RoomController');
+  let discarded = 0;
+  const sent = [];
+  const rtc = { runtime: { platform: 'ios' }, discardPendingMessages: () => discarded++, send: async value => sent.push(value) };
+  const room = new RoomController(rtc);
+  room.connection = { userID: 'fixture' };
+  await room.send('change_target_size', 'task', undefined, undefined, { targetSize: { width: 512, height: 960 } });
+  assert.equal(discarded, 0);
+  assert.equal(JSON.parse(sent[0]).event, 'change_target_size');
+});

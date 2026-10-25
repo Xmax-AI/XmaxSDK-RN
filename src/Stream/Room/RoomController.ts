@@ -124,6 +124,7 @@ export class RoomController implements RoomControlling {
     options: GenerationParameters = {},
   ): Promise<void> {
     if (!this.connection) throw cancelledError();
+    if (event !== 'change_target_size') this.rtc.discardPendingMessages();
 
     XmaxLogger.room.debug(
       () =>
