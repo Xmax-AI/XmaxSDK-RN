@@ -345,7 +345,37 @@ class RealtimeExternalFrameSink internal constructor(
     rotation: Int,
     timestampUs: Long,
   ) {
-    val upright = requireNotNull(input.rotate(rotation))
+    val upright = if (rotation == 0) {
+      input.retain()
+      input
+    } else {
+      val width = if (rotation % 180 == 0) input.width else input.height
+      val height = if (rotation % 180 == 0) input.height else input.width
+      val rotated = JavaI420Buffer.allocate(width, height)
+      try {
+        YuvHelper.I420Rotate(
+          input.dataY,
+          input.strideY,
+          input.dataU,
+          input.strideU,
+          input.dataV,
+          input.strideV,
+          rotated.dataY,
+          rotated.strideY,
+          rotated.dataU,
+          rotated.strideU,
+          rotated.dataV,
+          rotated.strideV,
+          input.width,
+          input.height,
+          rotation
+        )
+        rotated
+      } catch (error: Throwable) {
+        rotated.release()
+        throw error
+      }
+    }
     try {
       val scaled = requireNotNull(upright.cropAndScale(
         0,
