@@ -155,7 +155,9 @@ export interface Spec extends TurboModule {
   /**
    * Registers a mounted Fabric view as an RTC canvas container.
    *
-   * Completes after mount identity validation and registration; rejects removed or recycled views.
+   * Completes after mount identity validation and registration. On iOS, VIEW_NOT_MOUNTED permits
+   * a bounded retry while Fabric publishes the view; other failures reject an unavailable
+   * registry or a different mount identity.
    *
    * @param reactTag The mounted container's React Native tag.
    * @param nativeID The native mount identity excluding removed or recycled views.

@@ -307,6 +307,7 @@ RCT_EXPORT_MODULE(XmaxRuntime)
 
 /**
  * Registers a Fabric container only when both its React tag and native mount identifier match.
+ * An unpublished view reports VIEW_NOT_MOUNTED so its active caller can wait for Fabric mounting.
  *
  * Resolves or rejects the bridge Promise when the native operation completes.
  *
@@ -321,12 +322,20 @@ RCT_EXPORT_MODULE(XmaxRuntime)
     reject:(RCTPromiseRejectBlock)reject {
   __weak RCTViewRegistry *registry = self.viewRegistry_DEPRECATED;
   dispatch_async(dispatch_get_main_queue(), ^{
+    if (!registry) {
+      reject(@"MEDIA_ERROR", @"React Native view registry is unavailable", nil);
+      return;
+    }
     UIView *view = [registry viewForReactTag:@(reactTag)];
+    if (!view) {
+      reject(@"VIEW_NOT_MOUNTED", @"Video canvas is not mounted yet", nil);
+      return;
+    }
     if ([view isKindOfClass:[RCTViewComponentView class]] && [((RCTViewComponentView *)view).nativeId isEqualToString:nativeID]) {
       [self.implementation registerVideoSurface:view nativeID:nativeID];
       resolve(nil);
     } else {
-      reject(@"MEDIA_ERROR", @"Video canvas is no longer mounted", nil);
+      reject(@"MEDIA_ERROR", @"Video canvas mount identity does not match", nil);
     }
   });
 }

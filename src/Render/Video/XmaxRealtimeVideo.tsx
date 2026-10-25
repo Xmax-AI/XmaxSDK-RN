@@ -179,6 +179,7 @@ export function VideoSurface(
       ) : (
         valid && (
           <RtcVideoSurface
+            key={viewID}
             viewID={viewID}
             onLoad={() => setLoadedViewID(viewID)}
             onError={error => record?.onBindingFailure?.(error)}
