@@ -8,72 +8,14 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-/**
- * Byte-based transfer progress. Total size and fraction are null when the total is unknown.
- */
-export interface StorageProgress {
+import type { XmaxUploadedFile } from './XmaxUploadedFile';
+import type { XmaxDownloadedFile } from './XmaxDownloadedFile';
+import type { XmaxStorageProgressHandler } from './XmaxStorageProgressHandler';
 
-  /**
-   * The number of bytes transferred.
-   */
-  readonly completedUnitCount: number;
-
-  /**
-   * The total number of bytes.
-   */
-  readonly totalUnitCount: number | null;
-
-  /**
-   * The completed fraction, from 0 to 1.
-   */
-  readonly fractionCompleted: number | null;
-}
-
-/**
- * A transfer progress handler whose exceptions do not interrupt the transfer.
- *
- * @param progress The current transfer progress.
- */
-export type XmaxStorageProgressHandler = (
-  progress: StorageProgress
-) => void;
-
-/**
- * The remote location and metadata of an uploaded file.
- */
-export interface XmaxUploadedFile {
-
-  /**
-   * The remote file URL, or the safety service's approved URL for checked uploads.
-   */
-  readonly url: string;
-
-  /**
-   * The object key within the credential-authorized directory.
-   */
-  readonly objectKey: string;
-
-  /**
-   * The ETag returned by COS, or null if absent.
-   */
-  readonly etag: string | null;
-}
-
-/**
- * The location and size of a downloaded file.
- */
-export interface XmaxDownloadedFile {
-
-  /**
-   * The destination file URL supplied by your app.
-   */
-  readonly fileURL: string;
-
-  /**
-   * The number of saved bytes.
-   */
-  readonly byteCount: number;
-}
+export type { StorageProgress } from './StorageProgress';
+export type { XmaxStorageProgressHandler } from './XmaxStorageProgressHandler';
+export type { XmaxUploadedFile } from './XmaxUploadedFile';
+export type { XmaxDownloadedFile } from './XmaxDownloadedFile';
 
 /**
  * Options for uploading a local image or video.

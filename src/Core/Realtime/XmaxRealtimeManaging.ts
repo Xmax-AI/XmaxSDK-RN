@@ -85,7 +85,9 @@ export type DownlinkVideoStatisticsListener = (
  *
  * Cancellable operations accept AbortSignal. Cancelling initial generation releases its connection;
  * cancelling a condition update preserves generation. Disconnect and close finish cleanup and are
- * not cancellable. Overlapping operations are rejected rather than queued.
+ * not cancellable. New generation requests replace pending generation after required cleanup;
+ * other foreground operation kinds remain exclusive. Foreground calls wait for an active
+ * automatic quality update to finish.
  */
 export interface XmaxRealtimeManaging {
 
@@ -105,7 +107,7 @@ export interface XmaxRealtimeManaging {
   readonly currentCameraVideoFormat: RealtimeVideoFormat | null;
 
   /**
-   * The preset matching the camera's media dimensions.
+   * The preset matching the camera dimensions, or null when no preset represents the format.
    */
   readonly currentCameraPreset: RealtimeCameraPreset | null;
 
@@ -315,8 +317,8 @@ export interface XmaxRealtimeManaging {
   /**
    * Establishes a realtime connection using a local stream created by this manager.
    *
-   * Returns the result stream without starting generation. Bind its track before calling
-   * startGeneration().
+   * Returns the result stream without starting generation. Its track can be bound before or after
+   * generation startup. Repeated connect calls reject while a connection exists.
    *
    * @param options The manager-owned local stream and cancellation signal.
    */
@@ -363,7 +365,8 @@ export interface XmaxRealtimeManaging {
    *
    * Initial generation requires context. Omitted or null context reuses the connection's last
    * successful conditions; disconnect and close clear that cache. This overload returns the result
-   * stream.
+   * stream after publication and first-frame readiness. Audio is enabled after the first frame;
+   * no mounted result view is required for completion.
    *
    * A newer call to either overload replaces an unfinished generation request. The replaced call
    * rejects with CANCELLED after required cleanup. Requests do not replace other operation kinds.
@@ -395,9 +398,9 @@ export interface XmaxRealtimeManaging {
   /**
    * Starts generation or updates conditions on an existing connection.
    *
-   * Uses the same request-replacement behavior as the localStream overload. New tasks wait for the
-   * result account to publish in the target room. Updates reuse the task and complete after signal
-   * submission.
+   * Uses the same request-replacement behavior as the localStream overload. New tasks wait for
+   * publication and a decoded first frame from the result account, then enable result audio.
+   * Updates reuse the task and complete after signal submission.
    *
    * @param options The generation conditions, face restoration, and cancellation settings.
    */

@@ -29,6 +29,11 @@ import type { GenerationParameters } from './Room/RoomEvent';
 export class StreamController implements StreamControlling {
 
   /**
+   * The result account whose audio is active for the current task.
+   */
+  private audioStream: RemoteStream | null = null;
+
+  /**
    * Creates a signaling and transport configuration controller.
    *
    * @param rtc The RTC manager for encoder configuration and room events.
@@ -128,6 +133,21 @@ export class StreamController implements StreamControlling {
   }
 
   /**
+   * Enables generated audio after the result's first frame is ready.
+   *
+   * @param remote The confirmed result room and account.
+   */
+  async activateRemoteAudio(
+    remote: RemoteStream
+  ): Promise<void> {
+    await this.rtc.setRemoteAudioSubscription(
+      remote,
+      true
+    );
+    this.audioStream = remote;
+  }
+
+  /**
    * Updates conditions while retaining the room and task identifier.
    *
    * Completes after native transport accepts the signal; rejects if disconnected or submission
@@ -188,9 +208,19 @@ export class StreamController implements StreamControlling {
     taskID: string
   ): Promise<void> {
     this.rtc.discardTracks(taskID);
-    if (this.room.connection) await this.room.send(
-      'stop',
-      taskID
-    );
+    const remote = this.audioStream;
+    this.audioStream = null;
+    try {
+      if (remote && this.room.connection)
+        await this.rtc.setRemoteAudioSubscription(
+          remote,
+          false
+        );
+    } finally {
+      if (this.room.connection) await this.room.send(
+        'stop',
+        taskID
+      );
+    }
   }
 }

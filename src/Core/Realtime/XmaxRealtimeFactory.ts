@@ -161,6 +161,8 @@ export class XmaxRealtimeFactory {
       rtcManager,
       streamController,
       mediaController,
+      renderController,
+      timing,
     );
     const connectionManager = new XmaxRealtimeConnectionManager(
       new RealtimeSessionService(

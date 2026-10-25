@@ -52,6 +52,15 @@ export interface StreamControlling {
   ): Promise<RemoteStream>;
 
   /**
+   * Enables generated audio after the result's first frame is ready.
+   *
+   * @param remote The confirmed result room and account.
+   */
+  activateRemoteAudio(
+    remote: RemoteStream
+  ): Promise<void>;
+
+  /**
    * Updates conditions while retaining the room and task identifier.
    *
    * Completes after native transport accepts the signal; rejects if disconnected or submission

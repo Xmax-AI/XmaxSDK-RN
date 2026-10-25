@@ -281,7 +281,7 @@ setLocalTrack(localStream.videoTrack);
 const remoteStream = await realtime.connect({ localStream });
 setRemoteTrack(remoteStream.videoTrack);
 
-// Bind the remote track before waiting for generation confirmation.
+// Binding the remote track is independent of generation startup.
 await realtime.startGeneration({
   context: {
     prompt: '视频中角色替换成参考图中角色',
@@ -290,8 +290,10 @@ await realtime.startGeneration({
 });
 ```
 
-The view shows local preview until remote generation is ready, with touch
-interaction enabled by default.
+Generation startup completes after result publication and decoded first-frame readiness;
+it does not require a mounted result view. Audio is enabled after that frame is ready.
+The view shows local preview until the remote frame renders, with touch interaction
+enabled by default.
 
 Select `RealtimeModel.x2_1_1_preview_cn` or `RealtimeModel.x2_1_1_preview_us`.
 `XmaxEnvironment` independently selects the realtime and storage backends.
@@ -310,6 +312,8 @@ without automatic adaptation or quality history. During generation,
 `setUplinkQualityLevel()` and `setDownlinkQualityLevel()` accept
 `RealtimeQualityLevel.l1` through `.l5` without changing the configured adaptation policy.
 Read `uplinkQualityLevel` and `downlinkQualityLevel` for the acknowledged tiers.
+Initial quality is recorded after generation becomes ready; automatic adjustments
+observe the stabilization window before changing it.
 The default upload minimum bitrate is 500 kbps, capped by the maximum bitrate;
 an explicit `minimumBitrate: 0` is preserved.
 Pass `faceRestoration: true` to `startGeneration()` to restore the source face.

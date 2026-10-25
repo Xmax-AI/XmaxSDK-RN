@@ -8,8 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type { XmaxUploadedFile } from '../../Core/Storage/XmaxStorageManaging';
-import type { XmaxDownloadedFile } from '../../Core/Storage/XmaxStorageManaging';
+import type { XmaxUploadedFile } from '../../Core/Storage/XmaxUploadedFile';
+import type { XmaxDownloadedFile } from '../../Core/Storage/XmaxDownloadedFile';
 
 import type {
   UploadFileOptions,

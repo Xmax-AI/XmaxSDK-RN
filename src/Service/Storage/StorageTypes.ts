@@ -8,11 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import type {
-  XmaxUploadedFile,
-  XmaxDownloadedFile,
-  StorageProgress,
-} from '../../Core/Storage/XmaxStorageManaging';
+import type { XmaxUploadedFile } from '../../Core/Storage/XmaxUploadedFile';
+import type { XmaxDownloadedFile } from '../../Core/Storage/XmaxDownloadedFile';
+import type { StorageProgress } from '../../Core/Storage/StorageProgress';
 
 /**
  * The validated COS endpoint, directory, and temporary credentials for an upload.

@@ -59,13 +59,17 @@ export {
 
 export type {
   XmaxStorageManaging,
-  XmaxUploadedFile,
-  XmaxDownloadedFile,
-  StorageProgress,
-  XmaxStorageProgressHandler,
   UploadFileOptions,
   DownloadFileOptions,
 } from './Core/Storage/XmaxStorageManaging';
+
+export type { XmaxUploadedFile } from './Core/Storage/XmaxUploadedFile';
+
+export type { XmaxDownloadedFile } from './Core/Storage/XmaxDownloadedFile';
+
+export type { StorageProgress } from './Core/Storage/StorageProgress';
+
+export type { XmaxStorageProgressHandler } from './Core/Storage/XmaxStorageProgressHandler';
 
 export { DefaultTrajectoryEffectRenderer } from './Render/Trajectory/DefaultTrajectoryEffectRenderer';
 

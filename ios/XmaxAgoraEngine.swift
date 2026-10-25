@@ -29,6 +29,9 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   /// The ordered RTC data stream identifier; negative before creation.
   private var streamID: Int = -1
 
+  /// The one-shot observer confirming decoded result readiness without a video view.
+  private var remoteFrames: XmaxRemoteFrameObserver?
+
   /// Whether the encoder receives external image frames instead of camera input.
   private var external = false
 
@@ -99,6 +102,18 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
         with: config,
         delegate: self
       )
+      remoteFrames = XmaxRemoteFrameObserver { [weak self] uid, channel, token in
+        Task { @MainActor [weak self] in
+          guard let self, self.owner == owner, self.roomID == channel else { return }
+          self.event(
+            "remoteFrameReady",
+            ["uid": uid, "token": token]
+          )
+        }
+      }
+      guard engine!.setVideoFrameDelegate(remoteFrames) else {
+        throw XmaxNativeFailure(message: "Remote frame observation is unavailable")
+      }
       try check(engine!.enableVideo())
       try check(engine!.enableLocalAudio(false))
       try check(engine!.enableLocalVideo(false))
@@ -182,6 +197,21 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
           mediaOptions: options
         )
       )
+    case "observeRemoteFrame":
+      remoteFrames?.observe(
+        roomID: roomID,
+        uid: UInt(int(request, "uid")),
+        token: request["token"] as? String ?? ""
+      )
+    case "clearRemoteFrame":
+      remoteFrames?.clear(token: request["token"] as? String)
+    case "remoteAudio":
+      try check(
+        engine.muteRemoteAudioStream(
+          UInt(int(request, "uid")),
+          mute: !(request["enabled"] as? Bool ?? false)
+        )
+      )
     case "subscribe":
       let uid = UInt(
         int(
@@ -191,12 +221,6 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       )
       try check(
         engine.muteRemoteVideoStream(
-          uid,
-          mute: false
-        )
-      )
-      try check(
-        engine.muteRemoteAudioStream(
           uid,
           mute: false
         )
@@ -253,6 +277,7 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       _ = engine.enableLocalVideo(false)
       _ = engine.enableLocalAudio(false)
     case "leave":
+      remoteFrames?.clear()
       roomID = ""
       streamID = -1
       _ = engine.enableLocalAudio(false)
@@ -363,6 +388,9 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   /// Stops callbacks before destroying the current RTC engine; repeated closure is safe.
   func close() {
     guard engine != nil else { return }
+    remoteFrames?.clear()
+    engine?.setVideoFrameDelegate(nil)
+    remoteFrames = nil
     emit = nil
     owner = ""
     roomID = ""

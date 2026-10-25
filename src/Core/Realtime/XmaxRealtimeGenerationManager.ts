@@ -8,6 +8,8 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { RenderControlling } from '../../Render/RenderControlling';
+import type { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
 import type { InteractionControlling } from '../../Media/Interaction/InteractionControlling';
 import { invalid } from '../../Foundation/Errors/XmaxError';
 import { ensureActive } from '../../Foundation/Runtime/Async';
@@ -53,6 +55,16 @@ export class XmaxRealtimeGenerationManager {
      * The interaction controller for the active task.
      */
     private readonly interaction: InteractionControlling,
+
+    /**
+     * The controller observing decoded result frame readiness.
+     */
+    private readonly render: RenderControlling,
+
+    /**
+     * The shared startup timing measurement.
+     */
+    private readonly timing?: RealtimeTiming,
   ) {}
 
   /**
@@ -76,13 +88,16 @@ export class XmaxRealtimeGenerationManager {
    *   successful conditions when omitted.
    * @param signal The operation's cancellation signal; cancellation reports CANCELLED.
    * @param options The returned dimensions, face restoration, and input-containment settings.
-   * @returns The confirmed remote account for a new task, or null for a condition update.
+   * @param generationVideoFormat The server canvas format; defaults to the local media format.
+   * @returns The remote account after first-frame readiness and audio activation, or null for a
+   *   condition update.
    */
   async start(
     format: RealtimeVideoFormat,
     context: RealtimeContext | null | undefined,
     signal: AbortSignal,
     options: GenerationParameters = {},
+    generationVideoFormat: RealtimeVideoFormat = format,
   ): Promise<RemoteStream | null> {
     const resolved = context
       ? {
@@ -96,18 +111,18 @@ export class XmaxRealtimeGenerationManager {
 
     ensureActive(signal);
     if (this.taskID) {
-      this.interaction.startInteraction(
-        this.taskID,
-        format
-      );
       await this.stream.updateGeneration(
         this.taskID,
-        format,
+        generationVideoFormat,
         resolved,
         options,
       );
       ensureActive(signal);
 
+      this.interaction.startInteraction(
+        this.taskID,
+        format
+      );
       this.context = resolved;
 
       return null;
@@ -123,17 +138,25 @@ export class XmaxRealtimeGenerationManager {
     // Keep the task until coordinated cleanup hides the result and sends its stop signal.
     const remote = await this.stream.beginGeneration(
       taskID,
-      format,
+      generationVideoFormat,
       resolved,
       signal,
       options,
     );
     ensureActive(signal);
-    this.context = resolved;
     this.interaction.startInteraction(
       taskID,
       format
     );
+    await this.render.waitUntilRemoteFrameReady(
+      remote,
+      signal
+    );
+    ensureActive(signal);
+    this.timing?.finishFirstFrame(taskID);
+    await this.stream.activateRemoteAudio(remote);
+    ensureActive(signal);
+    this.context = resolved;
     return remote;
   }
 

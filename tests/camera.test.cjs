@@ -204,6 +204,8 @@ mock.module('react-native', {
 });
 class FakeRtc {
   discardTracks() {}
+  async waitUntilRemoteFrameReady() {}
+  async setRemoteAudioSubscription(stream, enabled) { this.remoteAudio = { stream, enabled }; }
   static instances = [];
   runtime = runtime;
   listeners = new Set();
@@ -1451,6 +1453,8 @@ test('adaptive changes adjust only transport sizes and reuse the active room and
   assert.deepEqual(start.params.target_size, [896, 1680]);
   rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
   await pending;
+  let elapsed = performance.now() + 5000;
+  t.mock.method(performance, 'now', () => elapsed++);
   for (let index = 0; index < 3; index++) {
     rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Bad' } });
     await nextTurn();
@@ -1756,4 +1760,143 @@ test('manager configuration disables automatic changes while retaining manual qu
   assert.equal(manager.uplinkQualityLevel, 3);
   assert.equal(manager.downlinkQualityLevel, 1);
   assert.deepEqual(writes, []);
+});
+
+test('generation waits for a decoded first frame before audio, initial quality history and Generating state', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const { manager, local, rtc } = await readyCamera(t), frame = defer(), stages = [], writes = [];
+  t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (remote, signal) => { stages.push(['wait', remote]); await frame.promise; if (signal.aborted) throw { code: 'CANCELLED' }; });
+  t.mock.method(rtc, 'setRemoteAudioSubscription', async (_stream, enabled) => stages.push(enabled ? 'audio-on' : 'audio-off'));
+  t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+  let finished = false;
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } }).then(value => { finished = true; return value; });
+  await nextTurn();
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await nextTurn();
+  assert.equal(finished, false);
+  assert.equal(manager.currentState.connectionState, 'Connected');
+  assert.equal(stages.length, 1);
+  assert.equal(writes.length, 0);
+  frame.resolve(); await pending;
+  assert.equal(manager.currentState.connectionState, 'Generating');
+  assert.equal(stages.at(-1), 'audio-on');
+  assert.equal(writes.length, 2);
+  await manager.disconnect();
+  assert.equal(stages.at(-1), 'audio-off');
+});
+
+test('close during first-frame wait cancels startup without enabling result audio or persisting quality', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const { manager, local, rtc } = await readyCamera(t), writes = [], audio = [];
+  t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (_remote, signal) => waitFor(() => () => {}, signal, 10000, 'test first frame'));
+  t.mock.method(rtc, 'setRemoteAudioSubscription', async (_remote, enabled) => audio.push(enabled));
+  t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  const cancelled = assert.rejects(pending, { code: 'CANCELLED' });
+  await nextTurn();
+  rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await nextTurn(); await manager.close(); await cancelled;
+  assert.deepEqual(audio, []); assert.deepEqual(writes, []);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+});
+
+test('condition updates use source dimensions for interaction and do not reset a gesture on failed submission', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const manager = createManager(); t.after(() => manager.close());
+  const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' }), rtc = FakeRtc.instances.at(-1);
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  const remote = await pending, interaction = videoBinding(remote.videoTrack).interaction;
+  const revision = interaction.generation;
+  interaction.submitInteraction({ viewportSize: { width: 404, height: 308 }, contentMode: 'fit', points: [{ x: 20.2, y: 154 }] }, revision);
+  await nextTurn();
+  const tracks = rtc.packets.findLast(packet => packet.event === 'tracks');
+  assert(Math.abs(tracks.tracks[0][0] - 0.05) < 0.000001);
+  assert.equal(tracks.tracks[0][1], 0.5);
+  const send = t.mock.method(rtc, 'send', async () => { throw new Error('Submission rejected'); });
+  await assert.rejects(manager.startGeneration({ context: { prompt: 'other' } }));
+  assert.equal(interaction.generation, revision);
+  send.mock.restore();
+});
+
+test('repeated connect rejects while generation convenience calls continue to reuse the room', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const { manager, local, rtc } = await readyCamera(t);
+  const remote = await manager.connect({ localStream: local });
+  await assert.rejects(manager.connect({ localStream: local }), { code: 'INVALID_CONFIGURATION' });
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  assert.equal(await pending, remote);
+  assert.equal(rtc.joins, 1);
+});
+
+test('Connected and Generating listeners may immediately submit the next foreground operation', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const { manager, local, rtc } = await readyCamera(t);
+  let starting, changing;
+  await manager.setStateListener(state => {
+    if (state.connectionState === 'Connected' && !starting)
+      starting = manager.startGeneration({ context: { prompt: 'portrait' } });
+    if (state.connectionState === 'Generating' && !changing)
+      changing = manager.setUplinkQualityLevel(1);
+  });
+  await manager.connect({ localStream: local });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await starting; await changing;
+  assert.equal(manager.uplinkQualityLevel, 1);
+});
+
+test('first-frame timeout returns to preview without activating audio or recording initial quality', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
+  const { manager, local, rtc } = await readyCamera(t), writes = [], audio = [];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (_remote, signal) => waitFor(() => () => {}, signal, 10000, 'Remote video first frame'));
+  t.mock.method(rtc, 'setRemoteAudioSubscription', async (_remote, enabled) => audio.push(enabled));
+  t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+  const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  const timedOut = assert.rejects(pending, { code: 'TIMEOUT' });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await nextTurn(); t.mock.timers.tick(10000); await timedOut;
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.equal(manager.currentState.reason.error.code, 'TIMEOUT');
+  assert.deepEqual(audio, []); assert.deepEqual(writes, []);
+  assert.equal(rtc.camera, true);
+});
+
+test('a new request replaces first-frame waiting while retaining the connected room', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  const { manager, local, rtc } = await readyCamera(t), seen = [];
+  let waiting = 0;
+  t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (_remote, signal) => {
+    if (++waiting === 1) await waitFor(() => () => {}, signal, 10000, 'test frame');
+  });
+  t.mock.method(rtc, 'setRemoteAudioSubscription', async (_remote, enabled) => seen.push(enabled));
+  const first = manager.startGeneration({ localStream: local, context: { prompt: 'A' } });
+  const cancelled = assert.rejects(first, { code: 'CANCELLED' });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await nextTurn();
+  const latest = manager.startGeneration({ localStream: local, context: { prompt: 'B' } });
+  await Promise.all([cancelled, latest]);
+  assert.equal(rtc.joins, 1);
+  assert.equal(waiting, 2);
+  assert.deepEqual(seen, [true]);
+  assert.equal(rtc.packets.filter(packet => packet.event === 'start').at(-1).params.prompt, 'B');
+});
+
+test('automatic quality is inactive before generation and respects the initial stabilization window', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const { manager, local, rtc } = await readyCamera(t);
+  await manager.connect({ localStream: local });
+  const sample = async time => { now = time; rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Unknown' } }); await nextTurn(); };
+  for (const time of [1000, 2000, 3000]) await sample(time);
+  assert.equal(manager.uplinkQualityLevel, 2);
+  const pending = manager.startGeneration({ context: { prompt: 'portrait' } });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await pending;
+  for (const time of [4000, 5000, 6000]) await sample(time);
+  assert.equal(manager.uplinkQualityLevel, 2);
+  for (const time of [8000, 9000, 10000]) await sample(time);
+  assert.equal(manager.uplinkQualityLevel, 3);
 });

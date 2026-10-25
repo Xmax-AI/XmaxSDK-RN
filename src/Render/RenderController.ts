@@ -215,6 +215,32 @@ export class RenderController implements RenderControlling {
   }
 
   /**
+   * Waits for a new decoded result frame without requiring a mounted video view.
+   *
+   * @param remote The confirmed result room and account.
+   * @param signal The generation operation cancellation signal.
+   */
+  async waitUntilRemoteFrameReady(
+    remote: RemoteStream,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const binding = [...this.owned].find(
+      value =>
+        !value.local &&
+        value.valid &&
+        !value.retiring &&
+        (!value.remote ||
+          (value.remote.roomID === remote.roomID &&
+            value.remote.userID === remote.userID)),
+    );
+    if (!binding) throw invalid('Remote video stream is unavailable');
+    await this.rtc.waitUntilRemoteFrameReady(
+      remote,
+      signal
+    );
+  }
+
+  /**
    * Updates measured return dimensions while preserving source media and canvas identity.
    *
    * @param stream The remote stream's room and account.

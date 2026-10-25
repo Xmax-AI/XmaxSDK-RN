@@ -95,6 +95,17 @@ internal class XmaxAgoraEngine(
   private var cameraConfiguration: CameraCapturerConfiguration? = null
 
   /**
+   * The one-shot observer confirming decoded result readiness without a mounted video view.
+   */
+  private val remoteFrames = XmaxRemoteFrameObserver { uid, channel, token ->
+    if (!closed && channel == roomID) event(
+      "remoteFrameReady",
+      "uid" to uid,
+      "token" to token
+    )
+  }
+
+  /**
    * The native RTC engine held by the current media owner.
    */
   val engine: RtcEngine
@@ -551,6 +562,7 @@ internal class XmaxAgoraEngine(
     engine = RtcEngine.create(config)
 
     try {
+      check(engine.registerVideoFrameObserver(remoteFrames))
       check(engine.enableVideo())
       check(engine.enableLocalVideo(false))
       check(engine.enableLocalAudio(false))
@@ -632,16 +644,22 @@ internal class XmaxAgoraEngine(
         )
       }
       "join" -> join(request)
+      "observeRemoteFrame" -> remoteFrames.observe(
+        roomID,
+        request.getInt("uid"),
+        request.getString("token")
+      )
+      "clearRemoteFrame" -> remoteFrames.clear(request.optString("token"))
+      "remoteAudio" -> check(
+        engine.muteRemoteAudioStream(
+          request.getInt("uid"),
+          !request.optBoolean("enabled")
+        )
+      )
       "subscribe" -> {
         val uid = request.getInt("uid")
         check(
           engine.muteRemoteVideoStream(
-            uid,
-            false
-          )
-        )
-        check(
-          engine.muteRemoteAudioStream(
             uid,
             false
           )
@@ -675,6 +693,7 @@ internal class XmaxAgoraEngine(
         engine.enableLocalAudio(false)
       }
       "leave" -> {
+        remoteFrames.clear()
         roomID = ""
         streamID = -1
         engine.enableLocalAudio(false)
@@ -855,6 +874,8 @@ internal class XmaxAgoraEngine(
   fun close() {
     if (closed) return
     closed = true
+    remoteFrames.clear()
+    engine.registerVideoFrameObserver(null)
     roomID = ""
     RtcEngine.destroy()
     surfaces.clear()

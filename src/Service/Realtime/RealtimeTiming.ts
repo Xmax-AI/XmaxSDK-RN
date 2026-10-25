@@ -149,7 +149,7 @@ export class RealtimeTiming {
   }
 
   /**
-   * Records the first rendered result frame for the measured task.
+   * Records when the first decoded result frame becomes ready for the measured task.
    *
    * @param taskID The task associated with the current result stream.
    */
@@ -161,7 +161,7 @@ export class RealtimeTiming {
   }
 
   /**
-   * Logs startup completion once generation is confirmed and its first frame has rendered.
+   * Logs startup completion once generation is confirmed and its first frame is ready.
    *
    * @param taskID The confirmed generation task.
    */

@@ -130,7 +130,8 @@ test('generation activates interaction only after result-stream confirmation and
     beginGeneration: () => new Promise(resolve => { confirm = resolve; }),
     updateGeneration: () => events.push('update'),
     stopGeneration: () => { assert.equal(interaction.isActive, false); events.push('stop'); },
-  }, interaction);
+    activateRemoteAudio: async () => {},
+  }, interaction, { waitUntilRemoteFrameReady: async () => {} });
   const started = generation.start(format, { prompt: 'move' }, new AbortController().signal);
   assert.equal(interaction.isActive, false);
   confirm({ roomID: 'room', userID: 'bot' });

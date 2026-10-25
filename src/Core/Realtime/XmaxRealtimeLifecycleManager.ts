@@ -111,6 +111,11 @@ interface Operation {
    * Whether this operation has published Preparing state.
    */
   preparationStarted: boolean;
+
+  /**
+   * The final state delivered after this operation releases admission.
+   */
+  completionState: RealtimeState | null;
 }
 
 /**
@@ -503,6 +508,7 @@ export class XmaxRealtimeLifecycleManager {
       terminalError: null,
       termination: null,
       preparationStarted: false,
+      completionState: null,
     };
     const token: RealtimeOperation = {
       signal: entry.controller.signal,
@@ -537,6 +543,9 @@ export class XmaxRealtimeLifecycleManager {
       .then(value => {
         token.ensureCurrent();
         if (this.operation === entry) this.operation = null;
+        if (entry.request && this.generationRequest === entry.request)
+          this.generationRequest = null;
+        if (entry.completionState) this.setState(entry.completionState);
         return value;
       })
       .catch(async error => {
@@ -614,6 +623,22 @@ export class XmaxRealtimeLifecycleManager {
     )
       this.operation.preparationStarted = true;
     this.setState(state);
+  }
+
+  /**
+   * Stages an operation's final state for delivery after admission is released.
+   *
+   * State listeners can immediately submit the next operation when notified.
+   *
+   * @param state The final state snapshot.
+   * @param token The current operation lease.
+   */
+  complete(
+    state: RealtimeState,
+    token: RealtimeOperation
+  ): void {
+    token.ensureCurrent();
+    this.operation!.completionState = state;
   }
 
   /**

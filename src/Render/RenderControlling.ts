@@ -83,6 +83,17 @@ export interface RenderControlling {
   ): void;
 
   /**
+   * Waits for a new decoded result frame without requiring a mounted video view.
+   *
+   * @param remote The confirmed result room and account.
+   * @param signal The generation operation cancellation signal.
+   */
+  waitUntilRemoteFrameReady(
+    remote: RemoteStream,
+    signal: AbortSignal,
+  ): Promise<void>;
+
+  /**
    * Updates measured return dimensions while preserving source media and canvas identity.
    *
    * @param stream The remote stream's room and account.

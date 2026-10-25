@@ -184,6 +184,28 @@ export interface RtcManaging {
   ): Promise<void>;
 
   /**
+   * Waits for a new decoded frame from the expected room and account without a mounted view.
+   *
+   * @param stream The confirmed result stream identity.
+   * @param signal The operation cancellation signal.
+   */
+  waitUntilRemoteFrameReady(
+    stream: RemoteStream,
+    signal: AbortSignal,
+  ): Promise<void>;
+
+  /**
+   * Changes the result account's audio subscription without changing playback volume.
+   *
+   * @param stream The result room and account.
+   * @param enabled Whether to receive the result account's audio.
+   */
+  setRemoteAudioSubscription(
+    stream: RemoteStream,
+    enabled: boolean,
+  ): Promise<void>;
+
+  /**
    * Submits encoded messages in order within the room's rate limits.
    *
    * Completes after all packets reach native transport; rejects on cancellation or submission

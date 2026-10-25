@@ -506,6 +506,88 @@ export class RtcManager implements RtcManaging {
   }
 
   /**
+   * Waits for a new decoded frame from the expected room and account without a mounted view.
+   *
+   * Completes after a native frame observer sees a valid frame. Cancellation and the ten-second
+   * timeout remove the waiter; no pixel data crosses the JavaScript bridge.
+   *
+   * @param stream The confirmed result stream identity.
+   * @param signal The operation cancellation signal.
+   */
+  async waitUntilRemoteFrameReady(
+    stream: RemoteStream,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const connection = this.connection;
+    const uid = this.requireRemoteUID(stream);
+    const token = this.randomUUID();
+    await waitFor<void>(
+      (resolve, reject) => {
+        const off = this.onEvent(event => {
+          if (
+            event.type === 'remoteFrameReady' &&
+            event.token === token &&
+            event.stream.roomID === stream.roomID &&
+            event.stream.userID === stream.userID
+          )
+            resolve();
+          else if (event.type === 'error') reject(event.error);
+        });
+        void this.command(
+          'observeRemoteFrame',
+          { uid, token }
+        ).catch(reject);
+        return () => {
+          off();
+          if (this.connection === connection)
+            void this.command(
+              'clearRemoteFrame',
+              { token }
+            ).catch(() => {});
+        };
+      },
+      signal,
+      10000,
+      'Remote video first frame',
+    );
+  }
+
+  /**
+   * Changes result audio subscription without changing playback volume.
+   *
+   * @param stream The result room and account.
+   * @param enabled Whether to receive the result account's audio.
+   */
+  async setRemoteAudioSubscription(
+    stream: RemoteStream,
+    enabled: boolean,
+  ): Promise<void> {
+    const uid = this.requireRemoteUID(stream);
+    await this.command(
+      'remoteAudio',
+      { uid, enabled }
+    );
+  }
+
+  /**
+   * Requires a mapped result account belonging to the current RTC room.
+   *
+   * @param stream The expected result stream identity.
+   * @returns The mapped native user identifier.
+   */
+  private requireRemoteUID(
+    stream: RemoteStream
+  ): number {
+    if (this.connection?.roomID !== stream.roomID)
+      throw invalid('Remote RTC room is unavailable');
+    const entry = [...this.accounts].find(
+      ([, account]) => account === stream.userID,
+    );
+    if (!entry) throw invalid('Remote RTC account is unavailable');
+    return entry[0];
+  }
+
+  /**
    * The handlers awaiting room join completion.
    */
   private joinListeners = new Set<() => void>();
@@ -774,12 +856,20 @@ export class RtcManager implements RtcManaging {
       );
     const userID = this.accounts.get(uid);
     if (
-      ['publication', 'rendered', 'decoded', 'downlinkStatistics'].includes(
-        String(event.type),
-      ) &&
+      [
+        'publication',
+        'rendered',
+        'decoded',
+        'remoteFrameReady',
+        'downlinkStatistics',
+      ].includes(String(event.type)) &&
       !userID
     ) {
-      if (event.type === 'rendered' || event.type === 'decoded')
+      if (
+        event.type === 'rendered' ||
+        event.type === 'decoded' ||
+        event.type === 'remoteFrameReady'
+      )
         this.frames.set(
           uid,
           [
@@ -805,6 +895,15 @@ export class RtcManager implements RtcManaging {
         type: 'publication',
         stream: { roomID: this.connection.roomID, userID: userID! },
         published: event.published === true,
+      });
+    } else if (
+      event.type === 'remoteFrameReady' &&
+      typeof event.token === 'string'
+    ) {
+      this.emit({
+        type: 'remoteFrameReady',
+        stream: { roomID: this.connection.roomID, userID: userID! },
+        token: event.token,
       });
     } else if (event.type === 'rendered' || event.type === 'decoded') {
       this.emit({

@@ -590,12 +590,17 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
    *
    * @param connectionState The connection state to commit.
    * @param token The operation lease that must remain current at commitment.
+   * @param completesOperation Whether to deliver the final state after releasing admission.
    */
   private update(
     connectionState: RealtimeConnectionState,
     token: RealtimeOperation,
+    completesOperation = false,
   ): void {
-    this.lifecycleManager.commit(
+    const commit = completesOperation
+      ? this.lifecycleManager.complete.bind(this.lifecycleManager)
+      : this.lifecycleManager.commit.bind(this.lifecycleManager);
+    commit(
       {
         connectionState,
         sessionID: this.connectionManager.session?.id ?? null,
@@ -650,20 +655,6 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
           );
         if (event.type === 'localPublished')
           this.timing.finishLocalPublication();
-        if (event.type === 'rendered' && this.generationManager.taskID) {
-          const connection = this.connectionManager.session?.connection;
-          if (
-            connection?.roomID === event.stream.roomID &&
-            (!connection.botName || connection.botName === event.stream.userID)
-          ) {
-            this.timing.finishFirstFrame(this.generationManager.taskID);
-            if (
-              this.currentState.connectionState ===
-              RealtimeConnectionState.generating
-            )
-              this.timing.finish(this.generationManager.taskID);
-          }
-        }
         if (event.type === 'quality') {
           this.notify(() => this.qualityListener?.(event.quality));
           void this.adaptQuality(event.quality);
@@ -774,7 +765,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
         if (source === 'image')
           this.update(
             RealtimeConnectionState.ready,
-            token
+            token,
+            true
           );
         return stream;
       },
@@ -784,7 +776,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
 
   /**
    * Connects this manager's local stream and returns the result stream without starting generation.
-   * Bind the result track before waiting for generation.
+   * The result track can be bound before or after generation startup.
    *
    * @param options The local stream and cancellation signal.
    */
@@ -802,10 +794,16 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   ): Promise<RealtimeMediaStream> {
     return this.lifecycleManager.run(
       'connection',
-      token => this.connectInternal(
-        localStream,
-        token
-      ),
+      async token => {
+        if (this.connectionManager.remoteStream)
+          throw invalid('Realtime connection is already open');
+        const remote = await this.connectInternal(
+          localStream,
+          token,
+          true
+        );
+        return remote;
+      },
       signal,
     );
   }
@@ -816,10 +814,12 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
    * @param localStream A local stream created by this manager; streams owned by other managers are
    *   rejected.
    * @param token The operation lease that must remain current at commitment.
+   * @param completesOperation Whether connection completes the owning operation.
    */
   private async connectInternal(
     localStream: RealtimeMediaStream,
     token: RealtimeOperation,
+    completesOperation = false,
   ): Promise<RealtimeMediaStream> {
     const binding = this.renderController.requireLocal(localStream);
     if (this.connectionManager.remoteStream)
@@ -852,7 +852,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
     );
     this.update(
       RealtimeConnectionState.connected,
-      token
+      token,
+      completesOperation
     );
     return stream;
   }
@@ -864,7 +865,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
    *
    * @param options The local stream, generation conditions, face restoration, and cancellation
    *   settings.
-   * @returns The manager-owned result stream after task confirmation.
+   * @returns The manager-owned result stream after publication, first-frame readiness, and audio
+   *   activation.
    */
   startGeneration(
     options: RealtimeOperationOptions & {
@@ -983,7 +985,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
             ...this.mediaService.resolveGenerationSize(format),
           };
           const remote = await this.generationManager.start(
-            generationFormat,
+            format,
             options.context,
             signal,
             {
@@ -991,9 +993,12 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
                 format,
                 this.streamController.quality.targetMaximum ?? format,
               ),
-              paddingContain: this.mediaController.source === 'image',
+              paddingContain:
+                format.width * generationFormat.height !==
+                format.height * generationFormat.width,
               faceRestoration: options.faceRestoration ?? false,
             },
+            generationFormat,
           );
           this.faceRestoration = options.faceRestoration ?? false;
 
@@ -1004,9 +1009,25 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
               remote
             );
 
+          if (!updating) {
+            const quality = this.streamController.quality;
+            if (quality.uplinkQualityLevel !== null)
+              quality.complete(
+                quality.uplinkQualityLevel,
+                false,
+                true
+              );
+            if (quality.downlinkQualityLevel !== null)
+              quality.complete(
+                quality.downlinkQualityLevel,
+                true,
+                true
+              );
+          }
           this.update(
             RealtimeConnectionState.generating,
-            token
+            token,
+            true
           );
           if (this.generationManager.taskID)
             this.timing.finish(this.generationManager.taskID);
@@ -1072,12 +1093,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
           );
 
           const remote = await this.generationManager.start(
-            {
-              ...this.renderController.requireLocal(local).format,
-              ...this.mediaService.resolveGenerationSize(
-                this.renderController.requireLocal(local).format,
-              ),
-            },
+            this.renderController.requireLocal(local).format,
             null,
             signal,
             {
@@ -1087,6 +1103,12 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
                   this.renderController.requireLocal(local).format,
               ),
               faceRestoration: this.faceRestoration,
+            },
+            {
+              ...this.renderController.requireLocal(local).format,
+              ...this.mediaService.resolveGenerationSize(
+                this.renderController.requireLocal(local).format,
+              ),
             },
           );
           const stream = this.connectionManager.remoteStream;
@@ -1099,7 +1121,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
           ensureActive(signal);
           this.update(
             RealtimeConnectionState.generating,
-            token
+            token,
+            true
           );
         }
 
@@ -1119,7 +1142,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   ): Promise<void> {
     if (
       !this.options.isAdaptiveQualityEnabled ||
-      !this.connectionManager.session ||
+      this.currentState.connectionState !==
+        RealtimeConnectionState.generating ||
       this.lifecycleManager.isBusy
     ) {
       this.streamController.quality.resetSamples();
@@ -1226,6 +1250,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
             ? RealtimeConnectionState.ready
             : RealtimeConnectionState.idle,
           token,
+          true,
         );
       },
       signal,

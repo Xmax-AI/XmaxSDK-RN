@@ -24,6 +24,23 @@ export type RtcEvent =
   | {
 
       /**
+       * The one-shot decoded frame readiness event.
+       */
+      type: 'remoteFrameReady';
+
+      /**
+       * The room and account whose decoded frame is available.
+       */
+      stream: RemoteStream;
+
+      /**
+       * The observation token rejecting notifications from replaced waits.
+       */
+      token: string;
+    }
+  | {
+
+      /**
        * The event or result discriminator.
        */
       type: 'localFrame' | 'captureReady' | 'localPublished';

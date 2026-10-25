@@ -14,10 +14,10 @@ import type { ApiServicing } from '../Network/ApiServicing';
 import { record, nonEmpty } from '../Network/ApiResponse';
 import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
 import { abortable } from '../../Foundation/Runtime/Async';
+import type { StorageProgress } from '../../Core/Storage/StorageProgress';
 import type {
   UploadFileOptions,
   DownloadFileOptions,
-  StorageProgress,
 } from '../../Core/Storage/XmaxStorageManaging';
 import type { StorageManaging } from './StorageTypes';
 import {

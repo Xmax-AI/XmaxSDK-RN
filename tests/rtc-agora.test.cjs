@@ -255,3 +255,44 @@ test('local publication timing events require the current room and native owner'
   emit({ type: 'localPublished' });
   assert.equal(events.length, 1);
 });
+
+test('first-frame readiness is headless, one-shot and bound to the requested room, account and token', async t => {
+  const rtc = await fixture(t);
+  emit({ type: 'account', uid: 42, userID: 'bot' });
+  const controller = new AbortController();
+  let ready = false;
+  const pending = rtc.waitUntilRemoteFrameReady({ roomID: 'room', userID: 'bot' }, controller.signal).then(() => { ready = true; });
+  const observation = calls.findLast(call => call.operation === 'observeRemoteFrame');
+  assert.equal(observation.uid, 42);
+  assert(!calls.some(call => call.operation === 'bind' && call.owner === owner));
+  emit({ type: 'decoded', uid: 42, width: 1024, height: 1920 });
+  emit({ type: 'remoteFrameReady', uid: 42, token: 'old-token' });
+  emit({ type: 'remoteFrameReady', uid: 42, token: observation.token, roomID: 'old-room' });
+  await tick(); assert.equal(ready, false);
+  emit({ type: 'remoteFrameReady', uid: 42, token: observation.token });
+  await pending;
+  assert.equal(calls.findLast(call => call.operation === 'clearRemoteFrame').token, observation.token);
+  const next = rtc.waitUntilRemoteFrameReady({ roomID: 'room', userID: 'bot' }, controller.signal);
+  const cancelled = assert.rejects(next, { code: 'CANCELLED' });
+  const token = calls.findLast(call => call.operation === 'observeRemoteFrame').token;
+  assert.notEqual(token, observation.token);
+  emit({ type: 'remoteFrameReady', uid: 42, token: observation.token });
+  controller.abort(); await cancelled;
+});
+
+test('first-frame timeout and audio subscription remain separate from video subscription and volume', async t => {
+  const rtc = await fixture(t);
+  emit({ type: 'account', uid: 42, userID: 'bot' });
+  emit({ type: 'publication', uid: 42, published: true });
+  await tick();
+  assert.equal(calls.at(-1).operation, 'subscribe');
+  await rtc.setRemoteAudioSubscription({ roomID: 'room', userID: 'bot' }, true);
+  assert.deepEqual({ uid: calls.at(-1).uid, enabled: calls.at(-1).enabled, operation: calls.at(-1).operation }, { uid: 42, enabled: true, operation: 'remoteAudio' });
+  assert.notEqual(calls.at(-1).operation, 'volume');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = rtc.waitUntilRemoteFrameReady({ roomID: 'room', userID: 'bot' }, new AbortController().signal);
+  const timedOut = assert.rejects(pending, { code: 'TIMEOUT' });
+  t.mock.timers.tick(10000);
+  await timedOut;
+  assert.equal(calls.at(-1).operation, 'clearRemoteFrame');
+});
