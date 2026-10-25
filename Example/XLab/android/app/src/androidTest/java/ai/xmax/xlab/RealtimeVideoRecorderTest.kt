@@ -102,8 +102,10 @@ class RealtimeVideoRecorderTest {
     val recorder = RealtimeVideoRecorder(context)
     start(recorder)
     try {
-      repeat(20) { index ->
-        recorder.append(packet(video(20_000_000L + index * 33_333L, width = 1024, height = 1920)))
+      repeat(180) { index ->
+        val pts = 20_000_000L + index * 33_333L
+        recorder.append(packet(video(pts, width = 1024, height = 1920)))
+        repeat(3) { audioIndex -> recorder.append(packet(audio(pts + audioIndex * 10_000L, (index * 3 + audioIndex) * 480))) }
         Thread.sleep(33)
       }
       val uri = stop(recorder)

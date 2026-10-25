@@ -106,10 +106,22 @@ class RealtimeMediaFrameDispatcherTest {
   }
 
   @Test fun nativeVideoCopiesPaddedPlanesAndKeepsRotationAndRenderingClock() {
+    assertNativeVideoClock(1000, 5_000_000_000L, 1_000_000L)
+  }
+
+  @Test fun nativeVideoWithZeroRenderStartTimeUsesSharedRenderingClock() {
+    assertNativeVideoClock(0, 4_567_890_123L, 1_792_000_000_567_890L)
+  }
+
+  @Test fun nativeVideoWithMissingRenderStartTimeAndInvalidPresentationTimeIsDiscarded() {
+    assertNativeVideoClock(0, 0, null)
+  }
+
+  private fun assertNativeVideoClock(renderTimeMs: Long, timestampNs: Long, expectedPTS: Long?) {
     val received = java.util.concurrent.CountDownLatch(1)
     var packet: RealtimeVideoFrame? = null
     val consumer = RealtimeMediaFrameConsumer { packet = it.content as RealtimeVideoFrame; received.countDown() }
-    val observer = XmaxRemoteFrameObserver { _, _, _ -> }
+    val observer = XmaxRemoteFrameObserver(RemoteVideoTimeline({ 1_792_000_000_000L }, { 4_000_000_000L })) { _, _, _ -> }
     observer.setOutput(consumer, "room", 42, "stream")
     val y = ByteBuffer.wrap(byteArrayOf(1, 2, 0, 0, 3, 4, 0, 0))
     var released = 0
@@ -131,9 +143,15 @@ class RealtimeMediaFrameDispatcherTest {
       override fun rotate(a: Int): io.agora.base.VideoFrame.Buffer = error("Unused")
       override fun transform(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int): io.agora.base.VideoFrame.Buffer = error("Unused")
     }
-    val native = io.agora.base.VideoFrame(input, 90, 123)
+    val native = io.agora.base.VideoFrame(input, 90, timestampNs, null, null, 0L, 1f, 0, renderTimeMs)
     observer.onRenderVideoFrame("room", 42, native)
     y.put(0, 99)
+    if (expectedPTS == null) {
+      assertFalse(received.await(100, TimeUnit.MILLISECONDS))
+      assertEquals(0, released)
+      observer.close(); consumer.close()
+      return
+    }
     assertTrue(received.await(2, TimeUnit.SECONDS))
     val video = packet!!
     val pixels = ByteArray(4); video.y.duplicate().get(pixels)
@@ -141,7 +159,7 @@ class RealtimeMediaFrameDispatcherTest {
     assertEquals(5.toByte(), video.u.get(0))
     assertEquals(6.toByte(), video.v.get(0))
     assertEquals(90, video.rotation)
-    assertEquals(native.renderStartTimeMs * 1000, video.presentationTimeStamp)
+    assertEquals(expectedPTS, video.presentationTimeStamp)
     assertEquals(1, released)
     observer.close(); consumer.close()
   }

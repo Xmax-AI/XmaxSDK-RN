@@ -88,7 +88,7 @@ The example processing functions belong to your app. Plane strides are `width` f
 ## Timing, bounds, and ownership
 
 - Audio and video share one opaque `streamID` per result binding. Reconnection or restarting generation creates a new identity, even if the RTC account stays the same. Listener replacement within the same binding retains the identity.
-- `presentationTimeStamp` uses the receiver rendering clock, not the source file timecode. Swift uses `CMTime`; Kotlin uses microseconds. Audio advances by sample count between explicit clock or format discontinuities. The initial timestamp need not be zero.
+- `presentationTimeStamp` uses the receiver rendering clock, not the source file timecode. Swift uses `CMTime`; Kotlin uses microseconds. Audio advances by sample count between explicit clock or format discontinuities. The initial timestamp need not be zero. On Android, a missing video render-start time uses native monotonic video presentation time mapped to the Unix rendering clock at the result binding.
 - Events are serialized in delivery order, not sorted across audio and video by timestamp. Buffer and schedule both tracks by PTS using one shared origin. Each event contains one audio or video packet, not a synchronized pair.
 - `isDiscontinuous` marks the first event of each track, format or clock changes, and output following rejected packets. Handle gaps explicitly or begin a new recording segment. Dropped output does not compress the audio timeline.
 - Each SDK output queue retains at most 256 packets and 32 MiB of media, including an executing callback. Slow receivers cause new output to be discarded. Forward packets promptly; your own asynchronous queues need their own limits.

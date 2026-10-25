@@ -152,17 +152,23 @@ internal class RealtimeVideoRecorder(private val context: Context) {
             val source = sources[planeIndex].duplicate()
             val target = plane.buffer.duplicate()
             val offset = target.position()
+            val sourceRow = if (plane.pixelStride == 1) null else ByteArray(width)
+            val targetRow = if (plane.pixelStride == 1) null else ByteArray((width - 1) * plane.pixelStride + 1)
             for (row in 0 until height) {
               val destination = offset + row * plane.rowStride
+              target.position(destination)
               if (plane.pixelStride == 1) {
                 val line = source.duplicate().apply { limit(position() + width) }
-                target.position(destination)
                 target.put(line)
                 source.position(source.position() + width)
               } else {
-                for (column in 0 until width) {
-                  target.put(destination + column * plane.pixelStride, source.get())
-                }
+                // Preserve the neighboring chroma plane while copying rows in bulk.
+                // Array indexing avoids per-pixel ByteBuffer calls for interleaved UV layouts.
+                source.get(sourceRow!!)
+                target.get(targetRow!!)
+                for (column in 0 until width) targetRow[column * plane.pixelStride] = sourceRow[column]
+                target.position(destination)
+                target.put(targetRow)
               }
             }
           }

@@ -18,9 +18,15 @@ import java.nio.ByteOrder
 /**
  * Observes decoded readiness and requested native media without changing RTC rendering.
  *
+ * @param videoTimeline Maps native video presentation time onto the shared rendering clock.
  * @param onReady Receives the account, room, and token for the next matching decoded frame.
  */
 internal class XmaxRemoteFrameObserver(
+
+  /**
+   * Maps missing video render times onto the audio rendering clock for the active binding.
+   */
+  private val videoTimeline: RemoteVideoTimeline = RemoteVideoTimeline(),
 
   /**
    * The callback receiving one matching decoded frame's account, room, and observation token.
@@ -63,6 +69,7 @@ internal class XmaxRemoteFrameObserver(
     streamID: String? = null
   ) {
     synchronized(lock) {
+      if (output?.token != streamID && consumer != null && streamID != null) videoTimeline.reset()
       output = if (consumer != null && streamID != null) Request(
         roomID,
         uid,
@@ -215,6 +222,9 @@ internal class XmaxRemoteFrameObserver(
   /**
    * Reports readiness once for a matching frame and preserves RTC rendering.
    *
+   * Maps the native monotonic presentation timestamp to the Unix rendering clock when render-start
+   * time is unavailable.
+   *
    * @param channelId The RTC room containing the frame.
    * @param uid The native account publishing the frame.
    * @param frame The decoded frame owned by RTC for this callback.
@@ -241,7 +251,10 @@ internal class XmaxRemoteFrameObserver(
     val target = synchronized(lock) { output?.takeIf { it.uid == uid && it.roomID == channelId } }
     if (target != null) {
       val renderTime = frame.renderStartTimeMs
-      if (renderTime <= 0 || renderTime > Long.MAX_VALUE / 1000) {
+      val presentationTimeUs = synchronized(lock) {
+        videoTimeline.presentationTimeUs(renderTime, frame.timestampNs)
+      }
+      if (presentationTimeUs == null) {
         dispatcher.discard(
           false,
           target.token
@@ -278,15 +291,15 @@ internal class XmaxRemoteFrameObserver(
                 (height + 1) / 2
               ),
               frame.rotation,
-              renderTime * 1000
+              presentationTimeUs
             ),
             target.token
           )
         } catch (_: Exception) {
           dispatcher.discard(
-          false,
-          target.token
-        )
+            false,
+            target.token
+          )
         } finally { image.release() }
       }
     }
