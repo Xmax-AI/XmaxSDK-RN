@@ -18,7 +18,14 @@ import {
   useSyncExternalStore,
   type ComponentRef,
 } from 'react';
-import { findNodeHandle, StyleSheet, View, type ViewProps } from 'react-native';
+import {
+  Animated,
+  Easing,
+  findNodeHandle,
+  StyleSheet,
+  View,
+  type ViewProps,
+} from 'react-native';
 import { VideoSurface } from './XmaxRealtimeVideo';
 import { videoBinding } from './VideoRenderRegistry';
 import { VideoContentMode } from '../../Foundation/Media/Video/VideoContentMode';
@@ -45,6 +52,12 @@ export interface XmaxRealtimeDualVideoProps extends ViewProps {
   videoContentMode?: VideoContentMode;
 
   /**
+   * The remote video's fade-in duration, in seconds; defaults to 0.3. Zero, negative, or nonfinite
+   * values disable animation. Changes apply to the next fade-in.
+   */
+  remoteVideoFadeInDuration?: number;
+
+  /**
    * Whether remote generation accepts multitouch interaction; defaults to true.
    */
   isInteractionEnabled?: boolean;
@@ -57,16 +70,18 @@ export interface XmaxRealtimeDualVideoProps extends ViewProps {
 
 /**
  * A video view that overlays confirmed remote output on local preview. Both tracks must share a
- * manager. Remote output appears without animation after its first frame renders. Removing remote
- * output reveals preview; unmounting does not close the manager. Your app owns loading and error UI.
+ * manager. Remote output fades in after its first frame renders. Removing remote output immediately
+ * reveals preview; unmounting does not close the manager. Your app owns loading and error UI.
  *
- * @param props The local and remote tracks, scaling mode, interaction renderer, and view styles.
+ * @param props The local and remote tracks, scaling mode, fade-in duration, interaction renderer,
+ *   and view styles.
  */
 export function XmaxRealtimeDualVideo(
   {
     localTrack,
     remoteTrack,
     videoContentMode = VideoContentMode.fill,
+    remoteVideoFadeInDuration = 0.3,
     isInteractionEnabled = true,
     trajectoryRenderer,
     style,
@@ -96,6 +111,7 @@ export function XmaxRealtimeDualVideo(
           trajectoryRenderer={trajectoryRenderer}
           track={remoteTrack}
           videoContentMode={videoContentMode}
+          remoteVideoFadeInDuration={remoteVideoFadeInDuration}
         />
       )}
     </View>
@@ -105,12 +121,13 @@ export function XmaxRealtimeDualVideo(
 /**
  * Displays confirmed output and hides its native view before RTC resources are released.
  *
- * @param props The result track, scaling mode, and interaction renderer.
+ * @param props The result track, scaling mode, fade-in duration, and interaction renderer.
  */
 function RemoteVideoLayer(
   {
     track,
     videoContentMode,
+    remoteVideoFadeInDuration,
     isInteractionEnabled,
     trajectoryRenderer,
   }: {
@@ -126,6 +143,11 @@ function RemoteVideoLayer(
     videoContentMode: VideoContentMode;
 
     /**
+     * The remote fade-in duration, in seconds; nonpositive or nonfinite values disable animation.
+     */
+    remoteVideoFadeInDuration: number;
+
+    /**
      * Whether to sample interactions on active remote generation.
      */
     isInteractionEnabled: boolean;
@@ -138,12 +160,18 @@ function RemoteVideoLayer(
 ) {
   const record = videoBinding(track);
   const container = useRef<ComponentRef<typeof View>>(null);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const fadeInDuration = useRef(remoteVideoFadeInDuration);
   const nativeID = `xmax-remote-${record?.id ?? track.id}`;
+
+  fadeInDuration.current = remoteVideoFadeInDuration;
 
   useLayoutEffect(
     () => {
       if (!record) return;
       const hide = async () => {
+        opacity.stopAnimation();
+        opacity.setValue(0);
         const tag = findNodeHandle(container.current);
         if (typeof tag === 'number')
           await NativeRuntime.hideVideoContainer(
@@ -157,7 +185,7 @@ function RemoteVideoLayer(
         record.hideBeforeRelease.delete(hide);
       };
     },
-    [record, nativeID]
+    [record, nativeID, opacity]
   );
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -183,6 +211,36 @@ function RemoteVideoLayer(
   const visible =
     displayed && record?.valid && !record.retiring && record.confirmed;
 
+  useLayoutEffect(
+    () => {
+      const duration = fadeInDuration.current;
+      let animation: Animated.CompositeAnimation | null = null;
+      if (visible && Number.isFinite(duration) && duration > 0) {
+        animation = Animated.timing(
+          opacity,
+          {
+            toValue: 1,
+            duration: duration * 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+            isInteraction: false,
+          }
+        );
+      }
+
+      opacity.stopAnimation();
+      opacity.setValue(visible && !animation ? 1 : 0);
+      animation?.start();
+
+      return () => {
+        animation?.stop();
+        opacity.stopAnimation();
+        opacity.setValue(0);
+      };
+    },
+    [visible, opacity]
+  );
+
   return (
     <View
       ref={container}
@@ -191,14 +249,16 @@ function RemoteVideoLayer(
       pointerEvents={visible ? 'auto' : 'none'}
       style={[StyleSheet.absoluteFill, !visible && styles.hidden]}
     >
-      <VideoSurface
-        isInteractionEnabled={isInteractionEnabled}
-        trajectoryRenderer={trajectoryRenderer}
-        track={track}
-        videoContentMode={videoContentMode}
-        onDisplayed={setDisplayed}
-        style={StyleSheet.absoluteFill}
-      />
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
+        <VideoSurface
+          isInteractionEnabled={isInteractionEnabled}
+          trajectoryRenderer={trajectoryRenderer}
+          track={track}
+          videoContentMode={videoContentMode}
+          onDisplayed={setDisplayed}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
     </View>
   );
 }

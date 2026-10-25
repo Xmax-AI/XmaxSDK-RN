@@ -85,6 +85,7 @@ export async function cameraContract(client: XmaxClient) {
     videoContentMode: VideoContentMode.fit,
   };
   const realtimeVideo: XmaxRealtimeDualVideoProps = {
+    remoteVideoFadeInDuration: 0,
     isInteractionEnabled: false,
     trajectoryRenderer: null,
     localTrack: local.videoTrack,

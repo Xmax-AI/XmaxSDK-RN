@@ -389,9 +389,11 @@ import { XmaxRealtimeVideo, VideoContentMode } from '@xmaxai/react-native-sdk';
 ```
 
 Both components support remote trajectory interaction. `XmaxRealtimeDualVideo`
-keeps local preview mounted and shows remote output without a fade after its first
-frame renders. Unmounting either component detaches its view; your app still owns
-the manager lifecycle.
+keeps local preview mounted and fades remote output in after its first frame renders.
+`remoteVideoFadeInDuration` defaults to `0.3` seconds; set it to `0` to disable the
+animation. Negative or nonfinite values also disable it. Changes apply to the next
+fade-in. Removing remote output immediately restores local preview. Unmounting either
+component detaches its view; your app still owns the manager lifecycle.
 
 See the [example project](#example-project) for state binding and a complete implementation.
 

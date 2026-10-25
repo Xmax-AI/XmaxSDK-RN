@@ -635,6 +635,7 @@ export function RealtimeScreen({
     >
       <View style={[styles.preview, { marginTop: previewTop }]}>
         <XmaxRealtimeDualVideo
+          remoteVideoFadeInDuration={0}
           trajectoryRenderer={trajectoryRenderer}
           localTrack={localTrack}
           remoteTrack={remoteTrack}
