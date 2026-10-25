@@ -585,7 +585,6 @@ test('generation waits for its room and bot publication, updates reuse task, dis
   assert.deepEqual(change.params, {
     model: 'default',
     size: [1024, 1920],
-    target_size: [896, 1680],
     face_replace: false,
     prompt: '油画',
   });
@@ -595,6 +594,7 @@ test('generation waits for its room and bot publication, updates reuse task, dis
   const next = rtc.packets.filter(p => p.event === 'start').at(-1);
   assert.notEqual(next.uid, id);
   assert.equal(next.params.prompt, '油画');
+  assert.deepEqual(next.params.target_size, [896, 1680]);
   emit(next.uid);
   const switched = await switching;
   assert.equal(switched.videoTrack, sameTrack);
@@ -1631,6 +1631,118 @@ test('manual quality changes reuse the room/task and never mutate camera capture
   for (const level of [0, 6, 1.5, NaN]) await assert.rejects(manager.setDownlinkQualityLevel(level), { code: 'INVALID_CONFIGURATION' });
   assert.equal(rtc.packets.length, before);
 });
+
+for (const source of ['camera', 'image']) {
+  test(`${source}: condition updates preserve the downlink size selected for the active task`, async t => {
+    t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+    const manager = createManager();
+    t.after(() => manager.close());
+    if (source === 'image')
+      t.mock.method(FakeImages.instances.at(-1), 'size', async () => ({ width: 1200, height: 1600 }));
+    const local = source === 'camera'
+      ? await manager.createLocalCameraStream()
+      : await manager.createLocalImageStream({ fileURL: '/image.jpg' });
+    const rtc = FakeRtc.instances.at(-1);
+    const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+    await nextTurn();
+    const start = rtc.packets.find(packet => packet.event === 'start');
+    assert.ok(start.params.target_size);
+    assert.equal(start.params.min_bitrate, 500);
+    assert.ok(start.params.max_bitrate >= 500);
+    rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+    await pending;
+
+    await manager.setDownlinkQualityLevel(3);
+    const target = rtc.packets.findLast(packet => packet.event === 'change_target_size');
+    const context = { prompt: 'watercolor', referencePath: 'https://example.test/reference.jpg' };
+    await manager.startGeneration({ context, faceRestoration: true });
+    await manager.startGeneration();
+
+    const changes = rtc.packets.filter(packet => packet.event === 'change_condition');
+    assert.equal(changes.length, 2);
+    for (const change of changes) {
+      assert.equal(change.uid, start.uid);
+      assert.equal(change.params.prompt, context.prompt);
+      assert.equal(change.params.ref_image_path, context.referencePath);
+      for (const key of ['target_size', 'min_bitrate', 'max_bitrate', 'mirror'])
+        assert.equal(Object.hasOwn(change.params, key), false);
+    }
+    assert.equal(changes[0].params.face_replace, true);
+    assert.equal(changes[1].params.face_replace, false);
+    assert.equal(manager.downlinkQualityLevel, 3);
+    assert.equal(manager.currentState.taskID, start.uid);
+    assert.equal(manager.currentState.connectionState, 'Generating');
+    assert.equal(rtc.packets.filter(packet => packet.event === 'change_target_size').length, 1);
+    assert.notDeepEqual(target.params.target_size, start.params.target_size);
+    assert.equal(rtc.packets.filter(packet => packet.event === 'start').length, 1);
+    assert.equal(rtc.joins, 1);
+  });
+}
+
+for (const failedDirection of ['uplink', 'downlink']) {
+  test(`automatic ${failedDirection} failure does not block the other direction or persist the failed tier`, async t => {
+    const { manager, rtc } = await generatingCamera(t), writes = [];
+    const taskID = manager.currentState.taskID;
+    t.mock.method(rtc, 'writePreference', async (key, value) => writes.push({ key, ...JSON.parse(value) }));
+    const encoding = t.mock.method(rtc, 'configureEncoding', async () => {
+      if (failedDirection === 'uplink') throw new Error('Encoder rejected');
+    });
+    const send = rtc.send.bind(rtc);
+    const targets = [];
+    t.mock.method(rtc, 'send', async message => {
+      const packet = JSON.parse(message);
+      if (packet.event === 'change_target_size') {
+        targets.push(packet);
+        if (failedDirection === 'downlink') throw new Error('Signal rejected');
+      }
+      await send(message);
+    });
+    let elapsed = performance.now() + 5000;
+    t.mock.method(performance, 'now', () => elapsed++);
+    for (let index = 0; index < 3; index++) {
+      rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Bad' } });
+      await nextTurn();
+    }
+
+    assert.equal(encoding.mock.callCount(), 1);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].uid, taskID);
+    assert.equal(manager.uplinkQualityLevel, failedDirection === 'uplink' ? 2 : 3);
+    assert.equal(manager.downlinkQualityLevel, failedDirection === 'downlink' ? 2 : 3);
+    assert.deepEqual(writes.map(({ key, level }) => ({ key, level })), [{
+      key: `quality.x2.1.1-preview-cn.${failedDirection === 'uplink' ? 'down' : 'up'}`,
+      level: 3,
+    }]);
+    assert.equal(manager.currentState.connectionState, 'Generating');
+    assert.equal(manager.currentState.taskID, taskID);
+    assert.equal(rtc.joins, 1);
+  });
+}
+
+for (const fails of [false, true]) {
+  test(`close during automatic uplink adjustment prevents subsequent downlink work (uplink fails: ${fails})`, async t => {
+    const { manager, rtc } = await generatingCamera(t), gate = defer(), writes = [];
+    t.mock.method(rtc, 'writePreference', async (...args) => writes.push(args));
+    const encoding = t.mock.method(rtc, 'configureEncoding', async () => gate.promise);
+    let elapsed = performance.now() + 5000;
+    t.mock.method(performance, 'now', () => elapsed++);
+    for (let index = 0; index < 3; index++) {
+      rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Bad' } });
+      await nextTurn();
+    }
+    assert.equal(encoding.mock.callCount(), 1);
+
+    const closing = manager.close();
+    if (fails) gate.reject(new Error('Encoder rejected'));
+    else gate.resolve();
+    await closing;
+    assert.equal(rtc.packets.filter(packet => packet.event === 'change_target_size').length, 0);
+    assert.deepEqual(writes, []);
+    assert.equal(manager.currentState.connectionState, 'Idle');
+    assert.equal(manager.uplinkQualityLevel, null);
+    assert.equal(manager.downlinkQualityLevel, null);
+  });
+}
 
 test('failed manual encoding and signals preserve the active quality level and do not save history', async t => {
   const { manager, rtc } = await generatingCamera(t), writes = [];

@@ -999,10 +999,14 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
             options.context,
             signal,
             {
-              targetSize: this.mediaService.resolveTargetSize(
-                format,
-                this.streamController.quality.targetMaximum ?? format,
-              ),
+              ...(updating
+                ? {}
+                : {
+                    targetSize: this.mediaService.resolveTargetSize(
+                      format,
+                      this.streamController.quality.targetMaximum ?? format,
+                    ),
+                  }),
               paddingContain:
                 format.width * generationFormat.height !==
                 format.height * generationFormat.width,
@@ -1149,7 +1153,8 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
   }
 
   /**
-   * Applies adaptation only when no app operation owns the lifecycle.
+   * Applies independent uplink and downlink adaptations only while no app operation owns the
+   * lifecycle. Failure in one direction does not prevent adjustment of the other.
    *
    * @param quality The network quality sample for both directions or the selected direction.
    */
@@ -1173,11 +1178,22 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
           const level = downlink ? change.downlink : change.uplink;
           if (level === null) continue;
           if (downlink && !this.generationManager.taskID) continue;
-          await this.applyQuality(
-            level,
-            downlink,
-            token
-          );
+          token.ensureCurrent();
+          try {
+            await this.applyQuality(
+              level,
+              downlink,
+              token
+            );
+          } catch {
+            token.ensureCurrent();
+            XmaxLogger.stream.warn(
+              XmaxLogger.localized(
+                '自适应传输调整已延后或失败',
+                'Adaptive transport change deferred or failed',
+              ),
+            );
+          }
         }
       });
     } catch {
