@@ -251,7 +251,7 @@ function screenFixture(t, options = {}) {
       RealtimeCameraPreset: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeCameraPreset,
       XmaxLoggerOption: { all: 3 },
       XmaxClient: class { createRealtimeManager({ model }) { models.push(model); return manager; } createStorageManager() { return {}; } },
-      XmaxRealtimeVideo: 'Video', RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, realtimeModelSpecifications: require('../lib/commonjs/Service/Realtime/RealtimeTypes').realtimeModelSpecifications, VideoContentMode: { fit: 'fit', fill: 'fill' },
+      XmaxRealtimeDualVideo: 'Video', RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeTypes').RealtimeModel, realtimeModelSpecifications: require('../lib/commonjs/Service/Realtime/RealtimeTypes').realtimeModelSpecifications, VideoContentMode: { fit: 'fit', fill: 'fill' },
       RealtimeConnectionState: { idle: 'idle', connecting: 'connecting', connected: 'connected',
         generating: 'generating', preparing: 'preparing', ready: 'ready' },
       XmaxError: { from: value => value },

@@ -50,12 +50,15 @@ export type { MediaServicing } from './Service/Media/MediaServicing';
 
 export { XmaxError, XmaxErrorCode } from './Foundation/Errors/XmaxError';
 
-export { XmaxVideo, type XmaxVideoProps } from './Render/Video/XmaxVideo';
-
 export {
   XmaxRealtimeVideo,
   type XmaxRealtimeVideoProps,
 } from './Render/Video/XmaxRealtimeVideo';
+
+export {
+  XmaxRealtimeDualVideo,
+  type XmaxRealtimeDualVideoProps,
+} from './Render/Video/XmaxRealtimeDualVideo';
 
 export type {
   XmaxStorageManaging,

@@ -27,7 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   XmaxClient,
   XmaxLoggerOption,
-  XmaxRealtimeVideo,
+  XmaxRealtimeDualVideo,
   RealtimeModel,
   type RealtimeVideoFormat,
   type RealtimeQualityLevel,
@@ -634,7 +634,7 @@ export function RealtimeScreen({
       }}
     >
       <View style={[styles.preview, { marginTop: previewTop }]}>
-        <XmaxRealtimeVideo
+        <XmaxRealtimeDualVideo
           trajectoryRenderer={trajectoryRenderer}
           localTrack={localTrack}
           remoteTrack={remoteTrack}

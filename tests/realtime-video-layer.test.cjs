@@ -20,14 +20,14 @@ mock.module('react', { namedExports: {
 mock.module('react-native', { namedExports: {
   View: 'View', findNodeHandle: () => 17, StyleSheet: { create: styles => styles, absoluteFill: {} },
 } });
-mock.module(require.resolve('../lib/commonjs/Render/Video/XmaxVideo'), {
+mock.module(require.resolve('../lib/commonjs/Render/Video/XmaxRealtimeVideo'), {
   namedExports: { VideoSurface: () => null },
 });
 const nativeHides = [];
 mock.module(require.resolve('../lib/commonjs/Foundation/Native/NativeXmaxRuntime'), {
   defaultExport: { hideVideoContainer: async (...args) => { nativeHides.push(args); } },
 });
-const { XmaxRealtimeVideo } = require('../lib/commonjs/Render/Video/XmaxRealtimeVideo');
+const { XmaxRealtimeDualVideo } = require('../lib/commonjs/Render/Video/XmaxRealtimeDualVideo');
 const { RenderController } = require('../lib/commonjs/Render/RenderController');
 const { videoBinding, refreshBinding } = require('../lib/commonjs/Render/Video/VideoRenderRegistry');
 
@@ -39,7 +39,7 @@ function fixture() {
   const local = render.create(true, format, null, null, 'file:///preview.jpg');
   const remote = render.create(false, format, null, { roomID: 'room', userID: 'bot' });
   const props = { localTrack: local.videoTrack, remoteTrack: remote.videoTrack };
-  const container = () => XmaxRealtimeVideo(props);
+  const container = () => XmaxRealtimeDualVideo(props);
   const layer = container().props.children[1];
   const draw = () => {
     subscriptions.splice(0).forEach(unsubscribe => unsubscribe());
@@ -50,6 +50,26 @@ function fixture() {
   const hidden = view => view.props.style.some(style => style?.opacity === 0);
   return { render, local, remote, props, container, draw, cleanup, hidden };
 }
+
+test('dual-track views keep interaction on the remote layer and apply content mode to both layers', () => {
+  const f = fixture();
+  try {
+    const renderer = {};
+    Object.assign(f.props, { videoContentMode: 'fit', isInteractionEnabled: false, trajectoryRenderer: renderer });
+    const [local, remote] = f.container().props.children;
+    assert.equal(local.props.track, f.local.videoTrack);
+    assert.equal(local.props.isInteractionEnabled, false);
+    assert.equal(local.props.videoContentMode, 'fit');
+    assert.equal(remote.props.track, f.remote.videoTrack);
+    assert.equal(remote.props.isInteractionEnabled, false);
+    assert.equal(remote.props.videoContentMode, 'fit');
+    assert.equal(remote.props.trajectoryRenderer, renderer);
+
+    f.props.isInteractionEnabled = true;
+    assert.equal(f.container().props.children[0].props.isInteractionEnabled, false);
+    assert.equal(f.container().props.children[1].props.isInteractionEnabled, true);
+  } finally { f.cleanup(); }
+});
 
 test('invalidating remote hides its black container before a delayed child effect, preserving preview', () => {
   const f = fixture();

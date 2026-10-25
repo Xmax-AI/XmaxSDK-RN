@@ -15,9 +15,14 @@ import {
   type RealtimeState,
   type MediaSize,
   type XmaxRealtimeManaging,
-  type XmaxVideoProps,
+  XmaxRealtimeVideo,
+  XmaxRealtimeDualVideo,
   type XmaxRealtimeVideoProps,
+  type XmaxRealtimeDualVideoProps,
 } from '../lib/typescript';
+import { createElement } from 'react';
+// @ts-expect-error The single-track component is named XmaxRealtimeVideo.
+import { XmaxVideo } from '../lib/typescript';
 
 // Compile the emitted consumer declarations, including negative calls. Never executed.
 export async function cameraContract(client: XmaxClient) {
@@ -73,18 +78,29 @@ export async function cameraContract(client: XmaxClient) {
   const sessionID: string | null = state.sessionID;
   const taskID: string | null = state.taskID;
   const renderer: TrajectoryEffectRendering = new DefaultTrajectoryEffectRenderer();
-  const video: XmaxVideoProps = {
+  const video: XmaxRealtimeVideoProps = {
     isInteractionEnabled: true,
     trajectoryRenderer: renderer,
     track: local.videoTrack,
     videoContentMode: VideoContentMode.fit,
   };
-  const realtimeVideo: XmaxRealtimeVideoProps = {
+  const realtimeVideo: XmaxRealtimeDualVideoProps = {
     isInteractionEnabled: false,
     trajectoryRenderer: null,
     localTrack: local.videoTrack,
     remoteTrack: connected.videoTrack,
   };
+  createElement(XmaxRealtimeVideo, video);
+  createElement(XmaxRealtimeDualVideo, realtimeVideo);
+  const invalidSingle: XmaxRealtimeVideoProps = {
+    // @ts-expect-error Single-track views accept track rather than localTrack/remoteTrack.
+    localTrack: local.videoTrack,
+  };
+  const invalidDual: XmaxRealtimeDualVideoProps = {
+    // @ts-expect-error Dual-track views accept localTrack and remoteTrack rather than track.
+    track: local.videoTrack,
+  };
+  void [invalidSingle, invalidDual];
   await manager.setStateListener(() => {});
   await manager.setStateListener(null);
   // @ts-expect-error Errors are delivered by state.reason or rejected operations.

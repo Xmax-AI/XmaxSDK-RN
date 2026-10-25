@@ -353,13 +353,13 @@ Keep the client and manager stable for the screen's lifetime.
 
 ### Using React Native
 
-Use `XmaxRealtimeVideo` as your primary React Native view. Store the local and remote
-tracks in React state, updating them dynamically as streams become available:
+Use `XmaxRealtimeDualVideo` to switch between local preview and generated output.
+Store the local and remote tracks in React state, updating them as streams become available:
 
 ```tsx
 import { useState } from 'react';
 import {
-  XmaxRealtimeVideo,
+  XmaxRealtimeDualVideo,
   VideoContentMode,
   type RealtimeVideoTrack,
 } from '@xmaxai/react-native-sdk';
@@ -368,13 +368,30 @@ import {
 const [localTrack, setLocalTrack] = useState<RealtimeVideoTrack | null>(null);
 const [remoteTrack, setRemoteTrack] = useState<RealtimeVideoTrack | null>(null);
 
-<XmaxRealtimeVideo
+<XmaxRealtimeDualVideo
   localTrack={localTrack}
   remoteTrack={remoteTrack}
   videoContentMode={VideoContentMode.fill}
   style={{ flex: 1 }}
 />
 ```
+
+Use `XmaxRealtimeVideo` to display a single local or remote track:
+
+```tsx
+import { XmaxRealtimeVideo, VideoContentMode } from '@xmaxai/react-native-sdk';
+
+<XmaxRealtimeVideo
+  track={localTrack}
+  videoContentMode={VideoContentMode.fit}
+  style={{ flex: 1 }}
+/>
+```
+
+Both components support remote trajectory interaction. `XmaxRealtimeDualVideo`
+keeps local preview mounted and shows remote output without a fade after its first
+frame renders. Unmounting either component detaches its view; your app still owns
+the manager lifecycle.
 
 See the [example project](#example-project) for state binding and a complete implementation.
 
