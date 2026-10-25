@@ -180,7 +180,7 @@ class RealtimeExternalFrameSink internal constructor(
     if (!active || timestampUs < 0 || timestampUs > Long.MAX_VALUE / 1000 || timestampUs <= lastVideoUs) return@synchronized
     try {
       require(image.format == android.graphics.ImageFormat.YUV_420_888 && rotation in listOf(0, 90, 180, 270))
-      val crop = android.graphics.Rect(image.cropRect)
+      val crop = image.cropRect
       crop.right -= crop.width() % 2
       crop.bottom -= crop.height() % 2
       val width = if (rotation % 180 == 0) crop.width() else crop.height()
