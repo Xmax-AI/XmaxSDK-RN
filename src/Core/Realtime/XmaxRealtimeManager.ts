@@ -1019,21 +1019,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
               remote
             );
 
-          if (!updating) {
-            const quality = this.streamController.quality;
-            if (quality.uplinkQualityLevel !== null)
-              quality.complete(
-                quality.uplinkQualityLevel,
-                false,
-                true
-              );
-            if (quality.downlinkQualityLevel !== null)
-              quality.complete(
-                quality.downlinkQualityLevel,
-                true,
-                true
-              );
-          }
+          if (!updating) this.completeInitialQuality();
           this.update(
             RealtimeConnectionState.generating,
             token,
@@ -1129,6 +1115,7 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
             );
 
           ensureActive(signal);
+          this.completeInitialQuality();
           this.update(
             RealtimeConnectionState.generating,
             token,
@@ -1140,6 +1127,25 @@ export class XmaxRealtimeManager implements XmaxRealtimeManaging {
       },
       options.signal,
     );
+  }
+
+  /**
+   * Records the applied initial quality and begins stabilization after a new task becomes ready.
+   */
+  private completeInitialQuality(): void {
+    const quality = this.streamController.quality;
+    if (quality.uplinkQualityLevel !== null)
+      quality.complete(
+        quality.uplinkQualityLevel,
+        false,
+        true
+      );
+    if (quality.downlinkQualityLevel !== null)
+      quality.complete(
+        quality.downlinkQualityLevel,
+        true,
+        true
+      );
   }
 
   /**

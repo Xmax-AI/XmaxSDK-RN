@@ -17,8 +17,6 @@ import type { RtcRoom } from './RtcRoom';
 import type { RtcEngineManaging } from './RtcEngineManaging';
 import { RtcEngineManager } from './RtcEngineManager';
 import type { RtcEngineLease } from './RtcEngineLease';
-import type { PermissionManaging } from '../Permissions/PermissionManaging';
-import { PermissionManager } from '../Permissions/PermissionManager';
 import {
   cancelledError,
   invalid,
@@ -107,11 +105,6 @@ export class RtcManager implements RtcManaging {
      * The exclusive process-wide engine lease manager.
      */
     private readonly engines: RtcEngineManaging = RtcEngineManager.shared,
-
-    /**
-     * The camera and microphone authorization interface.
-     */
-    private readonly authorization: PermissionManaging = new PermissionManager(),
   ) {
     this.runtime = platform.runtime;
   }
@@ -216,21 +209,6 @@ export class RtcManager implements RtcManaging {
       'writePreference',
       { key, value }
     );
-  }
-
-  /**
-   * Requests the camera and microphone permissions required by this input.
-   *
-   * Completes after all required permissions are granted; denial reports the corresponding
-   * permission error.
-   *
-   * @param microphone Whether microphone input is required.
-   */
-  async permissions(
-    microphone: boolean
-  ): Promise<void> {
-    await this.authorization.ensureCameraPermission();
-    if (microphone) await this.authorization.ensureMicrophonePermission();
   }
 
   /**
@@ -477,7 +455,7 @@ export class RtcManager implements RtcManaging {
         };
       },
       signal,
-      20000,
+      15000,
       'RTC room join',
     );
     ensureActive(signal);

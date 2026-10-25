@@ -524,6 +524,58 @@ class XmaxRuntime(
   )
 
   /**
+   * Reads local video display dimensions on the file queue without starting playback or capture.
+   *
+   * @param fileURL The readable local video file URL.
+   * @param promise The callback receiving serialized dimensions or a media metadata error.
+   */
+  override fun videoInfo(
+    fileURL: String,
+    promise: Promise
+  ) {
+    files.execute {
+      var reader: android.media.MediaMetadataRetriever? = null
+      try {
+        val metadata = android.media.MediaMetadataRetriever()
+        reader = metadata
+        val url = android.net.Uri.parse(fileURL)
+        require(url.scheme == "file")
+        metadata.setDataSource(
+          context,
+          url
+        )
+        val width = metadata.extractMetadata(
+          android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+        )?.toIntOrNull() ?: 0
+        val height = metadata.extractMetadata(
+          android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+        )?.toIntOrNull() ?: 0
+        val rotation = metadata.extractMetadata(
+          android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION
+        )?.toIntOrNull() ?: 0
+        require(width > 0 && height > 0)
+        val rotated = rotation == 90 || rotation == 270
+        promise.resolve(
+          JSONObject().put(
+            "width",
+            if (rotated) height else width
+          ).put(
+            "height",
+            if (rotated) width else height
+          ).toString()
+        )
+      } catch (error: Exception) {
+        promise.reject(
+          "MEDIA_ERROR",
+          "Unable to read video metadata"
+        )
+      } finally {
+        try { reader?.release() } catch (_: Exception) { }
+      }
+    }
+  }
+
+  /**
    * Creates a private upright JPEG copy at the target dimensions without modifying the caller's
    * original file.
    *

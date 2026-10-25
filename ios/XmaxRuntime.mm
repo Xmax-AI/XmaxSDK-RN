@@ -237,6 +237,21 @@ RCT_EXPORT_MODULE(XmaxRuntime)
 }
 
 /**
+ * Reads local video display dimensions without starting playback or capture.
+ *
+ * @param fileURL The readable local video file URL.
+ * @param resolve The callback receiving serialized display dimensions.
+ * @param reject The callback receiving a media metadata error.
+ */
+- (void)videoInfo:(NSString *)fileURL
+    resolve:(RCTPromiseResolveBlock)resolve
+    reject:(RCTPromiseRejectBlock)reject {
+  [self.implementation videoInfo:fileURL
+      resolve:resolve
+      reject:reject];
+}
+
+/**
  * Creates an SDK-owned upright JPEG at the target dimensions without modifying the original file.
  *
  * Resolves or rejects the bridge Promise when the native operation completes.

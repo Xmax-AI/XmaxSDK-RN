@@ -366,9 +366,9 @@ test('permission manager requests camera and microphone independently and normal
   await assert.rejects(failure.ensureCameraPermission(), { code: 'CAMERA_PERMISSION_DENIED' });
 });
 
-test('RTC facade accepts an injected platform, room, lease manager and permission interface', async () => {
+test('RTC facade accepts an injected platform, room and lease manager independently of permissions', async () => {
   const { RtcEngineManager } = require('../lib/commonjs/Foundation/RTC/RtcEngineManager');
-  const activity = [], permissions = [];
+  const activity = [];
   let rawListener, roomListener, held = false;
   const room = {
     publishedStreams: [],
@@ -385,11 +385,7 @@ test('RTC facade accepts an injected platform, room, lease manager and permissio
     async execute(_owner, operation) { activity.push([operation]); return 'null'; },
     createRoom() { return room; },
   };
-  const rtc = new RtcManager(platform, new RtcEngineManager(), {
-    ensureCameraPermission: async () => permissions.push('camera'),
-    ensureMicrophonePermission: async () => permissions.push('microphone'),
-  });
-  await rtc.permissions(true); assert.deepEqual(permissions, ['camera', 'microphone']);
+  const rtc = new RtcManager(platform, new RtcEngineManager());
   const events = []; rtc.onEvent(event => events.push(event));
   await rtc.open(new AbortController().signal);
   await rtc.join({ roomID: 'injected', userID: 'local', token: 'test' }, true, new AbortController().signal);
@@ -398,4 +394,21 @@ test('RTC facade accepts an injected platform, room, lease manager and permissio
   await rtc.close();
   assert.equal(held, false); assert.equal(rawListener, null);
   assert(activity.some(([kind]) => kind === 'destroy'));
+});
+
+test('RTC room admission times out at fifteen seconds and removes its waiter', async t => {
+  const rtc = await fixture(t, false), original = native.rtcCommand;
+  t.mock.method(native, 'rtcCommand', async (lease, value) => {
+    if (JSON.parse(value).operation === 'join') return 'null';
+    return original(lease, value);
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let settled = false;
+  const joining = rtc.join({ roomID: 'room', userID: 'local', token: 'test-token' }, false, new AbortController().signal);
+  const failure = assert.rejects(joining, { code: 'TIMEOUT' }).then(() => { settled = true; });
+  await tick(); t.mock.timers.tick(14999); await tick(); assert.equal(settled, false);
+  t.mock.timers.tick(1); await failure;
+  emit({ type: 'joined', roomID: 'room' });
+  await rtc.leave();
+  assert.deepEqual(rtc.publishedStreams, []);
 });

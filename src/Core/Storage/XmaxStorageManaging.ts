@@ -71,7 +71,8 @@ export type UploadFileOptions = UploadTransferOptions &
         readonly data: Uint8Array;
 
         /**
-         * The filename, including its extension, used for object naming and media validation.
+         * The filename, including its extension; unsupported object-key characters are replaced
+         * with underscores.
          */
         readonly fileName: string;
 

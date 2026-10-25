@@ -71,18 +71,6 @@ export interface RtcManaging {
   ): Promise<void>;
 
   /**
-   * Requests the camera and microphone permissions required by this input.
-   *
-   * Completes after all required permissions are granted; denial reports the corresponding
-   * permission error.
-   *
-   * @param microphone Whether microphone input is required.
-   */
-  permissions(
-    microphone: boolean
-  ): Promise<void>;
-
-  /**
    * Acquires exclusive foreground media ownership and initializes native RTC.
    *
    * @param signal The operation's cancellation signal; cancellation reports CANCELLED.

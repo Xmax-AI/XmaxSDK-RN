@@ -8,6 +8,9 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { StorageLogger } from './StorageLogger';
+import { MediaFileMetadataManager } from '../../Foundation/Media/MediaFileMetadataManager';
+import type { MediaFileMetadataManaging } from '../../Foundation/Media/MediaFileMetadataManaging';
 import { DataFileManager } from '../../Foundation/Storage/DataFileManager';
 import type { DataFileManaging } from '../../Foundation/Storage/DataFileManaging';
 import { copyEncodedData } from '../../Foundation/Storage/EncodedData';
@@ -26,6 +29,7 @@ import type {
 import type { StorageManaging } from '../../Foundation/Storage/StorageManaging';
 import {
   uploadMetadata,
+  uploadDataMetadata,
   parseStorageConfiguration,
   httpURL,
   filePath,
@@ -66,6 +70,11 @@ export class StorageService implements StorageServicing {
      * The private staging files for encoded memory uploads.
      */
     private readonly dataFiles: DataFileManaging = new DataFileManager(),
+
+    /**
+     * The encoded-file metadata reader used for safe upload diagnostics.
+     */
+    private readonly metadata: MediaFileMetadataManaging = new MediaFileMetadataManager(),
   ) {}
 
   /**
@@ -93,23 +102,24 @@ export class StorageService implements StorageServicing {
       data &&
       (typeof options.fileName !== 'string' ||
         !options.fileName.trim() ||
-        /[\\/\0]/.test(options.fileName) ||
         typeof options.contentType !== 'string')
     )
-      throw invalid(
-        'Memory uploads require a filename without path separators and a MIME type',
-      );
+      throw invalid('Memory uploads require a filename and a MIME type');
     return this.operation(
       options,
       XmaxErrorCode.uploadError,
       async (signal, progress) => {
-        const metadata = uploadMetadata(
-          data
-            ? `file:///memory/${encodeURIComponent(options.fileName!)}`
-            : options.fileURL!,
-          media,
-          options.contentType,
-        );
+        const metadata = data
+          ? uploadDataMetadata(
+            options.fileName!,
+            media,
+            options.contentType
+          )
+          : uploadMetadata(
+            options.fileURL!,
+            media,
+            options.contentType
+          );
 
         let temporary: string | null = null;
         try {
@@ -120,9 +130,24 @@ export class StorageService implements StorageServicing {
               message: 'Storage operation cancelled',
             });
           const fileURL = temporary ?? options.fileURL!;
-          await abortable(
+          const byteCount = await abortable(
             this.storage.fileSize(fileURL),
-            signal
+            signal,
+          );
+          const size = XmaxLogger.isEnabled(1)
+            ? await abortable(
+                this.metadata.readMetadata(
+                  fileURL,
+                  media
+                ).catch(() => null),
+                signal,
+              )
+            : null;
+          StorageLogger.uploadStarted(
+            media,
+            size,
+            byteCount,
+            checksSafety
           );
 
           const config = parseStorageConfiguration(
@@ -216,7 +241,7 @@ export class StorageService implements StorageServicing {
   }
 
   /**
-   * Runs an isolated transfer with protected progress callbacks and a 15-minute overall timeout.
+   * Runs an isolated transfer with protected progress callbacks and transport-owned timeouts.
    *
    * @param options The transfer URLs, progress handler, and task cancellation signal.
    * @param code The SDK or service error code for this operation.
@@ -246,21 +271,12 @@ export class StorageService implements StorageServicing {
           'Download'
         );
     const started = this.now();
-    XmaxLogger.storage.info(
-      `${action()}${XmaxLogger.localized('开始', ' started')}`,
-    );
+    if (code === XmaxErrorCode.downloadError)
+      XmaxLogger.storage.info('开始下载 (Download Started)');
 
     const controller = new AbortController();
     const abort = () => controller.abort();
-    let finished = false,
-      timedOut = false;
-    const timer = setTimeout(
-      () => {
-        timedOut = true;
-        controller.abort();
-      },
-      15 * 60 * 1000
-    );
+    let finished = false;
 
     options.signal?.addEventListener(
       'abort',
@@ -291,29 +307,29 @@ export class StorageService implements StorageServicing {
 
       XmaxLogger.storage.info(
         () =>
-          `${action()}${XmaxLogger.localized('完成，耗时：', ' completed in ')}${this.now() - started} ms`,
+          `${
+            code === XmaxErrorCode.uploadError
+              ? '上传完成 (Upload Completed)'
+              : '下载完成 (Download Completed)'
+          }\n└─ ${XmaxLogger.localized('耗时：', 'Duration: ')}${StorageLogger.formatDuration(this.now() - started)}`,
       );
 
       return result;
     } catch (error) {
       XmaxLogger.storage.error(
         () =>
-          `${action()}${XmaxLogger.localized('失败：', ' failed: ')}${
+          `${action()}${XmaxLogger.localized('失败 (Failed)', ' Failed')}\n├─ ${XmaxLogger.localized('错误码：', 'Error Code: ')}${
             controller.signal.aborted
-              ? timedOut
-                ? XmaxErrorCode.timeout
-                : XmaxErrorCode.cancelled
+              ? XmaxErrorCode.cancelled
               : error instanceof XmaxError
               ? error.code
               : code
-          }`,
+          }\n└─ ${XmaxLogger.localized('耗时：', 'Duration: ')}${StorageLogger.formatDuration(this.now() - started)}`,
       );
       if (controller.signal.aborted)
         throw new XmaxError({
-          code: timedOut ? XmaxErrorCode.timeout : XmaxErrorCode.cancelled,
-          message: timedOut
-            ? 'Storage operation timed out'
-            : 'Storage operation cancelled',
+          code: XmaxErrorCode.cancelled,
+          message: 'Storage operation cancelled',
         });
       if (error instanceof XmaxError) throw error;
 
@@ -326,7 +342,6 @@ export class StorageService implements StorageServicing {
       });
     } finally {
       finished = true;
-      clearTimeout(timer);
       options.signal?.removeEventListener(
         'abort',
         abort

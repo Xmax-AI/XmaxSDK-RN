@@ -226,8 +226,54 @@ test('an in-flight transfer uses the latest language for its complete outcome me
   XmaxLogger.configure(1, sink, 'english');
   resolve({ fileURL: 'file:///tmp/image.png', size: 1 });
   await pending;
-  assert.match(logs[0], /下载开始/);
-  assert.match(logs[1], /Download completed in/);
-  assert.doesNotMatch(logs[1], /下载/);
+  assert.match(logs[0], /开始下载/);
+  assert.match(logs[1], /Download Completed/);
+  assert.match(logs[1], /Duration:/);
+  assert.doesNotMatch(logs[1], /耗时：/);
   capture(0);
+});
+
+test('storage logs oriented media dimensions, encoded size and safety selection without source content', async t => {
+  const logs = [];
+  XmaxLogger.configure(1, (level, message) => logs.push({ level, message }), 'english');
+  t.after(() => capture(0));
+  const requests = [];
+  const storage = { fileSize: async () => 1536, upload: async options => ({ url: 'https://example.invalid/result?token=secret', objectKey: options.objectKey, etag: null }) };
+  const metadata = { async readMetadata(fileURL, media) { requests.push({ fileURL, media }); return { width: 720, height: 1280 }; } };
+  const payload = { bucket: 'fixture-123', region: 'ap-nanjing', endpoint: '', prefix: 'open/', credentials: { accessKeyId: 'id', secretAccessKey: 'secret', sessionToken: 'token' } };
+  const api = { request: async (_method, path) => path === '/cos/sts' ? payload : { safe: true, url: 'https://example.invalid/checked' } };
+  const service = new StorageService(api, storage, () => 'UUID', () => 1200, undefined, metadata);
+  for (const media of ['image', 'video']) await service.upload({ fileURL: `file:///private/secret.${media === 'image' ? 'png' : 'mp4'}` }, media, media === 'image');
+  assert.deepEqual(requests.map(request => request.media), ['image', 'video']);
+  const text = logs.map(log => log.message).join('\n');
+  assert.match(text, /Type: image/); assert.match(text, /Type: video/);
+  assert.match(text, /Resolution: 720x1280/); assert.match(text, /Size: 1\.50 KB/);
+  assert.match(text, /Safety Check: true/); assert.match(text, /Safety Check: false/);
+  assert(!text.includes('secret')); assert(!text.includes('file:///')); assert(!text.includes('token='));
+});
+
+test('missing metadata does not block upload and disabled logging does not read metadata', async t => {
+  t.after(() => capture(0));
+  let reads = 0;
+  const payload = { bucket: 'fixture-123', region: 'ap-nanjing', endpoint: '', prefix: '', credentials: { accessKeyId: 'id', secretAccessKey: 'secret', sessionToken: 'token' } };
+  const service = new StorageService({ request: async () => payload }, {
+    fileSize: async () => 12, upload: async () => ({ url: 'https://example.invalid/file', objectKey: 'key', etag: null }),
+  }, () => 'UUID', Date.now, undefined, { async readMetadata() { reads++; throw new Error('secret native metadata error'); } });
+  capture(0); await service.upload({ fileURL: 'file:///tmp/image.png' }, 'image', false); assert.equal(reads, 0);
+  const logs = capture(1);
+  await service.upload({ fileURL: 'file:///tmp/image.png' }, 'image', false);
+  assert.equal(reads, 1); assert.match(logs[0].message, /--/);
+  assert(!JSON.stringify(logs).includes('secret'));
+});
+
+test('media metadata reader validates native display sizes and routes image and video independently', async () => {
+  const { MediaFileMetadataManager } = require('../lib/commonjs/Foundation/Media/MediaFileMetadataManager');
+  const seen = [];
+  const metadata = new MediaFileMetadataManager(async (url, media) => { seen.push({ url, media }); return JSON.stringify({ width: 720, height: 1280 }); });
+  assert.deepEqual(await metadata.readMetadata('file:///image.png', 'image'), { width: 720, height: 1280 });
+  assert.deepEqual(await metadata.readMetadata('file:///video.mp4', 'video'), { width: 720, height: 1280 });
+  assert.deepEqual(seen.map(call => call.media), ['image', 'video']);
+  for (const value of [null, {}, { width: 0, height: 4 }, { width: 4, height: -1 }, { width: 4.5, height: 8 }]) {
+    assert.equal(await new MediaFileMetadataManager(async () => JSON.stringify(value)).readMetadata('file:///file', 'video'), null);
+  }
 });

@@ -410,6 +410,59 @@ public final class XmaxRuntimeImplementation: NSObject, @unchecked Sendable {
     )
   }
 
+  /// Reads local video display dimensions independently of RTC and capture ownership.
+  ///
+  /// - Parameters:
+  ///   - fileURL: The readable local video file URL.
+  ///   - resolve: The callback receiving serialized display dimensions.
+  ///   - reject: The callback receiving a media metadata error.
+  @objc(videoInfo:resolve:reject:)
+  public func videoInfo(
+    _ fileURL: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let promise = XmaxNativePromise(
+      resolve: resolve,
+      reject: reject
+    )
+    guard let url = URL(string: fileURL), url.isFileURL else {
+      promise.reject(
+        "Video metadata requires a local file URL",
+        code: "MEDIA_ERROR"
+      )
+      return
+    }
+    Task {
+      do {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+          throw XmaxNativeFailure(message: "Video track is unavailable")
+        }
+        let size = try await track.load(.naturalSize)
+        let transform = try await track.load(.preferredTransform)
+        let display = size.applying(transform)
+        let width = abs(display.width).rounded()
+        let height = abs(display.height).rounded()
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
+          throw XmaxNativeFailure(message: "Video dimensions are invalid")
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["width": width, "height": height])
+        promise.resolve(
+          String(
+            decoding: data,
+            as: UTF8.self
+          )
+        )
+      } catch {
+        promise.reject(
+          "Unable to read video metadata",
+          code: "MEDIA_ERROR"
+        )
+      }
+    }
+  }
+
   /// Creates a private upright JPEG copy at the target dimensions without modifying the caller's
   /// original file.
   ///

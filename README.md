@@ -297,6 +297,7 @@ enabled by default.
 
 Select `RealtimeModel.x2_1_1_preview_cn` or `RealtimeModel.x2_1_1_preview_us`.
 `XmaxEnvironment` independently selects the realtime and storage backends.
+An optional `baseURL` override must be an absolute HTTPS API root.
 Both models support camera formats of 1024 × 1920 and 1920 × 1024 at 30 fps;
 portrait is the default. Read `realtimeModelSpecifications[model].supportedVideoFormats`
 and pass `videoFormat` when creating a camera stream, or call
@@ -343,7 +344,8 @@ required cleanup. The replaced Promise rejects with `XmaxErrorCode.cancelled`.
 Logging is disabled by default. Set `loggerOptions` to `XmaxLoggerOption.business`,
 `.performance`, or `.all` for native OSLog/Logcat output. Performance logs include
 observed startup stages. The most recently created client controls log options and
-detail language globally: Chinese for China, English for global.
+detail language globally: Chinese for China, English for global. Storage logs include
+media type, display dimensions, file size, and safety-check selection.
 
 Keep the client and manager stable for the screen's lifetime.
 

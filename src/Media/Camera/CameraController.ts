@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import type { PermissionManaging } from '../../Foundation/Permissions/PermissionManaging';
 import type { RenderControlling } from '../../Render/RenderControlling';
 import type { MediaServicing } from '../../Service/Media/MediaServicing';
 import type { CameraControlling } from './CameraControlling';
@@ -47,6 +48,7 @@ export class CameraController implements CameraControlling {
    * @param rtc The RTC manager for media configuration and room events.
    * @param render The render controller for stream and video-track bindings.
    * @param media The shared model sizing and capability service.
+   * @param permissions The camera and microphone authorization interface.
    */
   constructor(
     /**
@@ -63,6 +65,11 @@ export class CameraController implements CameraControlling {
      * The shared model sizing and capability service.
      */
     private readonly media: MediaServicing,
+
+    /**
+     * The camera and microphone authorization interface.
+     */
+    private readonly permissions: PermissionManaging,
   ) {}
 
   /**
@@ -115,9 +122,15 @@ export class CameraController implements CameraControlling {
       throw invalid('Invalid camera position');
 
     await abortable(
-      this.rtc.permissions(options.useMicrophone ?? false),
-      signal,
+      this.permissions.ensureCameraPermission(),
+      signal
     );
+    ensureActive(signal);
+    if (options.useMicrophone)
+      await abortable(
+        this.permissions.ensureMicrophonePermission(),
+        signal
+      );
     ensureActive(signal);
 
     try {

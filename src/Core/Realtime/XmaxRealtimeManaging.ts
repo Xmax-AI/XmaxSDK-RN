@@ -319,7 +319,8 @@ export interface XmaxRealtimeManaging {
    * Establishes a realtime connection using a local stream created by this manager.
    *
    * Returns the result stream without starting generation. Its track can be bound before or after
-   * generation startup. Repeated connect calls reject while a connection exists.
+   * generation startup. Repeated connect calls reject while a connection exists. RTC room admission
+   * times out after 15 seconds.
    *
    * @param options The manager-owned local stream and cancellation signal.
    */

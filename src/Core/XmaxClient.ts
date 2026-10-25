@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { validateAPIBaseURL } from '../Service/Network/ApiRequestURL';
 import { XmaxLogger } from '../Foundation/Logging/XmaxLogger';
 import { XmaxStorageManager } from './Storage/XmaxStorageManager';
 import type { XmaxStorageManaging } from './Storage/XmaxStorageManaging';
@@ -59,10 +60,10 @@ export class XmaxClient {
       !Object.values(XmaxEnvironment).includes(environment) ||
       !Number.isInteger(loggerOptions) ||
       loggerOptions < 0 ||
-      (loggerOptions & ~3) !== 0 ||
-      (trimmedBaseURL !== '' && !/^https?:\/\/\S+$/.test(trimmedBaseURL))
+      (loggerOptions & ~3) !== 0
     )
       throw invalid('Invalid Xmax configuration');
+    if (trimmedBaseURL) validateAPIBaseURL(trimmedBaseURL);
 
     this.configuration = Object.freeze({
       apiKey: configuration.apiKey.trim(),

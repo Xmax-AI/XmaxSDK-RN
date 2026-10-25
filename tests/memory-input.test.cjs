@@ -89,7 +89,7 @@ test('memory uploads reject invalid source combinations and metadata before stag
   for (const options of [
     {}, { data: new Uint8Array() },
     { data: new Uint8Array([1]), fileURL: 'file:///tmp/a.png', fileName: 'a.png', contentType: 'image/png' },
-    ...['../a.png', '/a.png', 'a\\b.png', 'a\0b.png', ''].map(fileName => ({ data: new Uint8Array([1]), fileName, contentType: 'image/png' })),
+    ...['', '..', '___'].map(fileName => ({ data: new Uint8Array([1]), fileName, contentType: 'image/png' })),
     { data: new Uint8Array([1]), fileName: 'a.png' },
     { data: new Uint8Array([1]), fileName: 'a.png', contentType: 'video/mp4' },
   ]) await assert.rejects(service.upload(options, 'image', false), { code: 'INVALID_CONFIGURATION' });
@@ -166,4 +166,13 @@ test('downlink start and target-size changes keep bitrate bounds ordered at smal
       assert(result.params.max_bitrate >= result.params.min_bitrate);
     }
   }
+});
+
+test('memory filenames are sanitized into object keys without treating their text as local paths', async t => {
+  const { manager, directory } = await files(t), { service, calls } = storage(manager);
+  for (const [fileName, safe] of [['../a.png', 'a.png'], ['/a.png', 'a.png'], ['a\\b.png', 'a_b.png'], ['a\0b.png', 'a_b.png'], [' photo name.PNG ', 'photo_name.PNG']]) {
+    await service.upload({ data: new Uint8Array([1]), fileName, contentType: 'image/png' }, 'image', false);
+    assert.equal(calls.findLast(call => call.upload).upload.objectKey, `open/1_uuid_${safe}`);
+  }
+  assert.deepEqual(await readdir(directory), []);
 });

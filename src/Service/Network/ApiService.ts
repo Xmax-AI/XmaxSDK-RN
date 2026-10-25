@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { makeAPIRequestURL } from './ApiRequestURL';
 import { record, nonEmpty } from './ApiResponse';
 import type { ApiServicing } from './ApiServicing';
 import { ApiLogger } from './ApiLogger';
@@ -44,7 +45,9 @@ export class ApiService implements ApiServicing {
      * The cancellable HTTP transport function.
      */
     private readonly transport: HttpTransport = requestHTTP,
-  ) {}
+  ) {
+    this.apiKey = apiKey.trim();
+  }
 
   /**
    * Sends authenticated JSON and resolves business data while distinguishing cancellation, timeout,
@@ -68,6 +71,11 @@ export class ApiService implements ApiServicing {
         message: 'API key cannot be empty',
       });
 
+    const url = makeAPIRequestURL(
+      this.baseURL,
+      path
+    );
+    path = path.trim();
     const started = Date.now();
     let responseLogged = false;
     let status: number | null = null;
@@ -95,7 +103,7 @@ export class ApiService implements ApiServicing {
       if (controller.signal.aborted) throw new Error('Request aborted');
 
       const response = await this.transport(
-        `${this.baseURL}${path}`,
+        url,
         {
           method,
           headers: {

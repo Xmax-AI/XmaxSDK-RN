@@ -8,6 +8,7 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import { PermissionManager } from '../../Foundation/Permissions/PermissionManager';
 import { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
 import { RtcManager } from '../../Foundation/RTC/RtcManager';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
@@ -140,7 +141,8 @@ export class XmaxRealtimeFactory {
       new CameraController(
         rtcManager,
         renderController,
-        mediaService
+        mediaService,
+        new PermissionManager(),
       ),
       new ImageController(
         rtcManager,

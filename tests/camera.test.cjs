@@ -232,9 +232,7 @@ class FakeRtc {
     }
     for (const listener of [...this.listeners]) listener(event);
   }
-  permissionCalls = 0;
   imagePath = null;
-  async permissions() { this.permissionCalls++; }
   startImage(path) { this.imagePath = path; }
   async open() {
     this.closed = false;
@@ -268,6 +266,17 @@ class FakeRtc {
 }
 mock.module(require.resolve('../lib/commonjs/Foundation/RTC/RtcManager.js'), {
   namedExports: { RtcManager: FakeRtc },
+});
+class FakePermissions {
+  static instances = [];
+  cameraCalls = 0;
+  microphoneCalls = 0;
+  constructor() { FakePermissions.instances.push(this); }
+  async ensureCameraPermission() { this.cameraCalls++; }
+  async ensureMicrophonePermission() { this.microphoneCalls++; }
+}
+mock.module(require.resolve('../lib/commonjs/Foundation/Permissions/PermissionManager.js'), {
+  namedExports: { PermissionManager: FakePermissions },
 });
 class FakeImages {
   static instances = [];
@@ -304,7 +313,7 @@ test(`camera validates buckets before permission and preserves accepted dimensio
         code: 'INVALID_CONFIGURATION',
       });
     }
-    assert.equal(rtc.permissionCalls, 0);
+    assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
     assert.equal(rtc.camera, false);
     const defaultStream = await manager.createLocalCameraStream();
     assert.deepEqual(defaultStream.videoTrack.videoFormat, { width: 1024, height: 1920, fps: 30 });
@@ -333,7 +342,7 @@ test(`image source keeps its aspect ratio independently of generation buckets ($
   t.mock.method(images, 'size', async () => ({ width: 1200, height: 1600 }));
   const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' });
   assert.deepEqual(local.videoTrack.videoFormat, { width: 1200, height: 1600, fps: 30 });
-  assert.equal(FakeRtc.instances.at(-1).permissionCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
 });
 }
 
@@ -765,7 +774,7 @@ test('image pipeline uses prepared dimensions/path, no camera permissions, and c
   assert.equal(local.videoTrack.position, null);
   assert.equal(rtc.imagePath, '/cache/prepared image.jpg');
   assert.equal(rtc.imageSourceConfigured, true);
-  assert.equal(rtc.permissionCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
   assert.equal(rtc.camera, false);
   await manager.stopLocalCameraStream();
   assert(local.videoTrack.videoFormat);
@@ -940,7 +949,7 @@ test('camera readiness waits for capture and preview binding; retired previews c
 test('disconnect during media preparation is a no-op; overlapping operations reject without cancelling preparation', async t => {
   const manager = createManager(), permission = defer();
   t.after(() => manager.close());
-  t.mock.method(FakeRtc.instances.at(-1), 'permissions', () => permission.promise);
+  t.mock.method(FakePermissions.instances.at(-1), 'ensureCameraPermission', () => permission.promise);
   const preparing = manager.createLocalCameraStream();
   await nextTurn();
   await manager.disconnect();
@@ -1163,7 +1172,7 @@ test('already aborted realtime calls reject without allocating media or changing
     await assert.rejects(action(), { code: 'CANCELLED' });
     assert.equal(manager.currentState, snapshot);
   }
-  assert.equal(FakeRtc.instances.at(-1).permissionCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
   assert.deepEqual(FakeImages.instances.at(-1).prepared, []);
 });
 
@@ -1171,7 +1180,7 @@ test('caller cancellation during permission releases admission without waiting f
   const manager = createManager(), permission = defer(), abort = new AbortController();
   t.after(() => manager.close());
   const rtc = FakeRtc.instances.at(-1);
-  t.mock.method(rtc, 'permissions', () => permission.promise);
+  t.mock.method(FakePermissions.instances.at(-1), 'ensureCameraPermission', () => permission.promise);
   const pending = manager.createLocalCameraStream({ signal: abort.signal });
   const rejected = assert.rejects(pending, { code: 'CANCELLED' });
   await nextTurn();
@@ -1409,7 +1418,7 @@ for (const source of ['camera', 'image']) {
       ? manager.createLocalCameraStream({ videoFormat })
       : manager.createLocalImageStream({ fileURL: '/image.jpg', videoFormat }), { code: 'INVALID_CONFIGURATION' });
     assert.equal(rtc.encoding, undefined);
-    assert.equal(rtc.permissionCalls, 0);
+    assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
     assert.equal(images.prepared.length, 0);
   });
 }
@@ -1506,7 +1515,7 @@ test('current model formats are accepted and unavailable legacy presets reject b
   const rtc = FakeRtc.instances.at(-1);
   for (const preset of Object.values(RealtimeCameraPreset))
     await assert.rejects(manager.createLocalCameraStream({ preset }), { code: 'INVALID_CONFIGURATION' });
-  assert.equal(rtc.permissionCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
 });
 
 test('camera format updates require ready disconnected camera and preserve stream identity and settings', async t => {
@@ -1532,7 +1541,7 @@ test('camera format updates require ready disconnected camera and preserve strea
   assert.equal(local.videoTrack, track);
   assert.equal(videoBinding(track), binding);
   assert.equal(binding.version, version + 1);
-  assert.equal(rtc.permissionCalls, 1);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 1);
   assert.equal(rtc.closes, 0);
   assert.equal(updates, 1);
   await assert.rejects(manager.updateCameraFormat({ width: 640, height: 480, fps: 30 }), { code: 'INVALID_CONFIGURATION' });
@@ -1705,7 +1714,7 @@ test('invalid camera presets and conflicting creation options reject before requ
   const rtc = FakeRtc.instances.at(-1);
   for (const preset of ['', 'invalid', null]) await assert.rejects(manager.createLocalCameraStream({ preset }), { code: 'INVALID_CONFIGURATION' });
   await assert.rejects(manager.createLocalCameraStream({ preset: RealtimeCameraPreset.resolution1408x1408, videoFormat: { width: 1024, height: 1920, fps: 30 } }), { code: 'INVALID_CONFIGURATION' });
-  assert.equal(rtc.permissionCalls, 0);
+  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
 });
 
 test('unrecoverable native camera configuration errors retire the track and release media', async t => {
@@ -1914,4 +1923,35 @@ test('public image-data creation snapshots bytes at invocation before lifecycle 
   assert.deepEqual(seen, [[0, 128, 255]]);
   for (const options of [{}, { imageData: new Uint8Array() }, { fileURL: 'file:///a.jpg', imageData: bytes }])
     await assert.rejects(manager.createLocalImageStream(options), { code: 'INVALID_CONFIGURATION' });
+});
+
+test('camera permissions are owned by the capture controller and microphone denial precedes RTC acquisition', async t => {
+  const manager = createManager(); t.after(() => manager.close());
+  const rtc = FakeRtc.instances.at(-1), permissions = FakePermissions.instances.at(-1);
+  t.mock.method(permissions, 'ensureMicrophonePermission', async () => { throw new XmaxError({ code: 'MICROPHONE_PERMISSION_DENIED', message: 'denied' }); });
+  await assert.rejects(manager.createLocalCameraStream({ useMicrophone: true }), { code: 'MICROPHONE_PERMISSION_DENIED' });
+  assert.equal(permissions.cameraCalls, 1);
+  assert.equal(rtc.camera, false);
+  assert.equal('permissions' in rtc, false);
+  assert.equal(manager.currentState.connectionState, 'Idle');
+});
+
+test('camera restart waits for a fresh quality stabilization window before automatic changes', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const { manager, local, rtc } = await readyCamera(t);
+  const first = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
+  await nextTurn(); rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+  await first;
+  now = 100000;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const switching = manager.switchCamera();
+  await nextTurn(); t.mock.timers.tick(500); await switching;
+  const sample = async time => { now = time; rtc.emit({ type: 'quality', quality: { uplink: 'Bad', downlink: 'Unknown' } }); await nextTurn(); };
+  for (const time of [101000, 102000, 103000]) await sample(time);
+  assert.equal(manager.uplinkQualityLevel, 2);
+  for (const time of [105000, 106000, 107000]) await sample(time);
+  assert.equal(manager.uplinkQualityLevel, 3);
+  assert.equal(rtc.joins, 1);
 });

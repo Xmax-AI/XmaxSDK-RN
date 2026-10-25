@@ -208,3 +208,19 @@ test('download validates destinations independently of upload credentials', asyn
     { code: 'INVALID_CONFIGURATION' },
   );
 });
+
+test('long-running transfers remain under transport timeout and explicit cancellation control', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let complete, signal, settled = false;
+  const { service } = fixture({ download: async options => {
+    signal = options.signal;
+    return new Promise(resolve => { complete = resolve; });
+  } });
+  const transfer = service.download({ remoteURL: 'https://example.invalid/file', destinationURL: 'file:///tmp/file' }).then(value => { settled = true; return value; });
+  t.mock.timers.tick(20 * 60 * 1000);
+  await Promise.resolve();
+  assert.equal(signal.aborted, false);
+  assert.equal(settled, false);
+  complete({ fileURL: 'file:///tmp/file', byteCount: 1 });
+  assert.equal((await transfer).byteCount, 1);
+});

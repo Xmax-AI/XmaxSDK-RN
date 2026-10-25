@@ -17,6 +17,7 @@ export {
   httpURL,
   filePath,
   uploadMetadata,
+  uploadDataMetadata,
   storageEndpoint,
   objectURL,
 } from '../../Foundation/Storage/StorageValidation';

@@ -35,7 +35,7 @@ export interface XmaxConfiguration {
   readonly environment?: XmaxEnvironment;
 
   /**
-   * An absolute HTTP(S) API root override. Empty, null, or omitted values use environment routing.
+   * An absolute HTTPS API root override. Empty, null, or omitted values use environment routing.
    */
   readonly baseURL?: string | null;
 

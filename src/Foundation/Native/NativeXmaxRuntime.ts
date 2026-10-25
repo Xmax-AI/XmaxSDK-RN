@@ -101,6 +101,16 @@ export interface Spec extends TurboModule {
   ): Promise<string>;
 
   /**
+   * Reads orientation-corrected video file dimensions independently of realtime media ownership.
+   *
+   * @param fileURL The readable local video file URL.
+   * @returns Serialized display width and height, in pixels.
+   */
+  videoInfo(
+    fileURL: string
+  ): Promise<string>;
+
+  /**
    * Corrects orientation, center-crops to the target ratio, and saves a private JPEG copy.
    *
    * @param fileURL The readable local file URL; your app retains ownership of the original.

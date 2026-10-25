@@ -107,7 +107,28 @@ export function uploadMetadata(
   media: 'image' | 'video',
   contentType?: string | null,
 ) {
-  const name = filePath(fileURL).split('/').pop() ?? '';
+  return uploadDataMetadata(
+    filePath(fileURL).split('/').pop() ?? '',
+    media,
+    contentType,
+  );
+}
+
+/**
+ * Normalizes a media filename and validates or infers its MIME type.
+ *
+ * @param name The original filename; characters outside letters, digits, periods, underscores,
+ *   and hyphens are replaced with underscores.
+ * @param media The allowed media category.
+ * @param contentType The MIME type; inferred from the extension when omitted or null.
+ * @returns The sanitized object filename and media MIME type.
+ */
+export function uploadDataMetadata(
+  name: string,
+  media: 'image' | 'video',
+  contentType?: string | null,
+) {
+  if (typeof name !== 'string') throw invalid('File name is required');
   const fileName = name
     .trim()
     .replace(
