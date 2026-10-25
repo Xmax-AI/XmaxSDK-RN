@@ -13,7 +13,7 @@ compiled.require = name => name === '@xmaxai/react-native-sdk'
 compiled._compile(ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
-const { ConfigurationStore, parseBitrateOverride, apiBaseURLForEndpoint, environmentForEndpoint } = compiled.exports;
+const { ConfigurationStore, endpointForLocale, modelForEndpoint, xlabModels, environmentForEndpoint } = compiled.exports;
 
 // Model the pinned iOS helper: any present cloudSync NSNumber enables sync,
 // including @NO. This is the native boundary the in-memory store tests omit.
@@ -52,14 +52,12 @@ test('secure adapter saves, restores and deletes local iOS keys with the pinned 
   const secure = iosSecureStorage(), store = new ConfigurationStore(secure);
   await store.load();
   store.setKey('china', 'china-fixture');
-  store.selectEndpoint('global');
   store.setKey('global', 'global-fixture');
   await nextTurn();
   assert.equal(store.getSnapshot().error, null);
 
   const reloaded = new ConfigurationStore(secure);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().endpoint, 'global');
   assert.deepEqual(reloaded.getSnapshot().keys, { china: 'china-fixture', global: 'global-fixture' });
 
   reloaded.setKey('global', '');
@@ -84,17 +82,15 @@ function storage(initial = {}) {
   };
 }
 
-test('keys and last endpoint survive reload without cross-endpoint fallback', async () => {
+test('regional keys survive reload without cross-region fallback', async () => {
   const disk = storage(), store = new ConfigurationStore(disk);
   await store.load();
   store.setKey('china', 'china-fixture');
-  store.selectEndpoint('global');
   assert.equal(store.getSnapshot().keys.global, '');
   store.setKey('global', 'global-fixture');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().endpoint, 'global');
   assert.deepEqual(reloaded.getSnapshot().keys, { china: 'china-fixture', global: 'global-fixture' });
   reloaded.setKey('global', '  ');
   await nextTurn();
@@ -114,7 +110,6 @@ test('rapid edits during a slow write preserve the latest value in each slot', a
   await store.load();
   store.setKey('china', 'old');
   store.setKey('china', 'newer');
-  store.selectEndpoint('global');
   store.setKey('global', 'other');
   store.setKey('china', 'latest');
   assert.equal(store.getSnapshot().saving, true);
@@ -122,7 +117,6 @@ test('rapid edits during a slow write preserve the latest value in each slot', a
   await nextTurn();
   assert.equal(disk.values.get('china'), 'latest');
   assert.equal(disk.values.get('global'), 'other');
-  assert.equal(disk.values.get('environment'), 'global');
   assert.equal(calls.some(([, value]) => value === 'newer'), false);
   assert.equal(store.getSnapshot().saving, false);
 });
@@ -173,20 +167,17 @@ test('initial read is coalesced and input cannot race hydration', async () => {
   const loading = store.load();
   assert.equal(store.load(), loading);
   store.setKey('china', 'ignored');
-  store.selectEndpoint('china');
   gate.resolve();
   await loading;
-  assert.equal(reads, 7);
-  assert.equal(store.getSnapshot().endpoint, 'global');
+  assert.equal(reads, 4);
   assert.equal(store.getSnapshot().keys.china, 'stored');
 });
 
-test('language changes survive reload independently of API endpoint and credentials', async () => {
+test('language changes preserve separately stored regional credentials across reloads', async () => {
   const disk = iosSecureStorage(), store = new ConfigurationStore(disk);
   await store.load();
   assert.equal(store.getSnapshot().language, 'system');
   store.setKey('china', 'china-fixture');
-  store.selectEndpoint('global');
   store.setKey('global', 'global-fixture');
   store.selectLanguage('zh-Hans');
   store.selectLanguage('en');
@@ -196,7 +187,6 @@ test('language changes survive reload independently of API endpoint and credenti
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
   assert.equal(reloaded.getSnapshot().language, 'en');
-  assert.equal(reloaded.getSnapshot().endpoint, 'global');
   assert.deepEqual(reloaded.getSnapshot().keys, { china: 'china-fixture', global: 'global-fixture' });
 
   reloaded.selectLanguage('system');
@@ -246,107 +236,43 @@ test('failed language writes keep the newest preference for retry', async () => 
 });
 
 
-test('regional model selection keeps the service environment and credentials independent', async () => {
-  const disk = storage({ china: 'cn-fixture', global: 'global-fixture', environment: 'global' });
+test('resolved interface language selects the service region and available models', () => {
+  assert.equal(endpointForLocale('zh-Hans'), 'china');
+  assert.equal(endpointForLocale('en'), 'global');
+  assert.equal(environmentForEndpoint('china'), 'china');
+  assert.equal(environmentForEndpoint('global'), 'global');
+  assert.deepEqual(xlabModels.china, ['x2.1.1-preview-cn']);
+  assert.deepEqual(xlabModels.global, ['x2.1.1-preview-us']);
+  assert.equal(modelForEndpoint('x2.1.1-preview-us', 'china'), 'x2.1.1-preview-cn');
+  assert.equal(modelForEndpoint('x2.1.1-preview-cn', 'global'), 'x2.1.1-preview-us');
+});
+
+test('obsolete endpoint and bitrate settings cannot override locale routing or block hydration', async () => {
+  const disk = storage({ environment: 'global', minBitrate: '2000', maxBitrate: '',
+    china: 'cn-fixture', global: 'global-fixture', language: 'zh-Hans', model: 'x2.1.1-preview-us' });
+  const read = disk.read, fields = [];
+  disk.read = async field => { fields.push(field); return read(field); };
   const store = new ConfigurationStore(disk);
   await store.load();
-  assert.equal(store.getSnapshot().model, 'x2.1.1-preview-us');
-  store.selectModel('x2.1.1-preview-cn');
-  assert.equal(store.getSnapshot().endpoint, 'global');
-  store.selectEndpoint('china');
-  assert.equal(store.getSnapshot().model, 'x2.1.1-preview-cn');
+  const configuration = store.getSnapshot();
+  assert.equal(configuration.loaded, true);
+  assert.equal(configuration.error, null);
+  assert.deepEqual(fields.sort(), ['china', 'global', 'language', 'model']);
+  assert.equal(endpointForLocale(configuration.language), 'china');
+  assert.equal(modelForEndpoint(configuration.model, 'china'), 'x2.1.1-preview-cn');
+  assert.deepEqual(configuration.keys, { china: 'cn-fixture', global: 'global-fixture' });
+});
+
+test('model selections persist and obsolete models fall back to a supported model', async () => {
+  const disk = storage(), store = new ConfigurationStore(disk);
+  await store.load();
+  store.selectModel('x2.1.1-preview-us');
   store.selectModel('obsolete-model');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().model, 'x2.1.1-preview-cn');
-  assert.equal(reloaded.getSnapshot().endpoint, 'china');
-  assert.deepEqual(reloaded.getSnapshot().keys, { china: 'cn-fixture', global: 'global-fixture' });
-});
-
-test('regional models retain their selection and legacy values use an explicit environment', async () => {
-  for (const [model, environment, expected] of [
-    ['x2.1.1-preview-us', undefined, 'global'],
-    ['x2.1.1-preview-cn', undefined, 'china'],
-    ['x2.1.1-preview-us', 'china', 'china'],
-    ['x2.1.1-preview-cn', 'global', 'global'],
-    ['obsolete-model', 'global', 'global'],
-    ['x2.1', 'global', 'global'],
-    ['x2.1', 'china', 'china'],
-  ]) {
-    const disk = storage({ model, ...(environment ? { environment } : {}), global: 'saved' });
-    const store = new ConfigurationStore(disk);
-    await store.load();
-    assert.equal(store.getSnapshot().model, ['x2.1.1-preview-cn', 'x2.1.1-preview-us'].includes(model) ? model : expected === 'global' ? 'x2.1.1-preview-us' : 'x2.1.1-preview-cn');
-    assert.equal(store.getSnapshot().endpoint, expected);
-    assert.equal(store.getSnapshot().keys.global, 'saved');
-  }
-});
-
-test('endpoint selection persists with its own key slot and obsolete values fall back to China', async () => {
-  const disk = storage({ environment: 'obsolete-endpoint' });
-  const fallback = new ConfigurationStore(disk);
-  await fallback.load();
-  assert.equal(fallback.getSnapshot().endpoint, 'china');
-
-  const store = new ConfigurationStore(disk);
-  await store.load();
-  store.selectEndpoint('global');
-  store.setKey('global', 'global-fixture');
-  await nextTurn();
-  const reloaded = new ConfigurationStore(disk);
-  await reloaded.load();
-  assert.equal(reloaded.getSnapshot().endpoint, 'global');
-  assert.deepEqual(reloaded.getSnapshot().keys, { china: '', global: 'global-fixture' });
-});
-
-test('endpoints resolve their API base URL and SDK environment', () => {
-  assert.equal(apiBaseURLForEndpoint('china'), 'https://cloud.xmax.22duck.cn/open/api/v1');
-  assert.equal(apiBaseURLForEndpoint('global'), 'https://api.xmax.ai/open/api/v1');
-  assert.equal(environmentForEndpoint('global'), 'global');
-  assert.equal(environmentForEndpoint('china'), 'china');
-});
-
-test('bitrate inputs persist across reloads and empty values delete their slots', async () => {
-  const disk = storage(), store = new ConfigurationStore(disk);
-  await store.load();
-  assert.equal(store.getSnapshot().minBitrate, '');
-  assert.equal(store.getSnapshot().maxBitrate, '');
-  store.setBitrate('minBitrate', ' 2000 ');
-  store.setBitrate('maxBitrate', '4000');
-  assert.equal(store.getSnapshot().minBitrate, ' 2000 ');
-  await nextTurn();
-  const reloaded = new ConfigurationStore(disk);
-  await reloaded.load();
-  assert.equal(reloaded.getSnapshot().minBitrate, '2000');
-  assert.equal(reloaded.getSnapshot().maxBitrate, '4000');
-  reloaded.setBitrate('minBitrate', '');
-  await nextTurn();
-  const cleared = new ConfigurationStore(disk);
-  await cleared.load();
-  assert.equal(cleared.getSnapshot().minBitrate, '');
-  assert.equal(cleared.getSnapshot().maxBitrate, '4000');
-  assert.equal(disk.values.has('minBitrate'), false);
-});
-
-test('bitrate override parsing requires a complete valid range or empty input', () => {
-  assert.equal(parseBitrateOverride('', ''), null);
-  assert.equal(parseBitrateOverride('  ', ' '), null);
-  assert.deepEqual(parseBitrateOverride('2000', '4000'), { minimum: 2000, maximum: 4000 });
-  assert.deepEqual(parseBitrateOverride(' 0 ', ' 4000 '), { minimum: 0, maximum: 4000 });
-  assert.equal(parseBitrateOverride('2000', ''), 'invalid');
-  assert.equal(parseBitrateOverride('', '4000'), 'invalid');
-  assert.equal(parseBitrateOverride('abc', '4000'), 'invalid');
-  assert.equal(parseBitrateOverride('20.5', '4000'), 'invalid');
-  assert.equal(parseBitrateOverride('4000', '2000'), 'invalid');
-  assert.equal(parseBitrateOverride('0', '0'), 'invalid');
-});
-
-
-test('hydration preserves the explicit service environment when a legacy model disagrees', async () => {
-  const disk = storage({ model: 'x2.1.1-preview-us', environment: 'china', china: 'cn', global: 'us' });
-  const store = new ConfigurationStore(disk);
-  await store.load();
-  assert.equal(store.getSnapshot().endpoint, 'china');
-  assert.equal(store.getSnapshot().keys.global, 'us');
+  assert.equal(reloaded.getSnapshot().model, 'x2.1.1-preview-us');
+  const obsolete = new ConfigurationStore(storage({ model: 'obsolete-model' }));
+  await obsolete.load();
+  assert.equal(obsolete.getSnapshot().model, 'x2.1.1-preview-cn');
 });

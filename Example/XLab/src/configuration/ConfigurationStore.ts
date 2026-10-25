@@ -1,14 +1,31 @@
 import { RealtimeModel, XmaxEnvironment } from '@xmaxai/react-native-sdk';
-import type { XLabLanguage } from '../localization/Localization';
+import type { XLabLanguage, XLabLocale } from '../localization/Localization';
 
 /** The API backends XLab can target; credentials persist independently per endpoint. */
 export type XLabApiEndpoint = 'china' | 'global';
 
-/** Models offered by XLab; persisted selections outside this list fall back to the default. */
-export const xlabModels: readonly RealtimeModel[] = [
-  RealtimeModel.x2_1_1_preview_cn,
-  RealtimeModel.x2_1_1_preview_us,
-];
+/** Models available in each service environment. */
+export const xlabModels: Readonly<
+  Record<XLabApiEndpoint, readonly RealtimeModel[]>
+> = {
+  china: [RealtimeModel.x2_1_1_preview_cn],
+  global: [RealtimeModel.x2_1_1_preview_us],
+};
+
+/** Selects the service environment from the resolved interface language. */
+export function endpointForLocale(locale: XLabLocale): XLabApiEndpoint {
+  return locale === 'zh-Hans' ? 'china' : 'global';
+}
+
+/** Resolves a saved selection within the current environment's model list. */
+export function modelForEndpoint(
+  model: RealtimeModel,
+  endpoint: XLabApiEndpoint,
+): RealtimeModel {
+  const models = xlabModels[endpoint];
+
+  return models.includes(model) ? model : models[0]!;
+}
 
 /** Maps an endpoint to the SDK environment used when creating clients. */
 export function environmentForEndpoint(
@@ -19,24 +36,8 @@ export function environmentForEndpoint(
     : XmaxEnvironment.china;
 }
 
-/** Displays the realtime API URL for a service region; SDK services resolve their own backends. */
-export function apiBaseURLForEndpoint(endpoint: XLabApiEndpoint): string {
-  return endpoint === 'global'
-    ? 'https://api.xmax.ai/open/api/v1'
-    : 'https://cloud.xmax.22duck.cn/open/api/v1';
-}
-
-/** Separate secure-storage slots; no shared API Key fallback between endpoints. */
-export type ConfigurationField =
-  | XLabApiEndpoint
-  | 'environment'
-  | 'language'
-  | 'model'
-  | 'minBitrate'
-  | 'maxBitrate';
-
-/** Persisted upload bitrate fields. Return-video budgets are automatic. */
-export type BitrateField = 'minBitrate' | 'maxBitrate';
+/** Separate secure-storage slots; credentials never fall back across regions. */
+export type ConfigurationField = XLabApiEndpoint | 'language' | 'model';
 
 /** Minimal persistence boundary, implemented by the host's secure storage. */
 export interface ConfigurationStorage {
@@ -48,12 +49,8 @@ export interface ConfigurationStorage {
 /** Stable snapshot consumed by XLab; never included in logs or error messages. */
 export interface SavedConfiguration {
   readonly keys: Readonly<Record<XLabApiEndpoint, string>>;
-  readonly endpoint: XLabApiEndpoint;
   readonly language: XLabLanguage;
   readonly model: RealtimeModel;
-  /** Raw kbps input preserved as typed; empty keeps SDK bitrate defaults. */
-  readonly minBitrate: string;
-  readonly maxBitrate: string;
   readonly loaded: boolean;
   readonly saving: boolean;
   /** Localized at render time so an existing failure follows language changes. */
@@ -67,11 +64,8 @@ export interface SavedConfiguration {
 export class ConfigurationStore {
   private state: SavedConfiguration = {
     keys: { china: '', global: '' },
-    endpoint: 'china',
     language: 'system',
     model: RealtimeModel.x2_1_1_preview_cn,
-    minBitrate: '',
-    maxBitrate: '',
     loaded: false,
     saving: false,
     error: null,
@@ -106,42 +100,20 @@ export class ConfigurationStore {
     this.publish({ error: null });
     this.loading = (async () => {
       try {
-        const [
-          china,
-          global,
-          endpoint,
-          language,
-          model,
-          minBitrate,
-          maxBitrate,
-        ] = await Promise.all([
+        const [china, global, language, model] = await Promise.all([
           this.storage.read('china'),
           this.storage.read('global'),
-          this.storage.read('environment'),
           this.storage.read('language'),
           this.storage.read('model'),
-          this.storage.read('minBitrate'),
-          this.storage.read('maxBitrate'),
         ]);
-
-        // Explicit environment remains authoritative, including older regional model selections.
-        const selectedEndpoint =
-          endpoint === 'global' || endpoint === 'china'
-            ? endpoint
-            : model === RealtimeModel.x2_1_1_preview_us
-            ? 'global'
-            : 'china';
         const selectedModel =
-          xlabModels.find(supported => supported === model) ??
-          (selectedEndpoint === 'global'
-            ? RealtimeModel.x2_1_1_preview_us
-            : RealtimeModel.x2_1_1_preview_cn);
+          Object.values(xlabModels)
+            .flat()
+            .find(supported => supported === model) ??
+          RealtimeModel.x2_1_1_preview_cn;
         this.publish({
           keys: { china: china ?? '', global: global ?? '' },
-          endpoint: selectedEndpoint,
           model: selectedModel,
-          minBitrate: minBitrate ?? '',
-          maxBitrate: maxBitrate ?? '',
           language:
             language === 'zh-Hans' || language === 'en' ? language : 'system',
           loaded: true,
@@ -163,14 +135,6 @@ export class ConfigurationStore {
     this.enqueue(endpoint, value.trim());
   }
 
-  /** Persists the endpoint for future entries without modifying an active route. */
-  selectEndpoint(endpoint: XLabApiEndpoint): void {
-    if (!this.state.loaded || endpoint === this.state.endpoint) return;
-
-    this.publish({ endpoint });
-    this.enqueue('environment', endpoint);
-  }
-
   /** Updates visible copy immediately and persists the choice independently of credentials. */
   selectLanguage(language: XLabLanguage): void {
     if (!this.state.loaded || language === this.state.language) return;
@@ -181,17 +145,13 @@ export class ConfigurationStore {
 
   /** Persists the model for future entries without modifying an active route. */
   selectModel(model: RealtimeModel): void {
-    if (!this.state.loaded || !xlabModels.includes(model)) return;
+    if (
+      !this.state.loaded ||
+      !Object.values(xlabModels).some(models => models.includes(model))
+    )
+      return;
     this.publish({ model });
     this.enqueue('model', model);
-  }
-
-  /** Publishes kbps input as typed and persists the trimmed value. */
-  setBitrate(field: BitrateField, value: string): void {
-    if (!this.state.loaded) return;
-
-    this.publish({ [field]: value });
-    this.enqueue(field, value.trim());
   }
 
   private enqueue(field: ConfigurationField, value: string): void {
@@ -228,34 +188,4 @@ export class ConfigurationStore {
       });
     }
   }
-}
-
-/** Parsed upload bitrate limits in kbps, applied when creating local streams. */
-export interface BitrateOverride {
-  readonly minimum: number;
-  readonly maximum: number;
-}
-
-/**
- * Parses raw kbps inputs for a new stream. Both empty keeps SDK defaults;
- * otherwise both must be safe integers with a positive maximum not below the
- * minimum. 'invalid' input stays on the feed until the user fixes it.
- */
-export function parseBitrateOverride(
-  minBitrate: string,
-  maxBitrate: string,
-): BitrateOverride | null | 'invalid' {
-  const minimum = minBitrate.trim(),
-    maximum = maxBitrate.trim();
-
-  if (!minimum && !maximum) return null;
-  if (!/^\d+$/.test(minimum) || !/^\d+$/.test(maximum)) return 'invalid';
-
-  const lo = Number(minimum),
-    hi = Number(maximum);
-
-  if (!Number.isSafeInteger(lo) || !Number.isSafeInteger(hi)) return 'invalid';
-  if (hi <= 0 || lo > hi) return 'invalid';
-
-  return { minimum: lo, maximum: hi };
 }

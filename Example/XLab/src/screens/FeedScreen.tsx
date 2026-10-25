@@ -22,135 +22,17 @@ import { StorageFeatureCard } from '../components/StorageFeatureCard';
 import { FeedPipelineCard } from '../components/FeedPipelineCard';
 import { FeedFeatureCard } from '../components/FeedFeatureCard';
 import type {
-  BitrateField,
   SavedConfiguration,
   XLabApiEndpoint,
 } from '../configuration/ConfigurationStore';
 import {
-  apiBaseURLForEndpoint,
-  parseBitrateOverride,
+  endpointForLocale,
+  modelForEndpoint,
   xlabModels,
 } from '../configuration/ConfigurationStore';
 
-/** Uplink kbps presets; the empty pair clears the inputs back to SDK defaults. */
-const UPLINK_PRESETS: readonly (readonly [string, string])[] = [
-  ['', ''],
-  ['500', '1500'],
-  ['1000', '2000'],
-  ['2000', '4000'],
-];
-
-/** Endpoint choices in display order; labels localize through feed.endpoint.*. */
-const API_ENDPOINTS: readonly XLabApiEndpoint[] = ['china', 'global'];
-
 function FeedText({ style, ...props }: ComponentProps<typeof Text>) {
   return <Text {...props} style={[styles.text, style]} />;
-}
-
-/** A labelled kbps input pair with preset chips; empty inputs keep defaults. */
-function BitrateSection({
-  title,
-  minimumLabel,
-  maximumLabel,
-  minimumPlaceholder,
-  maximumPlaceholder,
-  minimumValue,
-  maximumValue,
-  minimumField,
-  maximumField,
-  presets,
-  autoLabel,
-  help,
-  onChange,
-}: {
-  title: string;
-  minimumLabel: string;
-  maximumLabel: string;
-  minimumPlaceholder: string;
-  maximumPlaceholder: string;
-  minimumValue: string;
-  maximumValue: string;
-  minimumField: BitrateField;
-  maximumField: BitrateField;
-  presets: readonly (readonly [string, string])[];
-  autoLabel: string;
-  help: string;
-  onChange: (field: BitrateField, value: string) => void;
-}) {
-  return (
-    <View style={styles.apiContainer}>
-      <FeedText style={styles.apiLabel}>{title}</FeedText>
-      <View style={styles.bitrateRow}>
-        <View style={styles.bitrateField}>
-          <FeedText style={styles.apiLabel}>{minimumLabel}</FeedText>
-          <View style={styles.bitrateInputWrap}>
-            <TextInput
-              accessibilityLabel={minimumLabel}
-              style={styles.input}
-              placeholder={minimumPlaceholder}
-              placeholderTextColor="rgba(96,112,128,0.5)"
-              value={minimumValue}
-              onChangeText={value => onChange(minimumField, value)}
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="done"
-              selectionColor={colors.accent}
-            />
-          </View>
-        </View>
-        <View style={styles.bitrateField}>
-          <FeedText style={styles.apiLabel}>{maximumLabel}</FeedText>
-          <View style={styles.bitrateInputWrap}>
-            <TextInput
-              accessibilityLabel={maximumLabel}
-              style={styles.input}
-              placeholder={maximumPlaceholder}
-              placeholderTextColor="rgba(96,112,128,0.5)"
-              value={maximumValue}
-              onChangeText={value => onChange(maximumField, value)}
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="done"
-              selectionColor={colors.accent}
-            />
-          </View>
-        </View>
-      </View>
-      <View style={styles.presetRow}>
-        {presets.map(([minimum, maximum]) => {
-          const active =
-            minimumValue.trim() === minimum && maximumValue.trim() === maximum;
-
-          return (
-            <Pressable
-              key={`${minimum}-${maximum}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              onPress={() => {
-                onChange(minimumField, minimum);
-                onChange(maximumField, maximum);
-              }}
-              style={[styles.presetChip, active && styles.presetChipActive]}
-            >
-              <FeedText
-                style={[
-                  styles.presetChipText,
-                  active && styles.presetChipTextActive,
-                ]}
-              >
-                {minimum ? `${minimum} / ${maximum}` : autoLabel}
-              </FeedText>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={styles.helpRow}>
-        <FeedText style={styles.helpText}>{help}</FeedText>
-      </View>
-    </View>
-  );
 }
 
 function Pill({ text }: { text: string }) {
@@ -162,8 +44,8 @@ function Pill({ text }: { text: string }) {
 }
 
 /**
- * Displays SDK examples and passes the selected credentials and endpoint
- * to the chosen feature. Its parent owns secure persistence for each endpoint.
+ * Displays SDK examples for the interface language's service environment.
+ * Its parent owns secure persistence for each region's credentials.
  */
 export function FeedScreen({
   onCamera,
@@ -172,8 +54,6 @@ export function FeedScreen({
   onStorage,
   configuration,
   onAPIKeyChange,
-  onEndpointChange,
-  onBitrateChange,
   onLanguageChange,
   onModelChange,
   onRetrySave,
@@ -194,14 +74,14 @@ export function FeedScreen({
   onStorage: (apiKey: string, endpoint: XLabApiEndpoint) => void;
   configuration: SavedConfiguration;
   onAPIKeyChange: (value: string) => void;
-  onEndpointChange: (endpoint: XLabApiEndpoint) => void;
-  onBitrateChange: (field: BitrateField, value: string) => void;
   onLanguageChange: (language: XLabLanguage) => void;
   onModelChange: (model: RealtimeModel) => void;
   onRetrySave: () => void;
 }) {
-  const { t } = useLocalization();
-  const { endpoint } = configuration;
+  const { t, locale } = useLocalization();
+  const endpoint = endpointForLocale(locale);
+  const models = xlabModels[endpoint];
+  const selectedModel = modelForEndpoint(configuration.model, endpoint);
   const apiKey = configuration.keys[endpoint];
   const [visible, setVisible] = useState(false);
 
@@ -243,27 +123,9 @@ export function FeedScreen({
     return false;
   }
 
-  /** Blocks feature entries until both bitrate pairs parse as valid ranges. */
-  function requireValidBitrate(): boolean {
-    if (
-      parseBitrateOverride(
-        configuration.minBitrate,
-        configuration.maxBitrate,
-      ) === 'invalid'
-    ) {
-      Alert.alert(t('common.notice'), t('feed.bitrate.invalid'), [
-        { text: t('common.ok') },
-      ]);
-
-      return false;
-    }
-    return true;
-  }
-
   /** Selects a video for the app-owned native decoder. */
   async function openExternalVideo() {
-    if (pickerOpen.current || !requireAPIKey() || !requireValidBitrate())
-      return;
+    if (pickerOpen.current || !requireAPIKey()) return;
     pickerOpen.current = true;
     try {
       const result = await launchImageLibrary({
@@ -286,8 +148,7 @@ export function FeedScreen({
 
   /** Selects an input image; the destination owns preparation and RTC resources. */
   async function openImage(customTrajectory = false) {
-    if (pickerOpen.current || !requireAPIKey() || !requireValidBitrate())
-      return;
+    if (pickerOpen.current || !requireAPIKey()) return;
 
     pickerOpen.current = true;
     try {
@@ -407,47 +268,9 @@ export function FeedScreen({
               </FeedText>
               <FeedText style={styles.modelCount}>
                 {t('feed.model.count', {
-                  count: xlabModels.length,
+                  count: models.length,
                 })}
               </FeedText>
-            </View>
-            <View style={styles.apiContainer}>
-              <FeedText style={styles.apiLabel}>
-                {t('feed.endpoint.title')}
-              </FeedText>
-              <View style={styles.presetRow}>
-                {API_ENDPOINTS.map(value => {
-                  const active = configuration.endpoint === value;
-
-                  return (
-                    <Pressable
-                      key={value}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: active }}
-                      accessibilityLabel={t(`feed.endpoint.${value}`)}
-                      onPress={() => onEndpointChange(value)}
-                      style={[
-                        styles.presetChip,
-                        active && styles.presetChipActive,
-                      ]}
-                    >
-                      <FeedText
-                        style={[
-                          styles.presetChipText,
-                          active && styles.presetChipTextActive,
-                        ]}
-                      >
-                        {t(`feed.endpoint.${value}`)}
-                      </FeedText>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <View style={styles.helpRow}>
-                <FeedText style={styles.helpText} numberOfLines={1}>
-                  {apiBaseURLForEndpoint(configuration.endpoint)}
-                </FeedText>
-              </View>
             </View>
             <View style={styles.apiContainer}>
               <FeedText style={styles.apiLabel}>API KEY</FeedText>
@@ -520,36 +343,21 @@ export function FeedScreen({
                 </View>
               )}
             </View>
-            <BitrateSection
-              title={t('feed.bitrate.title')}
-              minimumLabel={t('feed.bitrate.min')}
-              maximumLabel={t('feed.bitrate.max')}
-              minimumPlaceholder={t('feed.bitrate.minPlaceholder')}
-              maximumPlaceholder={t('feed.bitrate.maxPlaceholder')}
-              minimumValue={configuration.minBitrate}
-              maximumValue={configuration.maxBitrate}
-              minimumField="minBitrate"
-              maximumField="maxBitrate"
-              presets={UPLINK_PRESETS}
-              autoLabel={t('feed.bitrate.auto')}
-              help={t('feed.bitrate.help')}
-              onChange={onBitrateChange}
-            />
             <View style={styles.divider} />
             {Object.entries(RealtimeModel)
-              .filter(([, model]) => xlabModels.includes(model))
+              .filter(([, model]) => models.includes(model))
               .map(([identifier, model]) => (
                 <Pressable
                   key={model}
                   accessibilityRole="radio"
                   accessibilityState={{
-                    checked: configuration.model === model,
+                    checked: selectedModel === model,
                   }}
                   accessibilityLabel={model.toUpperCase()}
                   onPress={() => onModelChange(model)}
                   style={[
                     styles.model,
-                    configuration.model === model && styles.selectedModel,
+                    selectedModel === model && styles.selectedModel,
                   ]}
                 >
                   <FeedText style={styles.modelDiamond}>◆</FeedText>
@@ -561,7 +369,7 @@ export function FeedScreen({
                       {`RealtimeModel.${identifier}`}
                     </FeedText>
                   </View>
-                  {configuration.model === model && (
+                  {selectedModel === model && (
                     <Pill text={t('feed.selected')} />
                   )}
                 </Pressable>
@@ -585,8 +393,7 @@ export function FeedScreen({
               subtitle={t('feed.camera.subtitle')}
               capability="createLocalCameraStream()"
               onPress={() => {
-                if (requireAPIKey() && requireValidBitrate())
-                  onCamera(apiKey.trim(), endpoint);
+                if (requireAPIKey()) onCamera(apiKey.trim(), endpoint);
               }}
             />
             <FeedPipelineCard
@@ -863,40 +670,6 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     color: '#D6DEE9',
   },
-  bitrateRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  bitrateField: { flex: 1, gap: 6 },
-  bitrateInputWrap: {
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.11)',
-    backgroundColor: 'rgba(8,12,18,0.4)',
-  },
-  presetRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-  },
-  presetChip: {
-    height: 26,
-    paddingHorizontal: 11,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    justifyContent: 'center',
-  },
-  presetChipActive: {
-    borderColor: 'rgba(142,240,200,0.45)',
-    backgroundColor: 'rgba(142,240,200,0.12)',
-  },
-  presetChipText: {
-    fontSize: font(9),
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    color: 'rgba(214,222,233,0.75)',
-  },
-  presetChipTextActive: { color: colors.accent },
   visibilityButton: { width: 20, height: 20, marginRight: 8 },
   visibilityIcon: { width: 20, height: 20, opacity: 0.78 },
   helpRow: {

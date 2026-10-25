@@ -50,7 +50,6 @@ import {
   RealtimeErrorToast,
   type RealtimeErrorNotice,
 } from '../realtime/RealtimeErrorToast';
-import type { BitrateOverride } from '../configuration/ConfigurationStore';
 
 /**
  * Owns camera or image preview and its prompt/reference generation lifecycle.
@@ -63,7 +62,6 @@ import type { BitrateOverride } from '../configuration/ConfigurationStore';
  */
 export function RealtimeScreen({
   model = RealtimeModel.x2_1_1_preview_cn,
-  bitrate = null,
   apiKey,
   environment,
   baseURL,
@@ -76,8 +74,6 @@ export function RealtimeScreen({
 }: {
   /** Model captured when entering the page; defaults to the China X2.1.1 preview model. */
   model?: RealtimeModel;
-  /** Upload kbps limits captured with the model; null keeps SDK defaults. */
-  bitrate?: BitrateOverride | null;
   /** Credential captured for the selected service region. */
   apiKey: string;
   environment: XmaxEnvironment;
@@ -190,21 +186,11 @@ export function RealtimeScreen({
       setError(null);
 
       try {
-        // Bitrate overrides ride on the model's default format; dimensions stay
-        // identical to SDK behavior, only the encoder limits change.
-        const videoFormat = bitrate
-          ? {
-              ...realtimeModelSpecifications[model].defaultCameraVideoFormat,
-              minimumBitrate: bitrate.minimum,
-              maximumBitrate: bitrate.maximum,
-            }
-          : undefined;
         let stream: RealtimeMediaStream;
         if (externalFileURL) {
           const source = await makeRealtimeFileVideoSource(
             externalFileURL,
-            videoFormat ??
-              realtimeModelSpecifications[model].defaultCameraVideoFormat,
+            realtimeModelSpecifications[model].defaultCameraVideoFormat,
           );
           if (!alive.current || token !== epoch.current) {
             await source.stop();
@@ -218,12 +204,8 @@ export function RealtimeScreen({
           }
         } else
           stream = fileURL
-            ? await realtime.createLocalImageStream(
-                videoFormat ? { fileURL, videoFormat } : { fileURL },
-              )
-            : await realtime.createLocalCameraStream(
-                videoFormat ? { videoFormat } : undefined,
-              );
+            ? await realtime.createLocalImageStream({ fileURL })
+            : await realtime.createLocalCameraStream();
 
         if (alive.current && token === epoch.current) {
           local.current = stream;
@@ -249,7 +231,6 @@ export function RealtimeScreen({
       fileURL,
       externalFileURL,
       model,
-      bitrate,
       refreshConfiguration,
     ],
   );

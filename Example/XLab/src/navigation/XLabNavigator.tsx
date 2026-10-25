@@ -7,15 +7,16 @@ import {
 } from '@react-navigation/native-stack';
 import type { RealtimeModel } from '@xmaxai/react-native-sdk';
 import type {
-  BitrateOverride,
   ConfigurationStore,
   SavedConfiguration,
   XLabApiEndpoint,
 } from '../configuration/ConfigurationStore';
 import {
   environmentForEndpoint,
-  parseBitrateOverride,
+  endpointForLocale,
+  modelForEndpoint,
 } from '../configuration/ConfigurationStore';
+import { useLocalization } from '../localization/LocalizationProvider';
 import { FeedScreen } from '../screens/FeedScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { RealtimeScreen } from '../screens/RealtimeScreen';
@@ -28,12 +29,10 @@ export type XLabStackParamList = {
   Camera: {
     endpoint: XLabApiEndpoint;
     model: RealtimeModel;
-    bitrate: BitrateOverride | null;
   };
   Image: {
     endpoint: XLabApiEndpoint;
     model: RealtimeModel;
-    bitrate: BitrateOverride | null;
     fileURL: string;
     customTrajectory: boolean;
     contentType: string | undefined;
@@ -41,23 +40,10 @@ export type XLabStackParamList = {
   External: {
     endpoint: XLabApiEndpoint;
     model: RealtimeModel;
-    bitrate: BitrateOverride | null;
     fileURL: string;
   };
   Storage: { endpoint: XLabApiEndpoint };
 };
-
-/** Route params carry parsed values; the feed blocks invalid input before entry. */
-function bitrateParam(
-  configuration: SavedConfiguration,
-): BitrateOverride | null {
-  const parsed = parseBitrateOverride(
-    configuration.minBitrate,
-    configuration.maxBitrate,
-  );
-
-  return parsed === 'invalid' ? null : parsed;
-}
 
 interface ConfigurationContextValue {
   configuration: SavedConfiguration;
@@ -82,13 +68,14 @@ function FeedRoute({
   navigation,
 }: NativeStackScreenProps<XLabStackParamList, 'Feed'>) {
   const { configuration, store } = useXLabConfiguration();
+  const { locale } = useLocalization();
+  const currentEndpoint = endpointForLocale(locale);
+  const model = modelForEndpoint(configuration.model, currentEndpoint);
 
   return (
     <FeedScreen
       configuration={configuration}
-      onAPIKeyChange={value => store.setKey(configuration.endpoint, value)}
-      onEndpointChange={value => store.selectEndpoint(value)}
-      onBitrateChange={(field, value) => store.setBitrate(field, value)}
+      onAPIKeyChange={value => store.setKey(currentEndpoint, value)}
       onLanguageChange={value => store.selectLanguage(value)}
       onModelChange={value => store.selectModel(value)}
       onRetrySave={() => {
@@ -98,16 +85,14 @@ function FeedRoute({
         if (navigation.isFocused())
           navigation.navigate('Camera', {
             endpoint,
-            model: configuration.model,
-            bitrate: bitrateParam(configuration),
+            model,
           });
       }}
       onImage={(_apiKey, endpoint, fileURL, customTrajectory, contentType) => {
         if (navigation.isFocused())
           navigation.navigate('Image', {
             endpoint,
-            model: configuration.model,
-            bitrate: bitrateParam(configuration),
+            model,
             fileURL,
             customTrajectory,
             contentType,
@@ -118,8 +103,7 @@ function FeedRoute({
           navigation.navigate('External', {
             endpoint,
             fileURL,
-            model: configuration.model,
-            bitrate: bitrateParam(configuration),
+            model,
           });
       }}
       onStorage={(_apiKey, endpoint) => {
@@ -141,7 +125,6 @@ function CameraRoute({
     <CameraScreen
       entryReady={entryReady}
       model={route.params.model}
-      bitrate={route.params.bitrate}
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
       onBack={navigation.goBack}
@@ -160,7 +143,6 @@ function ImageRoute({
     <RealtimeScreen
       entryReady={entryReady}
       model={route.params.model}
-      bitrate={route.params.bitrate}
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
       fileURL={route.params.fileURL}
@@ -182,7 +164,6 @@ function ExternalRoute({
     <RealtimeScreen
       entryReady={entryReady}
       model={route.params.model}
-      bitrate={route.params.bitrate}
       apiKey={configuration.keys[route.params.endpoint].trim()}
       environment={environmentForEndpoint(route.params.endpoint)}
       externalFileURL={route.params.fileURL}
