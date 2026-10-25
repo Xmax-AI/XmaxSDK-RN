@@ -9,6 +9,7 @@ export const colors = {
   secondary: '#8E9AA9',
   accent: '#8EF0C8',
   image: '#C9A3FF',
+  external: '#FF9A45',
   trajectory: '#FF8FD8',
   storage: '#F5B86C',
 } as const;

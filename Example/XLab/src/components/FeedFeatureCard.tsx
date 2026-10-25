@@ -15,9 +15,11 @@ import { useLocalization } from '../localization/LocalizationProvider';
 interface FeedFeatureCardProps {
   category: string;
   watermark: string;
-  /** Six-digit hex color from the iOS Feed palette. */
+  /** Six-digit hex color for the card's accents. */
   accentColor: string;
   icon: ImageSourcePropType;
+  /** Optional tint for a monochrome feature icon. */
+  iconTintColor?: string;
   iconLabel: string;
   title: string;
   subtitle: string;
@@ -33,6 +35,7 @@ export function FeedFeatureCard({
   watermark,
   accentColor,
   icon,
+  iconTintColor,
   iconLabel,
   title,
   subtitle,
@@ -90,7 +93,13 @@ export function FeedFeatureCard({
       </View>
       <View style={styles.middle}>
         <View style={[styles.iconTile, accent.iconTile]}>
-          <Image source={icon} style={styles.icon} />
+          <Image
+            source={icon}
+            style={[
+              styles.icon,
+              iconTintColor ? { tintColor: iconTintColor } : undefined,
+            ]}
+          />
           <Text style={[styles.iconCaption, accent.text]}>{iconLabel}</Text>
         </View>
         <View style={styles.description}>

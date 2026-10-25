@@ -414,8 +414,9 @@ export function FeedScreen({
             <FeedFeatureCard
               category="SDK MEDIA / EXTERNAL"
               watermark="PCM"
-              accentColor={colors.accent}
+              accentColor={colors.external}
               icon={require('../assets/feed/external.png')}
+              iconTintColor={colors.external}
               iconLabel="EXTERNAL"
               title={t('feed.external.title')}
               subtitle={t('feed.external.subtitle')}

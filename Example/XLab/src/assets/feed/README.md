@@ -17,3 +17,5 @@ new Resvg(svg, { fitTo: { mode: 'width', value: 20 * scale } })
 2026-09-10 补充自定义轨迹渲染卡片图标：`sdk_feature_trajectory_custom.imageset/sdk_feature_trajectory_custom.svg` → `trajectory.svg`。同样使用 resvg 栅格化，保留原件颜色与路径，以 24 × 24 逻辑尺寸输出 `trajectory.png` / `trajectory@2x.png` / `trajectory@3x.png`，在卡片的 24 × 22 区域内按比例显示。
 
 The external capture icon uses the macOS system `video` symbol, exported as white PNGs at 1x, 2x, and 3x. Preserve its intrinsic aspect ratio and center it within the card's 24 × 22 point icon area; export canvases at 24 × 22, 48 × 44, and 72 × 66 pixels.
+
+The external capture card and its monochrome icon use the Harmony XLab orange accent, `#FF9A45`. The icon receives its color through the image tint, preserving the original PNG geometry and transparency.
