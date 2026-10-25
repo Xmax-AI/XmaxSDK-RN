@@ -77,6 +77,7 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
   private fun decode(sink: RealtimeExternalFrameSink, audio: Boolean, anchorUs: Long) {
     val reader = MediaExtractor()
     var codec: MediaCodec? = null
+    var stage = "track preparation"
     try {
       reader.setDataSource(context, uri, null)
       val index = (0 until reader.trackCount).firstOrNull {
@@ -88,6 +89,7 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
       if (!audio) format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
       else format.setInteger(MediaFormat.KEY_PCM_ENCODING, android.media.AudioFormat.ENCODING_PCM_16BIT)
       codec = MediaCodec.createDecoderByType(mime)
+      stage = "decoder configuration"
       codec.configure(format, null, null, 0)
       codec.start()
       var inputEnded = false
@@ -95,6 +97,7 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
       var lastVideoUs = -1000000L
       val info = MediaCodec.BufferInfo()
       while (running.get() && sink.isRequestingFrames) {
+        stage = "input decoding"
         if (!inputEnded) {
           val input = codec.dequeueInputBuffer(10000)
           if (input >= 0) {
@@ -109,6 +112,7 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
             }
           }
         }
+        stage = "output decoding"
         val output = codec.dequeueOutputBuffer(info, 10000)
         if (output == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) decodedFormat = codec.outputFormat
         if (output < 0) continue
@@ -118,6 +122,7 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
             val due = audio || info.presentationTimeUs - lastVideoUs >= 1000000L / fps
             if (due && await(targetUs, sink)) {
               if (audio) {
+                stage = "PCM delivery"
                 val buffer = requireNotNull(codec.getOutputBuffer(output)).duplicate()
                 buffer.position(info.offset); buffer.limit(info.offset + info.size)
                 val encoding = if (decodedFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)) decodedFormat.getInteger(MediaFormat.KEY_PCM_ENCODING) else android.media.AudioFormat.ENCODING_PCM_16BIT
@@ -125,12 +130,9 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
                 sink.pushAudio(buffer.slice(), decodedFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE),
                   decodedFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT), targetUs)
               } else {
+                stage = "image delivery"
                 val image = requireNotNull(codec.getOutputImage(output))
                 try {
-                  val crop = image.cropRect
-                  crop.right -= crop.width() % 2
-                  crop.bottom -= crop.height() % 2
-                  image.cropRect = crop
                   sink.pushVideo(image, targetUs, rotation)
                   lastVideoUs = info.presentationTimeUs
                 } finally { image.close() }
@@ -140,6 +142,12 @@ private class XLabFileVideoSource(val context: Context, val uri: Uri, val fps: I
           if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
         } finally { codec.releaseOutputBuffer(output, false) }
       }
+    } catch (error: Exception) {
+      android.util.Log.w(
+        "XLabExternalCapture",
+        "External ${if (audio) "audio" else "video"} $stage failed (${error.javaClass.simpleName})"
+      )
+      throw error
     } finally {
       try { codec?.stop() } finally { codec?.release(); reader.release() }
     }

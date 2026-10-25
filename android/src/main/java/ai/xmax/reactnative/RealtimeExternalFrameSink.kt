@@ -163,9 +163,11 @@ class RealtimeExternalFrameSink internal constructor(
 
   /**
    * Copies a YUV_420_888 image, applies its declared rotation, and resizes for preview and RTC.
+   * Odd trailing crop pixels are excluded without modifying the source image.
    * The caller retains the image and may close it after this method returns. Invalid or
    * nonincreasing timestamps are ignored. Pixel conversion and transport remain native.
-   * @param image The image with an even-aligned crop and Y/U/V planes.
+   * @param image The image with an even-aligned crop origin and Y/U/V planes. The even-trimmed,
+   * rotated crop dimensions must match the declared source dimensions.
    * @param timestampUs The nonnegative, strictly increasing shared monotonic timestamp, in microseconds.
    * @param rotation The clockwise pixel rotation, in degrees: 0, 90, 180, or 270.
    */
@@ -178,7 +180,9 @@ class RealtimeExternalFrameSink internal constructor(
     if (!active || timestampUs < 0 || timestampUs > Long.MAX_VALUE / 1000 || timestampUs <= lastVideoUs) return@synchronized
     try {
       require(image.format == android.graphics.ImageFormat.YUV_420_888 && rotation in listOf(0, 90, 180, 270))
-      val crop = image.cropRect
+      val crop = android.graphics.Rect(image.cropRect)
+      crop.right -= crop.width() % 2
+      crop.bottom -= crop.height() % 2
       val width = if (rotation % 180 == 0) crop.width() else crop.height()
       val height = if (rotation % 180 == 0) crop.height() else crop.width()
       require(width == sourceWidth && height == sourceHeight && crop.left % 2 == 0 && crop.top % 2 == 0)
@@ -390,7 +394,10 @@ class RealtimeExternalFrameSink internal constructor(
         0,
         timestampUs * 1000
       )
-      try { lastVideoUs = timestampUs; engine.pushExternalVideoFrame(frame) } finally { frame.release() }
+      try {
+        lastVideoUs = timestampUs
+        engine.pushExternalVideoFrame(frame)
+      } finally { frame.release() }
     } finally { upright.release() }
   }
 

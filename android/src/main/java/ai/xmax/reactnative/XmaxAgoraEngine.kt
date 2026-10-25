@@ -11,7 +11,6 @@
 package ai.xmax.reactnative
 
 import android.content.Context
-import android.view.TextureView
 import android.view.ViewGroup
 import io.agora.rtc2.*
 import io.agora.rtc2.video.CameraCapturerConfiguration
@@ -657,6 +656,7 @@ internal class XmaxAgoraEngine(
         engine.stopPreview()
         check(engine.enableLocalVideo(false))
         check(engine.setExternalVideoSource(true, false, Constants.ExternalVideoSourceType.VIDEO_FRAME))
+        check(engine.enableLocalVideo(true))
         check(engine.enableLocalAudio(false))
         externalSink?.invalidate()
         externalSink = RealtimeExternalFrameSink(request.getString("sinkID"), request.getInt("sourceWidth"),
@@ -664,7 +664,6 @@ internal class XmaxAgoraEngine(
           request.getInt("fps")), request.optBoolean("hasAudio"), engine) {
           event("error", "code" to "MEDIA_ERROR", "scope" to "all")
         }
-        check(engine.startPreview(Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM))
       }
       "join" -> join(request)
       "observeRemoteFrame" -> remoteFrames.observe(
@@ -724,6 +723,7 @@ internal class XmaxAgoraEngine(
           Constants.RENDER_MODE_HIDDEN,
           uid
         )
+        if (uid == 0 && external) canvas.sourceType = Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM.value
         check(if (uid == 0) engine.setupLocalVideo(canvas) else engine.setupRemoteVideo(canvas))
       }
       "pause" -> {
@@ -896,7 +896,7 @@ internal class XmaxAgoraEngine(
     val host = surfaces[request.getString("viewID")]?.get()
       ?: error("RTC canvas is no longer mounted")
     host.removeAllViews()
-    val texture = TextureView(host.context)
+    val texture = XmaxVideoTextureView(host.context)
     host.addView(
       texture,
       ViewGroup.LayoutParams(
@@ -914,6 +914,7 @@ internal class XmaxAgoraEngine(
     canvas.mirrorMode = if (uid == 0 && !external && front) Constants.VIDEO_MIRROR_MODE_ENABLED
     else Constants.VIDEO_MIRROR_MODE_DISABLED
     check(if (uid == 0) engine.setupLocalVideo(canvas) else engine.setupRemoteVideo(canvas))
+    if (uid == 0 && external) check(engine.startPreview(Constants.VideoSourceType.VIDEO_SOURCE_CUSTOM))
   }
 
   /**
