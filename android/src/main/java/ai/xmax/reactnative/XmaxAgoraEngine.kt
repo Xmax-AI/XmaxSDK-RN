@@ -767,7 +767,10 @@ internal class XmaxAgoraEngine(
       ),
       VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_30,
       request.getInt("maximum"),
-      VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_ADAPTIVE,
+      if (!external && cameraConfiguration != null) cameraOrientation(
+        request.getInt("width"),
+        request.getInt("height")
+      ) else VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_ADAPTIVE,
     )
     config.frameRate = request.getInt("fps")
     config.minBitrate = request.getInt("minimum")
@@ -807,16 +810,36 @@ internal class XmaxAgoraEngine(
       request.getInt("height"),
       request.getInt("fps"),
     )
+    config.followEncodeDimensionRatio = true
     check(engine.setCameraCapturerConfiguration(config))
     cameraConfiguration = config
+    encoder?.orientationMode = cameraOrientation(
+      request.getInt("width"),
+      request.getInt("height")
+    )
     applyMirror()
     check(engine.enableLocalVideo(true))
     check(engine.startPreview())
   }
 
   /**
-   * Updates camera capture and encoding in place, restoring the previous format on failure. Reports
-   * a media error if restoration also fails.
+   * Selects a fixed output direction matching the camera format's dimensions.
+   *
+   * @param width The camera frame width, in pixels.
+   * @param height The camera frame height, in pixels.
+   * @return Landscape for square or wide frames, and portrait for tall frames.
+   */
+  private fun cameraOrientation(
+    width: Int,
+    height: Int
+  ): VideoEncoderConfiguration.ORIENTATION_MODE {
+    return if (width >= height) VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_FIXED_LANDSCAPE
+    else VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_FIXED_PORTRAIT
+  }
+
+  /**
+   * Pauses disconnected capture to apply new dimensions while retaining the canvas. Restores the
+   * previous capture and encoding settings on failure, reporting a media error if restoration fails.
    *
    * @param request The validated target dimensions, frame rate, bitrate, and encoding preference.
    */
@@ -834,16 +857,27 @@ internal class XmaxAgoraEngine(
       request.getInt("height"),
       request.getInt("fps"),
     )
+    nextCapture.followEncodeDimensionRatio = true
 
     try {
+      check(engine.stopPreview())
+      check(engine.enableLocalVideo(false))
       check(engine.setCameraCapturerConfiguration(nextCapture))
       configureEncoding(request)
+      check(engine.enableLocalVideo(true))
+      check(engine.startPreview())
       cameraConfiguration = nextCapture
     } catch (failure: Exception) {
-      val captureResult = engine.setCameraCapturerConfiguration(previousCapture)
-      val encodingResult = engine.setVideoEncoderConfiguration(previousEncoder)
+      val restorationResults = listOf(
+        engine.stopPreview(),
+        engine.enableLocalVideo(false),
+        engine.setCameraCapturerConfiguration(previousCapture),
+        engine.setVideoEncoderConfiguration(previousEncoder),
+        engine.enableLocalVideo(true),
+        engine.startPreview()
+      )
       encoder = previousEncoder
-      if (captureResult < 0 || encodingResult < 0) event(
+      if (restorationResults.any { it < 0 }) event(
         "error",
         "code" to -1,
         "scope" to "all"

@@ -165,6 +165,7 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
       )
       try check(engine.setCameraCapturerConfiguration(config))
       cameraConfiguration = config
+      encoder?.orientationMode = cameraOrientation(config.dimensions)
       encoder?.mirrorMode = front ? .enabled : .disabled
       if let encoder { try check(engine.setVideoEncoderConfiguration(encoder)) }
       try check(engine.enableLocalVideo(true))
@@ -362,17 +363,18 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
   private func configureEncoding(
     _ request: [String: Any]
   ) throws {
-    let config = AgoraVideoEncoderConfiguration(
-      size: CGSize(
-        width: int(
-          request,
-          "width"
-        ),
-        height: int(
-          request,
-          "height"
-        )
+    let dimensions = CGSize(
+      width: int(
+        request,
+        "width"
       ),
+      height: int(
+        request,
+        "height"
+      )
+    )
+    let config = AgoraVideoEncoderConfiguration(
+      size: dimensions,
       frameRate: int(
         request,
         "fps"
@@ -381,7 +383,8 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
         request,
         "maximum"
       ),
-      orientationMode: .adaptative,
+      orientationMode: !external && cameraConfiguration != nil
+        ? cameraOrientation(dimensions) : .adaptative,
       mirrorMode: external || !front ? .disabled : .enabled
     )
     config.minBitrate = int(
@@ -396,8 +399,18 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
     encoder = config
   }
 
-  /// Updates capture and encoding in place during disconnected preview, restoring the previous
-  /// configuration on failure.
+  /// Selects a fixed output direction matching the camera format's dimensions.
+  ///
+  /// - Parameter size: The camera frame dimensions, in pixels.
+  /// - Returns: Landscape for square or wide frames, and portrait for tall frames.
+  private func cameraOrientation(
+    _ size: CGSize
+  ) -> AgoraVideoOutputOrientationMode {
+    size.width >= size.height ? .fixedLandscape : .fixedPortrait
+  }
+
+  /// Pauses disconnected capture to apply new dimensions, retaining the canvas and restoring
+  /// capture and encoding on failure.
   ///
   /// - Parameter request: The validated target camera format and encoding parameters.
   ///
@@ -433,14 +446,24 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
     nextCapture.followEncodeDimensionRatio = true
 
     do {
+      try check(engine.stopPreview())
+      try check(engine.enableLocalVideo(false))
       try check(engine.setCameraCapturerConfiguration(nextCapture))
       try configureEncoding(request)
+      try check(engine.enableLocalVideo(true))
+      try check(engine.startPreview())
       cameraConfiguration = nextCapture
     } catch {
-      let captureResult = engine.setCameraCapturerConfiguration(previousCapture)
-      let encodingResult = engine.setVideoEncoderConfiguration(previousEncoder)
+      let restorationResults = [
+        engine.stopPreview(),
+        engine.enableLocalVideo(false),
+        engine.setCameraCapturerConfiguration(previousCapture),
+        engine.setVideoEncoderConfiguration(previousEncoder),
+        engine.enableLocalVideo(true),
+        engine.startPreview(),
+      ]
       encoder = previousEncoder
-      if captureResult < 0 || encodingResult < 0 {
+      if restorationResults.contains(where: { $0 < 0 }) {
         event(
           "error",
           ["code": -1, "scope": "all"]
