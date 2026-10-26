@@ -30,34 +30,34 @@ import { XmaxVideo } from '../lib/typescript';
 // Compile the emitted consumer declarations, including negative calls. Never executed.
 export async function cameraContract(client: XmaxClient) {
   const output: RealtimeMediaFrameListener = { nativeHandle: 'native-consumer' };
-  const mediaOutput = client.createRealtimeManager({ model: RealtimeModel.x2_1_1_preview_cn });
+  const mediaOutput = client.createRealtimeManager({ model: RealtimeModel.x2_1 });
   await mediaOutput.setRemoteMediaFrameListener(output);
   await mediaOutput.setRemoteMediaFrameListener(null);
   // @ts-expect-error Raw frame callbacks belong to native Swift or Kotlin consumers.
   await mediaOutput.setRemoteMediaFrameListener(() => {});
   // @ts-expect-error Public clients route services through environment rather than an API URL override.
   new XmaxClient({ apiKey: 'fixture', baseURL: 'https://example.com' });
-  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1_1_preview_cn].supportedVideoFormats;
+  const bucket: readonly MediaSize[] = realtimeModelSpecifications[RealtimeModel.x2_1].supportedVideoFormats;
   // @ts-expect-error Model buckets cannot be changed by callers.
   bucket.push({ width: 640, height: 480 });
   const pro: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel.x2_1,
   });
-  client.createMediaService(RealtimeModel.x2_1_1_preview_cn);
+  client.createMediaService(RealtimeModel.x2_1);
   await pro.close();
 
   const preview: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel.x2_1,
   });
-  client.createMediaService(RealtimeModel.x2_1_1_preview_cn);
+  client.createMediaService(RealtimeModel.x2_1);
   await preview.close();
 
   const manager: XmaxRealtimeManaging = client.createRealtimeManager({
-    model: RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel.x2_1,
   });
   const size: MediaSize = client
-    .createMediaService(RealtimeModel.x2_1_1_preview_cn)
-    .resolveMediaSize({ width: 1024, height: 1920 }, RealtimeMediaSource.camera);
+    .createMediaService(RealtimeModel.x2_1)
+    .resolveMediaSize({ width: 1080, height: 1920 }, RealtimeMediaSource.camera);
   const local = await manager.createLocalCameraStream({
     position: CameraPosition.front,
     videoFormat: { ...size, fps: 30, minimumBitrate: 0, maximumBitrate: 3000,
@@ -219,20 +219,22 @@ void cancellableOperations;
 export function realtimeConfigurationContract(client: XmaxClient) {
   // Adaptive quality remains optional and model selection is independent of service routing.
   client.createRealtimeManager({
-    model: RealtimeModel.x2_1_1_preview_us,
+    model: RealtimeModel.x2_1,
     isAdaptiveQualityEnabled: false,
   });
   // @ts-expect-error The retired model is not part of the current SDK contract.
-  RealtimeModel.x2_1;
+  RealtimeModel.x2_1_1_preview_cn;
+  // @ts-expect-error The retired model is not part of the current SDK contract.
+  RealtimeModel.x2_1_1_preview_us;
   client.createRealtimeManager({
-    model: RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel.x2_1,
     // @ts-expect-error Adaptive quality accepts only a Boolean value.
     isAdaptiveQualityEnabled: 'false',
   });
 }
 
 export async function encodedMemoryContract(client: XmaxClient) {
-  const realtime = client.createRealtimeManager({ model: RealtimeModel.x2_1_1_preview_cn });
+  const realtime = client.createRealtimeManager({ model: RealtimeModel.x2_1 });
   const bytes = new Uint8Array([255, 216, 255]);
   await realtime.createLocalImageStream({ imageData: bytes });
   // @ts-expect-error A memory source cannot be combined with a file URL.

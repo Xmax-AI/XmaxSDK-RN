@@ -82,7 +82,7 @@ interface GenerationIntent {
  * the top controls and uses fit scaling. Controls retain safe-area padding.
  */
 export function RealtimeScreen({
-  model = RealtimeModel.x2_1_1_preview_cn,
+  model = RealtimeModel.x2_1,
   apiKey,
   environment,
   onBack,
@@ -92,7 +92,7 @@ export function RealtimeScreen({
   imageContentType: initialImageContentType,
   entryReady = true,
 }: {
-  /** Model captured when entering the page; defaults to the China X2.1.1 preview model. */
+  /** Model captured when entering the page; defaults to X2.1. */
   model?: RealtimeModel;
   /** Credential captured for the selected service region. */
   apiKey: string;

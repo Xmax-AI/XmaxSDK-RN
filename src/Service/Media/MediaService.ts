@@ -27,9 +27,9 @@ export class MediaService implements MediaServicing {
    */
   constructor(
     /**
-     * The generation model used for sizing; defaults to x2.1.1-preview-cn.
+     * The generation model used for sizing; defaults to x2.1.
      */
-    readonly model: RealtimeModel = RealtimeModel.x2_1_1_preview_cn,
+    readonly model: RealtimeModel = RealtimeModel.x2_1,
   ) {}
 
   /**

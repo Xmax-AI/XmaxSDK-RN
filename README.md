@@ -270,7 +270,7 @@ const client = new XmaxClient({
 });
 
 const realtime = client.createRealtimeManager({
-  model: RealtimeModel.x2_1_1_preview_us,
+  model: RealtimeModel.x2_1,
 });
 
 const localStream = await realtime.createLocalCameraStream({
@@ -295,10 +295,11 @@ it does not require a mounted result view. Audio is enabled after that frame is 
 The view shows local preview until the remote frame renders, with touch interaction
 enabled by default.
 
-Select `RealtimeModel.x2_1_1_preview_cn` or `RealtimeModel.x2_1_1_preview_us`.
+Select `RealtimeModel.x2_1` (`x2.1`), the supported realtime model.
 `XmaxEnvironment` independently selects the realtime and storage backends.
-Both models support camera formats of 1024 × 1920 and 1920 × 1024 at 30 fps;
-portrait is the default. Read `realtimeModelSpecifications[model].supportedVideoFormats`
+X2.1 supports 1920 × 1080, 1080 × 1920, 1408 × 1408, 1152 × 1536,
+and 1536 × 1152 at 30 fps. The default camera format is 1080 × 1920.
+Read `realtimeModelSpecifications[model].supportedVideoFormats`
 and pass `videoFormat` when creating a camera stream, or call
 `updateCameraFormat(format)` while the camera preview is Ready and disconnected.
 The existing stream and track are preserved. Preset availability depends on the model;

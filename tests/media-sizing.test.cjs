@@ -24,9 +24,24 @@ for (const model of Object.values(RealtimeModel)) {
     }
     for (const format of spec.supportedVideoFormats)
       assert.deepEqual(service.resolveMediaSize(format, 'camera'), { width: format.width, height: format.height });
-    assert.throws(() => service.resolveMediaSize({ width: 1080, height: 1920 }, 'camera'), { code: 'INVALID_CONFIGURATION' });
+    assert.throws(() => service.resolveMediaSize({ width: 1024, height: 1920 }, 'camera'), { code: 'INVALID_CONFIGURATION' });
   });
 }
+
+test('X2.1 selects each generation canvas by source aspect ratio without resizing the source', () => {
+  const service = new MediaService();
+  for (const [source, canvas] of [
+    [[1280, 720], [1920, 1080]],
+    [[720, 1280], [1080, 1920]],
+    [[1000, 1000], [1408, 1408]],
+    [[1200, 1600], [1152, 1536]],
+    [[1600, 1200], [1536, 1152]],
+  ]) {
+    const media = service.resolveMediaSize({ width: source[0], height: source[1] }, 'image');
+    assert.deepEqual(service.resolveGenerationSize(media), { width: canvas[0], height: canvas[1] });
+    assert.deepEqual(media, { width: source[0], height: source[1] });
+  }
+});
 
 test('alignment boundaries and extreme source aspect ratios stay within the model area', () => {
   const service = new MediaService();
@@ -46,8 +61,8 @@ test('source, canvas and return dimensions follow separate constraints', () => {
   assert.deepEqual(media, { width: 448, height: 448 });
   assert.deepEqual(service.resolveTargetSize(media, { width: 224, height: 224 }), { width: 224, height: 224 });
   assert.deepEqual(service.resolveTargetSize(media, { width: 1000, height: 1000 }), media);
-  assert.deepEqual(service.resolveGenerationSize({ width: 1200, height: 1600 }), { width: 1024, height: 1920 });
-  assert.deepEqual(service.resolveGenerationSize({ width: 1280, height: 720 }), { width: 1920, height: 1024 });
+  assert.deepEqual(service.resolveGenerationSize({ width: 1200, height: 1600 }), { width: 1152, height: 1536 });
+  assert.deepEqual(service.resolveGenerationSize({ width: 1280, height: 720 }), { width: 1920, height: 1080 });
   assert.deepEqual(service.resolveTargetSize({ width: 1024, height: 1920 }, { width: 921.6, height: 1728 }), { width: 896, height: 1680 });
   for (const invalid of [NaN, Infinity, 0, -1, 100.5, Number.MAX_SAFE_INTEGER + 1])
     assert.throws(() => service.resolveMediaSize({ width: invalid, height: 600 }, 'image'), { code: 'INVALID_CONFIGURATION' });

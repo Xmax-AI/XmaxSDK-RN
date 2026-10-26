@@ -81,13 +81,13 @@ function fixture(t) {
 test('installed RN XHR preserves HTTP envelopes, auth headers and request body without using fetch', async t => {
   const f = fixture(t);
   const caller = new AbortController();
-  const pending = f.api.request('POST', '/session', { model: 'x2.1.1-preview-cn' }, caller.signal);
+  const pending = f.api.request('POST', '/session', { model: 'x2.1' }, caller.signal);
   const request = f.requests[0];
   assert.equal(request.method, 'POST');
   assert.equal(request.headers['x-api-key'], 'test-key');
   assert.equal(request.headers['x-platform'], 'ios');
   assert.equal(request.headers['content-type'], 'application/json');
-  assert.equal(request.body, '{"model":"x2.1.1-preview-cn"}');
+  assert.equal(request.body, '{"model":"x2.1"}');
   assert.equal(request.responseType, 'text');
   assert.equal(request.incremental, false);
   assert.equal(request.credentials, false);

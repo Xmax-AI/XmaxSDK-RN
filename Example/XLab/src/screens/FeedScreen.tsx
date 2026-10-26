@@ -236,7 +236,7 @@ export function FeedScreen({
                 Platform.OS === 'ios' ? 'RN / iOS' : 'RN / Android',
               ],
               [t('feed.os'), Platform.OS === 'ios' ? '15.1+' : '8.0+'],
-              [t('feed.latestModel'), 'X2.1.1 PREVIEW'],
+              [t('feed.latestModel'), 'X2.1'],
             ].map(([label, value]) => (
               <View key={label} style={styles.metric}>
                 <FeedText

@@ -241,12 +241,12 @@ test('resolved interface language selects the service region independently of th
   assert.equal(endpointForLocale('en'), 'global');
   assert.equal(environmentForEndpoint('china'), 'china');
   assert.equal(environmentForEndpoint('global'), 'global');
-  assert.deepEqual(xlabModels, ['x2.1.1-preview-cn', 'x2.1.1-preview-us']);
+  assert.deepEqual(xlabModels, ['x2.1']);
 });
 
 test('obsolete endpoint and bitrate settings cannot override locale routing or block hydration', async () => {
   const disk = storage({ environment: 'global', minBitrate: '2000', maxBitrate: '',
-    china: 'cn-fixture', global: 'global-fixture', language: 'zh-Hans', model: 'x2.1.1-preview-us' });
+    china: 'cn-fixture', global: 'global-fixture', language: 'zh-Hans', model: 'x2.1' });
   const read = disk.read, fields = [];
   disk.read = async field => { fields.push(field); return read(field); };
   const store = new ConfigurationStore(disk);
@@ -256,22 +256,25 @@ test('obsolete endpoint and bitrate settings cannot override locale routing or b
   assert.equal(configuration.error, null);
   assert.deepEqual(fields.sort(), ['china', 'global', 'language', 'model']);
   assert.equal(endpointForLocale(configuration.language), 'china');
-  assert.equal(configuration.model, 'x2.1.1-preview-us');
+  assert.equal(configuration.model, 'x2.1');
   assert.deepEqual(configuration.keys, { china: 'cn-fixture', global: 'global-fixture' });
 });
 
 test('model selections persist and obsolete models fall back to a supported model', async () => {
   const disk = storage(), store = new ConfigurationStore(disk);
   await store.load();
-  store.selectModel('x2.1.1-preview-us');
+  store.selectModel('x2.1');
   store.selectModel('obsolete-model');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().model, 'x2.1.1-preview-us');
-  const obsolete = new ConfigurationStore(storage({ model: 'obsolete-model' }));
-  await obsolete.load();
-  assert.equal(obsolete.getSnapshot().model, 'x2.1.1-preview-cn');
+  assert.equal(reloaded.getSnapshot().model, 'x2.1');
+  for (const model of ['obsolete-model', 'x2.0', 'x2.1.1-preview-cn', 'x2.1.1-preview-us']) {
+    const obsolete = new ConfigurationStore(storage({ model, china: 'cn-fixture', global: 'global-fixture' }));
+    await obsolete.load();
+    assert.equal(obsolete.getSnapshot().model, 'x2.1');
+    assert.deepEqual(obsolete.getSnapshot().keys, { china: 'cn-fixture', global: 'global-fixture' });
+  }
 });
 
 test('switching interface languages preserves each selected model across reloads', async () => {

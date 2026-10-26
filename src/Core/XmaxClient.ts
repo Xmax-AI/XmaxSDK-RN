@@ -135,12 +135,12 @@ export class XmaxClient {
   /**
    * Creates a service for media sizing and capability queries.
    *
-   * The default model is x2.1.1-preview-cn. Creation does not allocate camera or RTC resources.
+   * The default model is x2.1. Creation does not allocate camera or RTC resources.
    *
-   * @param model The model defining sizing rules; defaults to x2.1.1-preview-cn.
+   * @param model The model defining sizing rules; defaults to x2.1.
    */
   createMediaService(
-    model: RealtimeModel = RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel = RealtimeModel.x2_1,
   ): MediaServicing {
     if (!Object.values(RealtimeModel).includes(model))
       throw invalid('Unsupported realtime model');

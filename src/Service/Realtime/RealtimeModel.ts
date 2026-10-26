@@ -16,14 +16,9 @@ import type { RealtimeVideoFormat } from './RealtimeVideoFormat';
 export enum RealtimeModel {
 
   /**
-   * The X2.1.1 preview model for China.
+   * The X2.1 realtime generation model.
    */
-  x2_1_1_preview_cn = 'x2.1.1-preview-cn',
-
-  /**
-   * The X2.1.1 preview model for global services.
-   */
-  x2_1_1_preview_us = 'x2.1.1-preview-us',
+  x2_1 = 'x2.1',
 }
 
 /**
@@ -37,7 +32,11 @@ export interface RealtimeModelSpecification {
   readonly displayName: string;
 
   /**
-   * The supported camera and canvas dimensions, in pixels, with recommended frame rates.
+   * The supported frame dimensions and recommended frame rates.
+   *
+   * Camera dimensions must match an entry exactly. Images and external video retain their media
+   * aspect ratio and use the closest generation canvas. An empty array allows variable canvas
+   * dimensions, resolved using pixel limits and alignment.
    */
   readonly supportedVideoFormats: readonly RealtimeVideoFormat[];
 
@@ -68,20 +67,23 @@ export interface RealtimeModelSpecification {
 }
 
 /**
- * The shared X2.1.1 preview media constraints and default camera format.
+ * The X2.1 media constraints and default camera format.
  */
 const specification: RealtimeModelSpecification = Object.freeze({
-  displayName: 'X2.1.1-preview-cn',
+  displayName: 'X2.1',
   supportedVideoFormats: Object.freeze([
-    Object.freeze({ width: 1024, height: 1920, fps: 30 }),
-    Object.freeze({ width: 1920, height: 1024, fps: 30 }),
+    Object.freeze({ width: 1920, height: 1080, fps: 30 }),
+    Object.freeze({ width: 1080, height: 1920, fps: 30 }),
+    Object.freeze({ width: 1408, height: 1408, fps: 30 }),
+    Object.freeze({ width: 1152, height: 1536, fps: 30 }),
+    Object.freeze({ width: 1536, height: 1152, fps: 30 }),
   ]),
   minimumInputPixels: 200000,
   maximumInputPixels: 2100000,
   inputSizeAlignment: 32,
   defaultFrameRate: 30,
   defaultCameraVideoFormat: Object.freeze({
-    width: 1024,
+    width: 1080,
     height: 1920,
     fps: 30,
   }),
@@ -93,16 +95,11 @@ const specification: RealtimeModelSpecification = Object.freeze({
 export const realtimeModelSpecifications: Readonly<
   Record<RealtimeModel, RealtimeModelSpecification>
 > = Object.freeze({
-  [RealtimeModel.x2_1_1_preview_cn]: specification,
-  [RealtimeModel.x2_1_1_preview_us]: Object.freeze({
-    ...specification,
-    displayName: 'X2.1.1-preview-us',
-  }),
+  [RealtimeModel.x2_1]: specification,
 });
 
 /**
  * The camera format for the default model.
  */
 export const defaultCameraVideoFormat: RealtimeVideoFormat =
-  realtimeModelSpecifications[RealtimeModel.x2_1_1_preview_cn]
-    .defaultCameraVideoFormat;
+  realtimeModelSpecifications[RealtimeModel.x2_1].defaultCameraVideoFormat;

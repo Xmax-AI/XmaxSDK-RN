@@ -29,7 +29,7 @@ export interface RealtimeOperationOptions {
 export interface CameraStreamOptions extends RealtimeOperationOptions {
 
   /**
-   * The capture format; defaults to the model format of 1024 × 1920 at 30 fps. Dimensions must
+   * The capture format; defaults to the model format of 1080 × 1920 at 30 fps. Dimensions must
    * match a supported model format.
    */
   readonly videoFormat?: RealtimeVideoFormat;

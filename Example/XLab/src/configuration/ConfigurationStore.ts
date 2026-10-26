@@ -52,7 +52,7 @@ export class ConfigurationStore {
   private state: SavedConfiguration = {
     keys: { china: '', global: '' },
     language: 'system',
-    model: RealtimeModel.x2_1_1_preview_cn,
+    model: RealtimeModel.x2_1,
     loaded: false,
     saving: false,
     error: null,
@@ -95,7 +95,7 @@ export class ConfigurationStore {
         ]);
         const selectedModel =
           xlabModels.find(supported => supported === model) ??
-          RealtimeModel.x2_1_1_preview_cn;
+          RealtimeModel.x2_1;
         this.publish({
           keys: { china: china ?? '', global: global ?? '' },
           model: selectedModel,
