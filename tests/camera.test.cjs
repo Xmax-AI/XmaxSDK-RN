@@ -1570,6 +1570,17 @@ test('camera format updates require ready disconnected camera and preserve strea
   assert.equal(updates, 1);
 });
 
+test('camera format changes remain available after generation stops with a retained session identifier', async t => {
+  const { manager, local } = await generatingCamera(t);
+  const track = local.videoTrack;
+  await manager.disconnect();
+  assert.equal(manager.currentState.connectionState, 'Ready');
+  assert.equal(manager.currentState.sessionID, 'session-1');
+  await manager.updateCameraFormat(RealtimeCameraPreset.resolution1152x1536);
+  assert.equal(local.videoTrack, track);
+  assert.deepEqual(manager.currentCameraVideoFormat, { width: 1152, height: 1536, fps: 30 });
+});
+
 test('full format updates replace all camera settings and failed native updates retain the acknowledged format', async t => {
   const { manager, local, rtc } = await readyCamera(t);
   const requested = { width: 1920, height: 1080, fps: 24, minimumBitrate: 0, maximumBitrate: 4000, encoderPreference: 'auto' };

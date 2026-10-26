@@ -7,6 +7,8 @@ export function RealtimeToolbar({
   camera,
   external,
   canFlip,
+  canChangeCameraFormat,
+  cameraAspectRatio,
   picking,
   statisticsVisible,
   muted,
@@ -16,6 +18,7 @@ export function RealtimeToolbar({
   top,
   right,
   onFlip,
+  onCameraFormat,
   onStatistics,
   onVolume,
   onMute,
@@ -24,6 +27,8 @@ export function RealtimeToolbar({
   camera: boolean;
   external: boolean;
   canFlip: boolean;
+  canChangeCameraFormat: boolean;
+  cameraAspectRatio?: string | undefined;
   picking: boolean;
   statisticsVisible: boolean;
   muted: boolean;
@@ -33,6 +38,7 @@ export function RealtimeToolbar({
   top: number;
   right: number;
   onFlip: () => void;
+  onCameraFormat: () => void;
   onStatistics: () => void;
   onVolume: () => void;
   onMute: () => void;
@@ -123,6 +129,14 @@ export function RealtimeToolbar({
             disabled={!canFlip}
             onPress={onFlip}
           />
+          <Action
+            camera
+            title={t('realtime.camera.format')}
+            icon={require('../assets/realtime/realtime_camera_format.png')}
+            value={cameraAspectRatio}
+            disabled={!canChangeCameraFormat}
+            onPress={onCameraFormat}
+          />
           {volume}
           {statistics}
           {record}
@@ -177,7 +191,7 @@ function Action({
   icon: number;
   selected?: boolean;
   tint?: string;
-  value?: string;
+  value?: string | undefined;
   disabled?: boolean;
   onPress: () => void;
 }) {

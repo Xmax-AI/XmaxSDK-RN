@@ -185,7 +185,11 @@ function screenFixture(t, options = {}) {
     remoteAudioVolume: 0,
     async setRemoteAudioVolume(value) { manager.remoteAudioVolume = value; },
     setNetworkQualityListener: async listener => { networkListener = listener; },
-    currentCameraVideoFormat: options.fileURL || options.externalFileURL ? null : { width: 1024, height: 1920, fps: 30 },
+    currentCameraVideoFormat: options.fileURL || options.externalFileURL ? null : { width: 1080, height: 1920, fps: 30 },
+    async updateCameraFormat(format) {
+      await options.updateCameraFormat?.(format);
+      manager.currentCameraVideoFormat = format;
+    },
     uplinkQualityLevel: null, downlinkQualityLevel: null,
     async setUplinkQualityLevel(level) { manager.uplinkQualityLevel = level; },
     async setDownlinkQualityLevel(level) { manager.downlinkQualityLevel = level; },
@@ -264,6 +268,8 @@ function screenFixture(t, options = {}) {
   const { RealtimeScreen: Screen } = load('screens/RealtimeScreen.tsx', h.react, {
     'react-native-image-picker': { launchImageLibrary: options.pickMedia ?? (async () => ({ didCancel: true })) },
     '../realtime/RealtimeToolbar': { RealtimeToolbar: 'Toolbar' },
+    '../realtime/RealtimeCameraFormatMenu': { RealtimeCameraFormatMenu: 'FormatMenu',
+      cameraAspectRatioLabel: load('realtime/RealtimeCameraFormatMenu.tsx', {}).cameraAspectRatioLabel },
     '../realtime/RealtimeAudioVolumeMenu': { RealtimeAudioVolumeMenu: 'VolumeMenu' },
     '../external/RealtimeFileVideoSource': { makeRealtimeFileVideoSource: options.externalSource ?? (async () => { throw new Error('No external source fixture'); }) },
     '../realtime/RealtimeGenerationOperations': load('realtime/RealtimeGenerationOperations.ts', {}),
@@ -1108,6 +1114,139 @@ test('XLab supplies camera actions to the realtime toolbar', async t => {
   await tick();
   assert.equal(f.props('Toolbar').camera, true);
   assert.equal(f.props('Toolbar').canFlip, true);
+});
+
+test('camera ratio changes reuse the mounted track and apply fill only to 9:16', async t => {
+  const calls = [], f = screenFixture(t, { updateCameraFormat: async format => calls.push(format) });
+  await tick();
+  f.state({ connectionState: 'ready', sessionID: null });
+  const originalTrack = f.props('Video').localTrack, counts = f.counts();
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, true);
+  for (const [ratio, width, height] of [
+    ['16:9', 1920, 1080], ['1:1', 1408, 1408],
+    ['3:4', 1152, 1536], ['4:3', 1536, 1152], ['9:16', 1080, 1920],
+  ]) {
+    f.props('Toolbar').onCameraFormat();
+    const menu = f.props('FormatMenu');
+    const format = menu.formats.find(format => format.width === width && format.height === height);
+    assert(format);
+    menu.onSelect(format);
+    await tick();
+    assert.equal(f.props('Toolbar').cameraAspectRatio, ratio);
+    assert.equal(f.props('Video').videoContentMode, ratio === '9:16' ? 'fill' : 'fit');
+    assert.equal(f.props('Video').localTrack, originalTrack);
+    assert(!find(f.draw(), node => node.type === 'FormatMenu'));
+  }
+  assert.equal(calls.length, 5);
+  f.props('Toolbar').onCameraFormat();
+  f.props('FormatMenu').onSelect(f.manager.currentCameraVideoFormat);
+  await tick();
+  assert.equal(calls.length, 5, 'Reselecting the active ratio must not reconfigure capture');
+  assert.deepEqual(f.counts(), counts, 'Changing ratio must not recreate media or connect generation');
+});
+
+test('camera ratio waits for acknowledgment and excludes generation, flips and duplicate selections', async t => {
+  const gate = deferred(), calls = [], f = screenFixture(t, { updateCameraFormat: async format => { calls.push(format); await gate.promise; } });
+  await tick();
+  f.state({ connectionState: 'ready', sessionID: null });
+  f.props('Toolbar').onCameraFormat();
+  const select = f.props('FormatMenu').onSelect;
+  const before = f.props('Toolbar');
+  select({ width: 1408, height: 1408, fps: 30 });
+  select({ width: 1152, height: 1536, fps: 30 });
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, false);
+  assert.equal(f.props('Toolbar').canFlip, false);
+  assert.equal(f.props('Panel').canSubmit, false);
+  assert.equal(f.props('Toolbar').cameraAspectRatio, '9:16');
+  assert.equal(f.props('Video').videoContentMode, 'fill');
+  before.onFlip();
+  f.props('Panel').onSubmit({ prompt: 'must wait' });
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(f.counts().connects, 0);
+  gate.resolve();
+  await tick();
+  assert.equal(f.props('Toolbar').cameraAspectRatio, '1:1');
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, true);
+  assert.equal(f.props('Panel').canSubmit, true);
+});
+
+test('camera ratio rejects stale menus and remains disabled outside disconnected ready preview', async t => {
+  const calls = [], f = screenFixture(t, { updateCameraFormat: async format => calls.push(format) });
+  await tick();
+  for (const connectionState of ['preparing', 'connecting', 'connected', 'generating', 'disconnecting']) {
+    f.state({ connectionState: 'ready', sessionID: null });
+    f.props('Toolbar').onCameraFormat();
+    const select = f.props('FormatMenu').onSelect;
+    f.state({ connectionState, sessionID: 'session' });
+    assert.equal(f.props('Toolbar').canChangeCameraFormat, false);
+    assert(!find(f.draw(), node => node.type === 'FormatMenu'));
+    select({ width: 1408, height: 1408, fps: 30 });
+  }
+  f.state({ connectionState: 'ready', sessionID: 'session' });
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, true, 'A retained session ID does not indicate an active room');
+  f.props('Toolbar').onCameraFormat();
+  f.props('FormatMenu').onSelect({ width: 1408, height: 1408, fps: 30 });
+  await tick();
+  assert.equal(calls.length, 1);
+  f.state({ connectionState: 'ready', sessionID: null });
+  f.props('Toolbar').onCameraFormat();
+  const select = f.props('FormatMenu').onSelect;
+  f.props('Panel').onSubmit({ prompt: 'begin generation' });
+  select({ width: 1408, height: 1408, fps: 30 });
+  await tick();
+  assert.equal(calls.length, 1, 'An obsolete selection must not race a new generation request');
+});
+
+test('failed camera ratio changes retain the applied format and allow retry', async t => {
+  const f = screenFixture(t, { updateCameraFormat: async () => { throw { code: 'RTC_ERROR', message: 'Format rejected' }; } });
+  await tick();
+  f.state({ connectionState: 'ready', sessionID: null });
+  f.props('Toolbar').onCameraFormat();
+  f.props('FormatMenu').onSelect({ width: 1408, height: 1408, fps: 30 });
+  await tick();
+  assert.equal(f.props('Toolbar').cameraAspectRatio, '9:16');
+  assert.equal(f.props('Video').videoContentMode, 'fill');
+  assert.equal(f.props('Toast').notice.message, 'Format rejected');
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, true);
+});
+
+test('late camera ratio completion after backgrounding cannot restore preview or controls', async t => {
+  const gate = deferred(), f = screenFixture(t, { updateCameraFormat: () => gate.promise });
+  await tick();
+  f.state({ connectionState: 'ready', sessionID: null });
+  f.props('Toolbar').onCameraFormat();
+  f.props('FormatMenu').onSelect({ width: 1408, height: 1408, fps: 30 });
+  f.background('background');
+  gate.resolve();
+  await tick();
+  assert.equal(f.props('Video').localTrack, null);
+  assert.equal(f.props('Toolbar').canChangeCameraFormat, false);
+  assert(!find(f.draw(), node => node.type === 'FormatMenu'));
+});
+
+test('ratio menu marks the applied format, localizes actions, and supports cancellation', () => {
+  const { RealtimeCameraFormatMenu: Menu, cameraAspectRatioLabel } = load('realtime/RealtimeCameraFormatMenu.tsx', {});
+  const formats = require('../lib/commonjs/Service/Realtime/RealtimeModel').realtimeModelSpecifications['x2.1'].supportedVideoFormats;
+  const selections = [], previousLocale = locale;
+  let dismissed = 0;
+  try {
+    for (const language of ['en', 'zh-Hans']) {
+      locale = language;
+      const tree = Menu({ formats, selectedFormat: formats[1], bottomInset: 34,
+        onSelect: format => selections.push(format), onDismiss: () => dismissed++ });
+      for (const format of formats) {
+        const option = find(tree, node => node.props?.accessibilityRole === 'radio' && node.props.accessibilityLabel === cameraAspectRatioLabel(format));
+        assert.equal(option.props.accessibilityState.checked, format === formats[1]);
+        option.props.onPress();
+      }
+      tree.props.onRequestClose();
+      find(tree, node => node.props?.accessibilityLabel === translateUI('realtime.camera.format.dismiss')).props.onPress();
+      find(tree, node => node.type === 'Pressable' && node.props?.children?.props?.children === translateUI('common.cancel')).props.onPress();
+    }
+  } finally { locale = previousLocale; }
+  assert.deepEqual(selections, [...formats, ...formats]);
+  assert.equal(dismissed, 6);
 });
 
 test('XLab statistics forwards quality changes only during generation and refreshes acknowledged levels', async t => {

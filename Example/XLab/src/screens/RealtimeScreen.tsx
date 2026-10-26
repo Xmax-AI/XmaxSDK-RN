@@ -1,5 +1,9 @@
 import { launchImageLibrary } from 'react-native-image-picker';
 import { RealtimeToolbar } from '../realtime/RealtimeToolbar';
+import {
+  RealtimeCameraFormatMenu,
+  cameraAspectRatioLabel,
+} from '../realtime/RealtimeCameraFormatMenu';
 import { RealtimeAudioVolumeMenu } from '../realtime/RealtimeAudioVolumeMenu';
 import { makeRealtimeFileVideoSource } from '../external/RealtimeFileVideoSource';
 import { RealtimeStatisticsPanel } from '../realtime/RealtimeStatisticsPanel';
@@ -116,6 +120,7 @@ export function RealtimeScreen({
   });
   const { fileURL, externalFileURL, contentType: imageContentType } = input;
   const [audioMenuVisible, setAudioMenuVisible] = useState(false);
+  const [cameraFormatMenuVisible, setCameraFormatMenuVisible] = useState(false);
   const [remoteVolume, setRemoteVolume] = useState(0);
   const [muted, setMuted] = useState(false);
   const savedRemoteVolume = useRef(0);
@@ -190,6 +195,18 @@ export function RealtimeScreen({
     [generationRequested, setGenerationRequested] = useState(false),
     [error, setError] = useState<RealtimeErrorNotice | null>(null),
     [prompt, setPrompt] = useState('');
+
+  const canChangeCameraFormat =
+    !fileURL &&
+    !externalFileURL &&
+    !busy &&
+    !generationRequested &&
+    !!localTrack &&
+    state.connectionState === RealtimeConnectionState.ready;
+
+  useEffect(() => {
+    if (!canChangeCameraFormat) setCameraFormatMenuVisible(false);
+  }, [canChangeCameraFormat]);
 
   const nextOperation = useCallback(() => {
     return ++epoch.current;
@@ -758,6 +775,58 @@ export function RealtimeScreen({
     }
   };
 
+  /** Changes capture dimensions only after preview is ready and the room is disconnected. */
+  async function changeCameraFormat(
+    format: RealtimeVideoFormat,
+    expectedEpoch: number,
+  ) {
+    const realtime = manager.current;
+    if (
+      !alive.current ||
+      expectedEpoch !== epoch.current ||
+      !canChangeCameraFormat ||
+      mediaBusy.current ||
+      !realtime ||
+      AppState.currentState !== 'active' ||
+      realtime.currentState.connectionState !== RealtimeConnectionState.ready
+    )
+      return;
+    const supported = realtimeModelSpecifications[
+      model
+    ].supportedVideoFormats.find(
+      candidate =>
+        candidate.width === format.width && candidate.height === format.height,
+    );
+    if (!supported) return;
+    setCameraFormatMenuVisible(false);
+    const current = realtime.currentCameraVideoFormat;
+    if (
+      current?.width === supported.width &&
+      current.height === supported.height
+    )
+      return;
+
+    const token = nextOperation();
+    mediaBusy.current = true;
+    setBusy(true);
+    clearError();
+    try {
+      await realtime.updateCameraFormat(supported);
+    } catch (failure) {
+      if (token === epoch.current) showError(failure);
+    } finally {
+      if (
+        alive.current &&
+        token === epoch.current &&
+        manager.current === realtime
+      ) {
+        refreshConfiguration(realtime);
+        mediaBusy.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   /** Applies a manual transport tier through the SDK; subsequent network adaptation remains enabled. */
   async function changeQualityLevel(
     level: RealtimeQualityLevel,
@@ -862,6 +931,7 @@ export function RealtimeScreen({
     RealtimeConnectionState.generating,
   ].includes(state.connectionState);
   const previewTop = fileURL || externalFileURL ? insets.top + 68 : 0;
+  const renderEpoch = epoch.current;
 
   return (
     <View
@@ -881,7 +951,8 @@ export function RealtimeScreen({
             fileURL ||
             externalFileURL ||
             (landscapeLayout ?? width > height) ||
-            (cameraFormat !== null && cameraFormat.width > cameraFormat.height)
+            !cameraFormat ||
+            cameraFormat.width * 16 !== cameraFormat.height * 9
               ? VideoContentMode.fit
               : VideoContentMode.fill
           }
@@ -908,6 +979,10 @@ export function RealtimeScreen({
         camera={!fileURL && !externalFileURL}
         external={!!externalFileURL}
         canFlip={!busy && !!localTrack}
+        canChangeCameraFormat={canChangeCameraFormat}
+        cameraAspectRatio={
+          cameraFormat ? cameraAspectRatioLabel(cameraFormat) : undefined
+        }
         picking={pickingMedia}
         statisticsVisible={statisticsVisible}
         muted={muted}
@@ -919,6 +994,16 @@ export function RealtimeScreen({
         top={insets.top}
         right={insets.right}
         onFlip={flip}
+        onCameraFormat={() => {
+          if (
+            canChangeCameraFormat &&
+            !mediaBusy.current &&
+            renderEpoch === epoch.current
+          ) {
+            setAudioMenuVisible(false);
+            setCameraFormatMenuVisible(true);
+          }
+        }}
         onStatistics={() => setStatisticsVisible(value => !value)}
         onVolume={() => setAudioMenuVisible(value => !value)}
         onMute={() => {
@@ -930,6 +1015,17 @@ export function RealtimeScreen({
           void replaceMedia();
         }}
       />
+      {cameraFormatMenuVisible && canChangeCameraFormat && (
+        <RealtimeCameraFormatMenu
+          formats={realtimeModelSpecifications[model].supportedVideoFormats}
+          selectedFormat={cameraFormat}
+          bottomInset={insets.bottom}
+          onSelect={format => {
+            void changeCameraFormat(format, renderEpoch);
+          }}
+          onDismiss={() => setCameraFormatMenuVisible(false)}
+        />
+      )}
       {audioMenuVisible && (
         <RealtimeAudioVolumeMenu
           value={remoteVolume}
