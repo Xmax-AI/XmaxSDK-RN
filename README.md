@@ -253,268 +253,64 @@ If enabling microphone input, also add `NSMicrophoneUsageDescription` to the iOS
 
 ### Generate and display video
 
-The following TypeScript snippet creates a camera stream, starts real-time generation,
-and binds the output to a video view. Run this within an async screen action.
+The following snippets show the camera generation flow. Keep the client and manager
+stable for the screen's lifetime. Declare React state and the video view inside your
+screen component, return `videoView` in its JSX, and run the asynchronous operations
+in screen actions. Start generation after the camera preview reaches `Ready`.
 
 ```tsx
+import { useState } from 'react';
 import {
+  CameraPosition,
+  RealtimeModel,
   XmaxClient,
   XmaxEnvironment,
-  RealtimeModel,
-  CameraPosition,
+  XmaxRealtimeDualVideo,
+  type RealtimeVideoTrack,
 } from '@xmaxai/react-native-sdk';
 
+// Initialize the client with your API key and service environment.
 const client = new XmaxClient({
-  apiKey: 'YOUR_XMAX_API_KEY',
+  apiKey: '<YOUR_XMAX_API_KEY>',
   environment: XmaxEnvironment.global,
 });
 
-const realtime = client.createRealtimeManager({
-  model: RealtimeModel.x2_1,
-});
+// Create a manager for X2.1 realtime generation.
+const realtime = client.createRealtimeManager({ model: RealtimeModel.x2_1 });
 
+// Declare state in your screen component and include videoView in its returned JSX.
+const [localTrack, setLocalTrack] = useState<RealtimeVideoTrack | null>(null);
+const [remoteTrack, setRemoteTrack] = useState<RealtimeVideoTrack | null>(null);
+const videoView = (
+  <XmaxRealtimeDualVideo
+    style={{ flex: 1 }}
+    localTrack={localTrack}
+    remoteTrack={remoteTrack}
+  />
+);
+
+// Create a camera stream and bind the preview.
 const localStream = await realtime.createLocalCameraStream({
   position: CameraPosition.front,
 });
 setLocalTrack(localStream.videoTrack);
 
-const remoteStream = await realtime.connect({ localStream });
-setRemoteTrack(remoteStream.videoTrack);
-
-// Binding the remote track is independent of generation startup.
-await realtime.startGeneration({
+// Once the preview is ready, start generation and display the result.
+const remoteStream = await realtime.startGeneration({
+  localStream,
   context: {
     prompt: '视频中角色替换成参考图中角色',
-    referencePath: 'https://platform.xmaxai.com/images/source/charx/chatx_image1.jpg',
+    referencePath:
+      'https://cdn.xmax.ai/images/playground/charx/charx_image1.png?v=26&presetVersion=20261022',
   },
 });
+setRemoteTrack(remoteStream.videoTrack);
+
+// When leaving the screen, end the session and release capture and RTC resources.
+await realtime.close();
 ```
 
-Generation startup completes after result publication and decoded first-frame readiness;
-it does not require a mounted result view. Audio is enabled after that frame is ready.
-The view shows local preview until the remote frame renders, with touch interaction
-enabled by default.
-
-Select `RealtimeModel.x2_1` (`x2.1`), the supported realtime model.
-`XmaxEnvironment` independently selects the realtime and storage backends.
-X2.1 supports 1920 × 1080, 1080 × 1920, 1408 × 1408, 1152 × 1536,
-and 1536 × 1152 at 30 fps. The default camera format is 1080 × 1920.
-Read `realtimeModelSpecifications[model].supportedVideoFormats`
-and pass `videoFormat` when creating a camera stream, or call
-`updateCameraFormat(format)` while the camera preview is Ready and disconnected.
-The existing stream and track are preserved. Preset availability depends on the model;
-these formats have no corresponding `RealtimeCameraPreset` cases.
-Images retain their aspect ratio where alignment permits and are scaled to fit
-200,000–2,100,000 pixels, with dimensions aligned to 4 pixels. The generation canvas
-is selected separately from the model's supported formats.
-Network adaptation adjusts upload encoding and return-video dimensions automatically.
-Set `isAdaptiveQualityEnabled: false` in `createRealtimeManager()` to start at L1
-without automatic adaptation or quality history. During generation,
-`setUplinkQualityLevel()` and `setDownlinkQualityLevel()` accept
-`RealtimeQualityLevel.l1` through `.l5` without changing the configured adaptation policy.
-Read `uplinkQualityLevel` and `downlinkQualityLevel` for the acknowledged tiers.
-Initial quality is recorded after generation becomes ready; automatic adjustments
-observe the stabilization window before changing it.
-The default upload minimum bitrate is 500 kbps, capped by the maximum bitrate;
-an explicit `minimumBitrate: 0` is preserved.
-Downlink signaling uses a 500 kbps minimum and a size-based maximum between 500
-and 10000 kbps.
-Pass `faceRestoration: true` to `startGeneration()` to restore the source face.
-
-For encoded image bytes, use `createLocalImageStream({ imageData: bytes })`, where
-`bytes` is a `Uint8Array` containing JPEG, PNG, or another supported encoded image.
-Storage uploads also accept memory data:
-
-```ts
-await client.createStorageManager().uploadImage({
-  data: bytes,
-  fileName: 'reference.jpg',
-  contentType: 'image/jpeg',
-});
-```
-
-The same data options work with `uploadImageWithSafetyCheck()` and `uploadVideo()`.
-Provide either bytes or a file URL. Bytes are copied when the method is called;
-private staging files are removed after processing. Prefer file URLs for large files.
-
-A new `startGeneration()` call replaces an unfinished generation request after
-required cleanup. The replaced Promise rejects with `XmaxErrorCode.cancelled`.
-`disconnect()` and `close()` cancel pending generation as well.
-
-Logging is disabled by default. Set `loggerOptions` to `XmaxLoggerOption.business`,
-`.performance`, or `.all` for native OSLog/Logcat output. Performance logs include
-observed startup stages. The most recently created client controls log options and
-detail language globally: Chinese for China, English for global. Storage logs include
-media type, display dimensions, file size, and safety-check selection.
-
-Keep the client and manager stable for the screen's lifetime.
-
-<br>
-
-### Using React Native
-
-Use `XmaxRealtimeDualVideo` to switch between local preview and generated output.
-Store the local and remote tracks in React state, updating them as streams become available:
-
-```tsx
-import { useState } from 'react';
-import {
-  XmaxRealtimeDualVideo,
-  VideoContentMode,
-  type RealtimeVideoTrack,
-} from '@xmaxai/react-native-sdk';
-
-// Inside your screen component:
-const [localTrack, setLocalTrack] = useState<RealtimeVideoTrack | null>(null);
-const [remoteTrack, setRemoteTrack] = useState<RealtimeVideoTrack | null>(null);
-
-<XmaxRealtimeDualVideo
-  localTrack={localTrack}
-  remoteTrack={remoteTrack}
-  videoContentMode={VideoContentMode.fill}
-  style={{ flex: 1 }}
-/>
-```
-
-Use `XmaxRealtimeVideo` to display a single local or remote track:
-
-```tsx
-import { XmaxRealtimeVideo, VideoContentMode } from '@xmaxai/react-native-sdk';
-
-<XmaxRealtimeVideo
-  track={localTrack}
-  videoContentMode={VideoContentMode.fit}
-  style={{ flex: 1 }}
-/>
-```
-
-Both components support remote trajectory interaction. `XmaxRealtimeDualVideo`
-keeps local preview mounted and fades remote output in after its first frame renders.
-`remoteVideoFadeInDuration` defaults to `0.3` seconds; set it to `0` to disable the
-animation. Negative or nonfinite values also disable it. Changes apply to the next
-fade-in. Removing remote output immediately restores local preview. Unmounting either
-component detaches its view; your app still owns the manager lifecycle.
-
-See the [example project](#example-project) for state binding and a complete implementation.
-
-<br>
-
-### External capture
-
-Implement `RealtimeExternalVideoSource` to supply frames from your app's native capture,
-decoding, or processing code. XmaxSDK manages the attachment; your app owns permissions,
-capture resources, and pacing. No camera or microphone permission is requested by the SDK.
-
-```ts
-import { NativeModules } from 'react-native';
-import type { RealtimeExternalVideoSource } from '@xmaxai/react-native-sdk';
-
-const source: RealtimeExternalVideoSource = {
-  videoFormat: { width: 1280, height: 720, fps: 30 },
-  hasAudio: true,
-  async start(sink) {
-    await NativeModules.MyCapture.start(sink.nativeHandle);
-  },
-  async stop() {
-    await NativeModules.MyCapture.stop();
-  },
-};
-const localStream = await realtime.createExternalVideoStream(source);
-// Bind localStream.videoTrack, then connect and start generation as usual.
-await realtime.disconnect();
-await realtime.stopExternalVideoStream();
-```
-
-`MyCapture` represents your app's native module. Resolve the handle with
-`RealtimeExternalFrameSink.find` from `XmaxReactNativeSDK` on iOS or
-`ai.xmax.reactnative` on Android. Call native `pushVideo`, `pushAudio`, and
-`reportError` directly; raw video and PCM stay off the JavaScript bridge.
-
-- iOS accepts upright source-sized BGRA or NV12 video-range pixel buffers and ready
-  linear PCM sample buffers. Android accepts YUV_420_888 images with a declared rotation,
-  or upright direct RGBA8888 buffers, and interleaved little-endian PCM16.
-- Video timestamps must be nonnegative and strictly increasing. iOS uses `CMTime`;
-  Android uses microseconds. Audio and video share one monotonic timeline, including
-  across loops. The source format must remain stable while attached.
-- The sink copies and resizes video into the model's supported pixel area. Buffers
-  can be reused after native submission returns. PCM is converted to 48 kHz mono
-  10 ms packets, uploaded only while published, without local playback.
-- Disconnect retains source delivery and preview. Stop, close, source failure, and
-  background release invalidate the sink. `stop()` must be safe to call repeatedly.
-
-The XLab **External Capture** card demonstrates this API using an app-owned file
-video/PCM decoder on each platform.
-
-<br>
-
-### Listen for events
-
-After creating `realtime`, register the listeners you need before creating the
-input stream or starting generation.
-
-| Listener | Purpose |
-| --- | --- |
-| `setStateListener` | Observe pipeline states and termination reasons during real-time generation. |
-| `setUplinkVideoStatisticsListener` | Observe measured upload dimensions, frame rates, bitrate and loss. |
-| `setDownlinkVideoStatisticsListener` | Observe result-video dimensions, frame rates, bitrate, loss and delay. |
-| `setRemoteMediaFrameListener` | Register an app-owned native receiver for remote video and PCM; see [integration details](./materials/remote-media-frames.md). |
-| `setNetworkQualityListener` | Monitor uplink and downlink network quality. |
-| `setPerformanceAlarmListener` | Detect device performance limitations or recovery, with a suggested video format when available. |
-
-For example, monitor state changes and errors:
-
-```ts
-await realtime.setStateListener(state => {
-  setConnectionState(state.connectionState);
-  if (state.reason?.type === 'failure') {
-    const error = state.reason.error;
-    setErrorMessage(`${error.code} ${error.message}`);
-  }
-});
-```
-
-Handle rejected async calls with `try/catch` and normalize errors with
-`XmaxError.from(error)`. Lifecycle and cleanup failures are reported through
-`state.reason` after cleanup completes.
-
-For camera input, bind the returned video track to a preview view. The SDK enters
-`Ready` after camera startup and binding the preview; observe this
-through `setStateListener`.
-
-<br>
-
-### Resource Cleanup
-
-- **`disconnect()` — Stop Remote Generation**
-
-  Stops remote generation, leaves the RTC room and requests server-session closure
-  while keeping the local camera or image stream and preview active. Use this when
-  ending the online session but staying on the current screen. You can start a new
-  session later using the same local stream:
-
-  ```ts
-  await realtime.disconnect()
-  ```
-
-- **`close()` — Full Teardown & Release**
-
-  Ends the remote session, stops local media capture, and releases all engine
-  resources. Use this when leaving or dismissing the generation screen:
-
-  ```ts
-  await realtime.close()
-  ```
-
-> **Note:** These methods are alternatives, not sequential steps. When exiting a
-> screen, call `close()` directly—there is no need to call `disconnect()` first.
-
-Backgrounding also closes realtime resources; recreate local media when returning.
-
-<br>
-
-> [!TIP]
-> For complete examples, including image input, reference images and custom
-> touch effects, see the [example project](./Example/XLab).
+See [XLab](./Example/XLab) for a complete screen implementation.
 
 <br>
 
