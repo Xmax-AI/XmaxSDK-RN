@@ -41,7 +41,7 @@ export function RealtimeStatisticsPanel({
       ? '—'
       : t(`realtime.statistics.quality.${level}`);
   const row = (key: MessageKey, text: string) => (
-    <View style={styles.row} key={key}>
+    <View style={styles.row}>
       <Text style={styles.label}>{t(key)}</Text>
       <Text
         style={styles.value}
