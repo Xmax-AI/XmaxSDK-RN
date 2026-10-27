@@ -223,6 +223,8 @@ Native dependency changes require rebuilding the app.
 
 ## Quick Start
 
+Use your front camera to turn yourself into a character from a reference image in real time.
+
 ```tsx
 import { useState } from 'react';
 import {
