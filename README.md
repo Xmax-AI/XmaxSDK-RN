@@ -184,40 +184,11 @@ We introduce XmaxSDK, a React Native SDK designed for real-time interactive vide
 
 ## Installation
 
-Run the included example through the **XLab workspace**.
-
-From the repository root:
-
 ```sh
-npm ci
+npm install @xmaxai/react-native-sdk@1.1.0 \
+  react-native-cos-sdk-nobeacon@1.3.0 \
+  react-native-blob-util@0.24.10
 ```
-
-For iOS, install CocoaPods dependencies:
-
-```sh
-bundle install
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer npm run pods
-```
-
-Start Metro:
-
-```sh
-npm start
-```
-
-Keep Metro running and launch the app from another terminal:
-
-```sh
-# iPhone: configure your signing team in Xcode first.
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer npm run ios -- --device "Your iPhone" --no-packager
-
-# Android: connect a device or start an emulator.
-npm run android -- --no-packager
-```
-
-The iOS workspace is [`Example/XLab/ios/XLab.xcworkspace`](./Example/XLab/ios/XLab.xcworkspace).
-Use a physical device to verify camera input and realtime generation.
-Native dependency changes require rebuilding the app.
 
 <br>
 
