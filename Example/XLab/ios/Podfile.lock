@@ -1907,7 +1907,7 @@ PODS:
     - Yoga
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
-  - XmaxReactNativeSDK (1.0.5):
+  - XmaxReactNativeSDK (1.1.1):
     - AgoraRtcEngine_iOS/RtcBasic (= 4.6.4)
     - hermes-engine
     - RCTRequired
@@ -2325,7 +2325,7 @@ SPEC CHECKSUMS:
   RNKeychain: 551d42b0ef53426f82551a0cc961cfa10ad33afa
   RNScreens: 0135deb65b65d207ee6294d0baf06681e1071d93
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
-  XmaxReactNativeSDK: 3c3a46133f41d38794deaa1236ac4ae6a91bd3eb
+  XmaxReactNativeSDK: ef79576b74b9e3d385f0d26dfac070ba89a63f24
   Yoga: d1c536142c5ff8ec8cd856ab2a7c227a1d875c8e
 
 PODFILE CHECKSUM: 2dee7963f469543f7fc354a49a5db24d438695ff

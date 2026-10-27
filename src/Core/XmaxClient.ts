@@ -116,7 +116,7 @@ export class XmaxClient {
 
     const runtime = {
       ...JSON.parse(NativeRuntime.runtimeInfo()),
-      sdk_version: '1.0.5',
+      sdk_version: '1.1.1',
     };
 
     return new XmaxStorageManager(

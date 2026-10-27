@@ -185,7 +185,7 @@ We introduce XmaxSDK, a React Native SDK designed for real-time interactive vide
 ## Installation
 
 ```sh
-npm install @xmaxai/react-native-sdk@1.1.0 \
+npm install @xmaxai/react-native-sdk@1.1.1 \
   react-native-cos-sdk-nobeacon@1.3.0 \
   react-native-blob-util@0.24.10
 ```
