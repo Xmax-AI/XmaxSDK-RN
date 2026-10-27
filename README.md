@@ -223,41 +223,6 @@ Native dependency changes require rebuilding the app.
 
 ## Quick Start
 
-### Configure permissions
-
-Add a camera usage description to your application's `Info.plist`:
-
-```xml
-<key>NSCameraUsageDescription</key>
-<string>This app uses the camera for real-time video input.</string>
-```
-
-Customize this message to match your application's user experience. XmaxSDK
-automatically prompts for camera access when creating the video stream and throws
-an `XmaxError` if permission is denied or unavailable.
-
-<br>
-
-For Android, add permissions to your application's `AndroidManifest.xml`:
-
-```xml
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.INTERNET" />
-```
-
-If enabling microphone input, also add `NSMicrophoneUsageDescription` to the iOS
-`Info.plist`. XLab already includes this configuration.
-
-<br>
-
-### Generate and display video
-
-The following snippets show the camera generation flow. Keep the client and manager
-stable for the screen's lifetime. Declare React state and the video view inside your
-screen component, return `videoView` in its JSX, and run the asynchronous operations
-in screen actions. Start generation after the camera preview reaches `Ready`.
-
 ```tsx
 import { useState } from 'react';
 import {
@@ -269,18 +234,21 @@ import {
   type RealtimeVideoTrack,
 } from '@xmaxai/react-native-sdk';
 
-// Initialize the client with your API key and service environment.
+// Initialize the client.
 const client = new XmaxClient({
   apiKey: '<YOUR_XMAX_API_KEY>',
   environment: XmaxEnvironment.global,
 });
 
-// Create a manager for X2.1 realtime generation.
-const realtime = client.createRealtimeManager({ model: RealtimeModel.x2_1 });
+// Initialize the realtime manager.
+const realtime = client.createRealtimeManager({
+  model: RealtimeModel.x2_1,
+});
 
-// Declare state in your screen component and include videoView in its returned JSX.
+// Declare state inside your screen component and return videoView in its JSX.
 const [localTrack, setLocalTrack] = useState<RealtimeVideoTrack | null>(null);
 const [remoteTrack, setRemoteTrack] = useState<RealtimeVideoTrack | null>(null);
+
 const videoView = (
   <XmaxRealtimeDualVideo
     style={{ flex: 1 }}
@@ -289,13 +257,13 @@ const videoView = (
   />
 );
 
-// Create a camera stream and bind the preview.
+// Create a camera stream and display the preview.
 const localStream = await realtime.createLocalCameraStream({
   position: CameraPosition.front,
 });
 setLocalTrack(localStream.videoTrack);
 
-// Once the preview is ready, start generation and display the result.
+// Once the preview is Ready, start generation and display the result.
 const remoteStream = await realtime.startGeneration({
   localStream,
   context: {
@@ -306,11 +274,9 @@ const remoteStream = await realtime.startGeneration({
 });
 setRemoteTrack(remoteStream.videoTrack);
 
-// When leaving the screen, end the session and release capture and RTC resources.
+// Release resources when leaving the screen.
 await realtime.close();
 ```
-
-See [XLab](./Example/XLab) for a complete screen implementation.
 
 <br>
 
