@@ -103,6 +103,7 @@ export function waitFor<T>(
  * @param action The work performed under this operation's cancellation and ownership lease.
  * @param onError The operation failure handler.
  * @param interval The interval between requests; defaults to 10000 ms.
+ * @param immediately Whether to send the first request without waiting for the interval.
  */
 export function repeatHeartbeat(
   action: (
@@ -112,11 +113,13 @@ export function repeatHeartbeat(
     error: unknown
   ) => void,
   interval = 10000,
+  immediately = false,
 ): () => void {
   let stopped = false;
   const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const tick = async () => {
+    if (stopped) return;
     try {
       await action(controller.signal);
     } catch (error) {
@@ -128,7 +131,8 @@ export function repeatHeartbeat(
     );
   };
 
-  timer = setTimeout(
+  if (immediately) void Promise.resolve().then(tick);
+  else timer = setTimeout(
     tick,
     interval
   );

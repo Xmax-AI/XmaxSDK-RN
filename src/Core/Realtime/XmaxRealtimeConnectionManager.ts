@@ -18,6 +18,7 @@ import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFo
 import type { RealtimeMediaStream } from '../../Service/Realtime/RealtimeMediaStream';
 
 import { ensureActive, repeatHeartbeat } from '../../Foundation/Runtime/Async';
+import { monotonicTime } from '../../Foundation/Runtime/MonotonicTime';
 
 /**
  * Manages server sessions, RTC connections, and remote media resources.
@@ -47,6 +48,18 @@ export class XmaxRealtimeConnectionManager {
   private stopHeartbeat: (() => void) | null = null;
 
   /**
+   * The monotonic time before session creation began, in seconds.
+   */
+  private connectionStartedAt: number | null = null;
+
+  /**
+   * The failure handler retained until the current session starts heartbeats.
+   */
+  private heartbeatFailureHandler: ((
+    error: unknown
+  ) => void) | null = null;
+
+  /**
    * Creates a realtime connection manager.
    */
   constructor(
@@ -69,6 +82,11 @@ export class XmaxRealtimeConnectionManager {
      * The shared generation startup measurement.
      */
     private readonly timing?: RealtimeTiming,
+
+    /**
+     * The monotonic time source, in seconds, used to measure the startup allowance.
+     */
+    private readonly now: () => number = monotonicTime,
   ) {}
 
   /**
@@ -92,6 +110,7 @@ export class XmaxRealtimeConnectionManager {
     ) => void,
   ): Promise<RealtimeMediaStream> {
     this.lastSessionID = null;
+    const startedAt = this.now();
     // Cancel transport and reclaim any session allocated by a response that completes first.
     this.timing?.beginSessionCreation();
     const session = await this.service.createSession(
@@ -121,15 +140,8 @@ export class XmaxRealtimeConnectionManager {
             }
           : null,
       );
-      this.stopHeartbeat = repeatHeartbeat(
-        heartbeatSignal => this.service.heartbeat(
-          session.id,
-          heartbeatSignal
-        ),
-        error => {
-          if (this.session === session) onFailure(error);
-        },
-      );
+      this.connectionStartedAt = startedAt;
+      this.heartbeatFailureHandler = onFailure;
 
       return this.remoteStream;
     } catch (error) {
@@ -140,6 +152,52 @@ export class XmaxRealtimeConnectionManager {
       }
       throw error;
     }
+  }
+
+  /**
+   * Starts HTTP heartbeats once after the current session enters Generating.
+   *
+   * The first request includes elapsed startup seconds rounded up. Later requests omit the allowance.
+   *
+   * @param sessionID The server session entering generation.
+   */
+  startHeartbeat(
+    sessionID: string
+  ): void {
+    const session = this.session;
+    const onFailure = this.heartbeatFailureHandler;
+    if (
+      !session ||
+      session.id !== sessionID ||
+      this.stopHeartbeat ||
+      this.connectionStartedAt === null ||
+      !onFailure
+    )
+      return;
+
+    const graceSeconds = Math.max(
+      0,
+      Math.ceil(this.now() - this.connectionStartedAt),
+    );
+    let firstRequest = true;
+    this.stopHeartbeat = repeatHeartbeat(
+      signal => {
+        const allowance = firstRequest ? graceSeconds : undefined;
+        firstRequest = false;
+        return this.service.heartbeat(
+          session.id,
+          signal,
+          allowance
+        );
+      },
+      error => {
+        if (this.session !== session) return;
+        this.stopHeartbeat?.();
+        onFailure(error);
+      },
+      10000,
+      true,
+    );
   }
 
   /**
@@ -155,6 +213,8 @@ export class XmaxRealtimeConnectionManager {
     this.remoteStream = null;
     this.stopHeartbeat?.();
     this.stopHeartbeat = null;
+    this.connectionStartedAt = null;
+    this.heartbeatFailureHandler = null;
     this.render.invalidate(false);
 
     try {

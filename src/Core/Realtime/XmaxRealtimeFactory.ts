@@ -10,6 +10,7 @@
 
 import { PermissionManager } from '../../Foundation/Permissions/PermissionManager';
 import { RealtimeTiming } from '../../Service/Realtime/RealtimeTiming';
+import { RealtimeConnectionState } from '../../Service/Realtime/RealtimeState';
 import { RtcManager } from '../../Foundation/RTC/RtcManager';
 import type { RtcManaging } from '../../Foundation/RTC/RtcManaging';
 import { ImageManager } from '../../Foundation/Media/ImageManager';
@@ -284,6 +285,13 @@ export class XmaxRealtimeFactory {
       () => connectionManager.lastSessionID,
       () => rtcManager.stopLocalCapture(),
       errorManager,
+      state => {
+        if (
+          state.connectionState === RealtimeConnectionState.generating &&
+          state.sessionID
+        )
+          connectionManager.startHeartbeat(state.sessionID);
+      },
     );
     renderController.setPreviewReadyListener(binding => {
       const local = mediaController.stream;

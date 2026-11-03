@@ -382,7 +382,7 @@ test('client accepts X2.1 and sends its identifier to the session API', async t 
   const requests = [];
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
     if (init.method === 'POST') requests.push(JSON.parse(init.body));
-    return response(init.method === 'POST' ? sessionPayload : {});
+    return response(init.method === 'DELETE' ? {} : sessionPayload);
   });
   for (const model of Object.values(RealtimeModel)) {
     const manager = client.createRealtimeManager({ model });
@@ -424,12 +424,32 @@ for (const environment of ['china', 'global']) {
         await manager.connect({ localStream });
         t.mock.timers.tick(10000);
         await nextTurn();
+        assert.equal(requests.length, 1, 'Connected alone must not start HTTP heartbeats');
+        const frame = defer();
+        const rtc = FakeRtc.instances.at(-1);
+        t.mock.method(rtc, 'waitUntilRemoteFrameReady', () => frame.promise);
+        const generating = manager.startGeneration({ context: { prompt: 'portrait' } });
+        await nextTurn();
+        assert.equal(requests.length, 1, 'Waiting for publication must not send HTTP heartbeats');
+        rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
+        await nextTurn();
+        assert.equal(requests.length, 1, 'Waiting for the first decoded frame must not send HTTP heartbeats');
+        frame.resolve();
+        await generating;
+        await nextTurn();
+        assert.equal(manager.currentState.connectionState, 'Generating');
+        assert.equal(requests.length, 2);
+        const grace = JSON.parse(requests[1].body).firstHeartbeatGraceSeconds;
+        assert(Number.isInteger(grace) && grace >= 0);
+        t.mock.timers.tick(10000);
+        await nextTurn();
       } finally {
         await manager.close();
       }
       const base = environment === 'global' ? 'https://api.xmax.ai/open/api/v1' : 'https://cloud.xmax.22duck.cn/open/api/v1';
       assert.deepEqual(requests, [
         { method: 'POST', url: `${base}/session`, body: JSON.stringify({ model }) },
+        { method: 'PUT', url: `${base}/session/session-1/heartbeat`, body: requests[1].body },
         { method: 'PUT', url: `${base}/session/session-1/heartbeat`, body: undefined },
         { method: 'DELETE', url: `${base}/session/session-1`, body: undefined },
       ]);
@@ -508,7 +528,7 @@ test(`XLab rapid replacement reaches C after cancelling A (transport honors abor
       }
       return response(sessionPayload);
     }
-    return response({});
+    return response(init.method === 'PUT' ? sessionPayload : {});
   });
   const manager = createManager();
   t.after(() => manager.close());
@@ -544,7 +564,7 @@ test(`XLab rapid replacement reaches C after cancelling A (transport honors abor
 
 test('generation waits for its room and bot publication, updates reuse task, disconnect preserves camera', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, init) =>
-    response(init.method === 'POST' ? sessionPayload : {}),
+    response(init.method === 'DELETE' ? {} : sessionPayload),
   );
   const manager = createManager();
   const local = await manager.createLocalCameraStream();
@@ -637,7 +657,7 @@ test('close cancels generation wait and still releases camera when DELETE fails'
 
 test('failed condition update retains task and cached prompt, switch failure releases only connection', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, init) =>
-    response(init.method === 'POST' ? sessionPayload : {}),
+    response(init.method === 'DELETE' ? {} : sessionPayload),
   );
   const manager = createManager(),
     local = await manager.createLocalCameraStream(),
@@ -695,7 +715,7 @@ test('failed condition update retains task and cached prompt, switch failure rel
 
 test('background closes resources, inactive does not, throwing app listeners cannot prevent cleanup', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, init) =>
-    response(init.method === 'POST' ? sessionPayload : {}),
+    response(init.method === 'DELETE' ? {} : sessionPayload),
   );
   const manager = createManager(),
     local = await manager.createLocalCameraStream(),
@@ -769,7 +789,7 @@ test('close invalidates a camera switch while its native mirror request is pendi
 
 test('image pipeline uses prepared dimensions/path, no camera permissions, and correct source stops', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, init) =>
-    response(init.method === 'POST' ? sessionPayload : {}),
+    response(init.method === 'DELETE' ? {} : sessionPayload),
   );
   const manager = createManager();
   const local = await manager.createLocalImageStream({ fileURL: 'file:///original.heic' });
@@ -809,7 +829,7 @@ test('image pipeline uses prepared dimensions/path, no camera permissions, and c
 });
 
 test('generation sends face restoration and preserved-image canvas padding', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => init.method === 'POST' ? response(sessionPayload) : response({}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager();
   const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' });
   const rtc = FakeRtc.instances.at(-1);
@@ -875,7 +895,7 @@ test('background destroys image source, removes prepared file, and foreground do
 });
 
 test('disconnect waits for native overlay hiding before stop signal and room release', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager();
   const local = await manager.createLocalCameraStream();
   const rtc = FakeRtc.instances.at(-1);
@@ -983,7 +1003,7 @@ test('image preparation becomes Ready without a canvas; validation rejects witho
 });
 
 test('connection failure retains local preview and session identity; reconnect clears the failure reason', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), states = [];
   t.after(() => manager.close());
   const local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
@@ -1006,7 +1026,7 @@ test('connection failure retains local preview and session identity; reconnect c
 });
 
 test('background room failures end in Ready; engine failures end in Idle with failure reason', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager();
   t.after(() => manager.close());
   const local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
@@ -1089,7 +1109,7 @@ test('terminal listener can create new media while the cancelled allocation unwi
 });
 
 test('engine failure during generation rejects the pending call with the terminal error and closes local media', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream();
   t.after(() => manager.close());
   const pending = manager.startGeneration({ localStream: local, context: { prompt: 'test' } });
@@ -1107,7 +1127,7 @@ test('engine failure during generation rejects the pending call with the termina
 });
 
 test('normal close hides remote and sends stop before destroying the shared RTC engine', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream();
   const remote = await manager.connect({ localStream: local }), rtc = FakeRtc.instances.at(-1);
   const pending = manager.startGeneration({ context: { prompt: 'test' } });
@@ -1242,7 +1262,7 @@ test('caller-cancelled image preparation reclaims its late file before allowing 
 });
 
 test('cancelled initial generation hides remote before stop and retains local media', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream(), abort = new AbortController();
   t.after(() => manager.close());
   const remote = await manager.connect({ localStream: local }), hidden = defer(), rtc = FakeRtc.instances.at(-1);
@@ -1263,7 +1283,7 @@ test('cancelled initial generation hides remote before stop and retains local me
 });
 
 test('cancelling a condition update preserves generation and late cancellation cannot affect later updates', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
   t.after(() => manager.close());
   const start = manager.startGeneration({ localStream: local, context: { prompt: 'first' } });
@@ -1293,7 +1313,7 @@ test('cancelling a condition update preserves generation and late cancellation c
 });
 
 test('close pauses capture but waits for a pending native join before destroying the engine', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1), joining = defer();
   t.mock.method(rtc, 'join', () => joining.promise);
   const pending = manager.connect({ localStream: local });
@@ -1428,7 +1448,7 @@ for (const source of ['camera', 'image']) {
 }
 
 test('statistics follow the connected lifecycle and measured remote dimensions keep track identity', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), up = [], down = [];
   t.after(() => manager.close());
   await manager.setUplinkVideoStatisticsListener(value => up.push(value));
@@ -1456,7 +1476,7 @@ test('statistics follow the connected lifecycle and measured remote dimensions k
 });
 
 test('adaptive changes adjust only transport sizes and reuse the active room and task', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1);
   t.after(() => manager.close());
   const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
@@ -1494,7 +1514,7 @@ async function readyCamera(t, options) {
 }
 
 async function generatingCamera(t) {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const fixture = await readyCamera(t);
   const pending = fixture.manager.startGeneration({ localStream: fixture.local, context: { prompt: 'portrait' } });
   await nextTurn();
@@ -1563,7 +1583,7 @@ test('camera format updates require ready disconnected camera and preserve strea
   assert.equal(updates, 1);
   await assert.rejects(manager.updateCameraFormat({ width: 640, height: 480, fps: 30 }), { code: 'INVALID_CONFIGURATION' });
   assert.equal(updates, 1);
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   await manager.connect({ localStream: local });
   await assert.rejects(manager.updateCameraFormat(RealtimeCameraPreset.resolution1080x1920), { code: 'INVALID_CONFIGURATION' });
   assert.equal(manager.currentCameraPreset, RealtimeCameraPreset.resolution1920x1080);
@@ -1629,7 +1649,7 @@ test('quality getters follow connection state and setters require active generat
   assert.equal(manager.uplinkQualityLevel, null);
   assert.equal(manager.downlinkQualityLevel, null);
   await assert.rejects(manager.setUplinkQualityLevel(RealtimeQualityLevel.l1), { code: 'INVALID_CONFIGURATION' });
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   await manager.connect({ localStream: local });
   assert.equal(manager.uplinkQualityLevel, RealtimeQualityLevel.l2);
   assert.equal(manager.downlinkQualityLevel, RealtimeQualityLevel.l2);
@@ -1662,7 +1682,7 @@ test('manual quality changes reuse the room/task and never mutate camera capture
 
 for (const source of ['camera', 'image']) {
   test(`${source}: condition updates preserve the downlink size selected for the active task`, async t => {
-    t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+    t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
     const manager = createManager();
     t.after(() => manager.close());
     if (source === 'image')
@@ -1868,7 +1888,7 @@ test('unrecoverable native camera configuration errors retire the track and rele
 
 test('SDK replacement while awaiting publication retains the room and reuses the unretired remote track', async t => {
   let posts = 0;
-  t.mock.method(globalThis, 'fetch', async (_url, init) => { if (init.method === 'POST') posts++; return response(init.method === 'POST' ? sessionPayload : {}); });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => { if (init.method === 'POST') posts++; return response(init.method === 'DELETE' ? {} : sessionPayload); });
   const { manager, local, rtc } = await readyCamera(t);
   const remote = await manager.connect({ localStream: local }), binding = videoBinding(remote.videoTrack);
   const first = manager.startGeneration({ context: { prompt: 'A' } });
@@ -1893,7 +1913,7 @@ test('SDK replacement while awaiting publication retains the room and reuses the
 });
 
 test('manager configuration disables automatic changes while retaining manual quality control', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = new XmaxRealtimeManager(config, { model: 'x2.1', isAdaptiveQualityEnabled: false });
   t.after(() => manager.close());
   const local = await manager.createLocalCameraStream(), rtc = FakeRtc.instances.at(-1), writes = [];
@@ -1912,7 +1932,7 @@ test('manager configuration disables automatic changes while retaining manual qu
 });
 
 test('generation waits for a decoded first frame before audio, initial quality history and Generating state', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const { manager, local, rtc } = await readyCamera(t), frame = defer(), stages = [], writes = [];
   t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (remote, signal) => { stages.push(['wait', remote]); await frame.promise; if (signal.aborted) throw { code: 'CANCELLED' }; });
   t.mock.method(rtc, 'setRemoteAudioSubscription', async (_stream, enabled) => stages.push(enabled ? 'audio-on' : 'audio-off'));
@@ -1935,7 +1955,7 @@ test('generation waits for a decoded first frame before audio, initial quality h
 });
 
 test('close during first-frame wait cancels startup without enabling result audio or persisting quality', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const { manager, local, rtc } = await readyCamera(t), writes = [], audio = [];
   t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (_remote, signal) => waitFor(() => () => {}, signal, 10000, 'test first frame'));
   t.mock.method(rtc, 'setRemoteAudioSubscription', async (_remote, enabled) => audio.push(enabled));
@@ -1950,7 +1970,7 @@ test('close during first-frame wait cancels startup without enabling result audi
 });
 
 test('condition updates use source dimensions for interaction and do not reset a gesture on failed submission', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(); t.after(() => manager.close());
   const local = await manager.createLocalImageStream({ fileURL: '/image.jpg' }), rtc = FakeRtc.instances.at(-1);
   const pending = manager.startGeneration({ localStream: local, context: { prompt: 'portrait' } });
@@ -1969,7 +1989,7 @@ test('condition updates use source dimensions for interaction and do not reset a
 });
 
 test('repeated connect rejects while generation convenience calls continue to reuse the room', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const { manager, local, rtc } = await readyCamera(t);
   const remote = await manager.connect({ localStream: local });
   await assert.rejects(manager.connect({ localStream: local }), { code: 'INVALID_CONFIGURATION' });
@@ -1980,7 +2000,7 @@ test('repeated connect rejects while generation convenience calls continue to re
 });
 
 test('Connected and Generating listeners may immediately submit the next foreground operation', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const { manager, local, rtc } = await readyCamera(t);
   let starting, changing;
   await manager.setStateListener(state => {
@@ -2013,7 +2033,7 @@ test('first-frame timeout returns to preview without activating audio or recordi
 });
 
 test('a new request replaces first-frame waiting while retaining the connected room', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const { manager, local, rtc } = await readyCamera(t), seen = [];
   let waiting = 0;
   t.mock.method(rtc, 'waitUntilRemoteFrameReady', async (_remote, signal) => {
@@ -2033,7 +2053,7 @@ test('a new request replaces first-frame waiting while retaining the connected r
 });
 
 test('automatic quality is inactive before generation and respects the initial stabilization window', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const { manager, local, rtc } = await readyCamera(t);
@@ -2157,7 +2177,7 @@ test('external input is exclusive with image and camera input, and small inputs 
 });
 
 test('external generation and disconnect retain source preview until explicit detachment', async t => {
-  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'POST' ? sessionPayload : {}));
+  t.mock.method(globalThis, 'fetch', async (_url, init) => response(init.method === 'DELETE' ? {} : sessionPayload));
   const manager = createManager(), source = externalSource();
   t.after(() => manager.close());
   const local = await manager.createExternalVideoStream(source);

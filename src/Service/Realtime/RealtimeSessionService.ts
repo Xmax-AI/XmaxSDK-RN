@@ -12,7 +12,11 @@ import type { RealtimeSessionServicing } from './RealtimeSessionServicing';
 import type { RealtimeSession } from './RealtimeSession';
 import type { ApiServicing } from '../Network/ApiServicing';
 import { record, nonEmpty } from '../Network/ApiResponse';
-import { XmaxError, XmaxErrorCode } from '../../Foundation/Errors/XmaxError';
+import {
+  invalid,
+  XmaxError,
+  XmaxErrorCode,
+} from '../../Foundation/Errors/XmaxError';
 
 /**
  * Manages session creation, heartbeat, and closure.
@@ -91,16 +95,28 @@ export class RealtimeSessionService implements RealtimeSessionServicing {
    *
    * @param sessionID The server identifier returned when the session was created.
    * @param signal The operation's cancellation signal.
+   * @param firstHeartbeatGraceSeconds The nonnegative integer startup allowance, in seconds;
+   *   supplied only for the first heartbeat.
    */
   async heartbeat(
     sessionID: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    firstHeartbeatGraceSeconds?: number,
   ): Promise<void> {
+    if (
+      firstHeartbeatGraceSeconds !== undefined &&
+      (!Number.isSafeInteger(firstHeartbeatGraceSeconds) ||
+        firstHeartbeatGraceSeconds < 0)
+    )
+      throw invalid('firstHeartbeatGraceSeconds must be a nonnegative integer');
+
     const data = record(
       await this.api.request(
         'PUT',
         `/session/${encodeURIComponent(sessionID)}/heartbeat`,
-        undefined,
+        firstHeartbeatGraceSeconds === undefined
+          ? undefined
+          : { firstHeartbeatGraceSeconds },
         signal,
       ),
     );

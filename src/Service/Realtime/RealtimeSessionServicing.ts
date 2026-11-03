@@ -35,10 +35,13 @@ export interface RealtimeSessionServicing {
    *
    * @param sessionID The server identifier returned when the session was created.
    * @param signal The operation's cancellation signal.
+   * @param firstHeartbeatGraceSeconds The nonnegative integer startup allowance, in seconds;
+   *   supplied only for the first heartbeat.
    */
   heartbeat(
     sessionID: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    firstHeartbeatGraceSeconds?: number,
   ): Promise<void>;
 
   /**

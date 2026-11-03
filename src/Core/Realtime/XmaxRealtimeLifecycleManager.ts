@@ -254,6 +254,15 @@ export class XmaxRealtimeLifecycleManager {
      * The error manager shared by runtime callbacks and lifecycle operations.
      */
     private readonly errorManager: XmaxRealtimeErrorManager = new XmaxRealtimeErrorManager(),
+
+    /**
+     * Observes committed state before app notification.
+     *
+     * @param state The committed lifecycle snapshot.
+     */
+    private readonly onStateChanged: (
+      state: RealtimeState
+    ) => void = () => {},
   ) {}
 
   /**
@@ -833,6 +842,7 @@ export class XmaxRealtimeLifecycleManager {
           state.connectionState
         }`,
     );
+    this.onStateChanged(this.state);
     this.notify(this.listener);
   }
 

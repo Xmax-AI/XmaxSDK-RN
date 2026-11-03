@@ -41,6 +41,7 @@ function fixture({ hide, disconnect, render } = {}) {
   };
   const connectionManager = {
     lastSessionID: 'session', session: { id: 'session' },
+    startHeartbeat(sessionID) { calls.push(`heartbeat:${sessionID}`); },
     async disconnect() {
       calls.push('connection.disconnect');
       await disconnect?.();
@@ -211,4 +212,21 @@ test('injected render readiness is wired to the current media binding during ass
   await components.lifecycleManager.terminate('all');
   assert.equal(components.lifecycleManager.currentState.connectionState, 'Idle');
   assert.equal(mediaController.stream, null);
+});
+
+
+test('factory starts session heartbeats only after Generating is committed, independently of the app listener', async () => {
+  const { components, calls } = fixture();
+  await connected(components);
+  assert.equal(calls.some(call => call.startsWith('heartbeat:')), false);
+  await components.lifecycleManager.run('generation', async token => {
+    components.lifecycleManager.complete({
+      connectionState: 'Generating', sessionID: 'session', taskID: 'task', reason: null,
+    }, token);
+    assert.equal(calls.some(call => call.startsWith('heartbeat:')), false);
+  });
+  assert.deepEqual(calls, ['heartbeat:session']);
+  components.lifecycleManager.setStateListener(() => {});
+  components.lifecycleManager.setStateListener(null);
+  assert.deepEqual(calls, ['heartbeat:session'], 'Replaying app state must not replay the internal hook');
 });
