@@ -21,12 +21,15 @@ import type { XLabLanguage } from '../localization/Localization';
 import { StorageFeatureCard } from '../components/StorageFeatureCard';
 import { FeedPipelineCard } from '../components/FeedPipelineCard';
 import { FeedFeatureCard } from '../components/FeedFeatureCard';
+import { FeedCreditBalancePill } from '../components/FeedCreditBalancePill';
+import { useFeedCreditBalance } from '../feed/useFeedCreditBalance';
 import type {
   SavedConfiguration,
   XLabApiEndpoint,
 } from '../configuration/ConfigurationStore';
 import {
   endpointForLocale,
+  environmentForEndpoint,
   xlabModels,
 } from '../configuration/ConfigurationStore';
 
@@ -81,6 +84,10 @@ export function FeedScreen({
   const endpoint = endpointForLocale(locale);
   const selectedModel = configuration.model;
   const apiKey = configuration.keys[endpoint];
+  const creditBalance = useFeedCreditBalance(
+    apiKey,
+    environmentForEndpoint(endpoint),
+  );
   const [visible, setVisible] = useState(false);
 
   const pickerOpen = useRef(false),
@@ -271,7 +278,10 @@ export function FeedScreen({
               </FeedText>
             </View>
             <View style={styles.apiContainer}>
-              <FeedText style={styles.apiLabel}>API KEY</FeedText>
+              <View style={styles.row}>
+                <FeedText style={styles.apiLabel}>API KEY</FeedText>
+                <FeedCreditBalancePill state={creditBalance} />
+              </View>
               <View style={styles.passwordField}>
                 <TextInput
                   key={endpoint}

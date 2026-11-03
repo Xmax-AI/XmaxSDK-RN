@@ -825,6 +825,8 @@ test('all home feature entries require the current endpoint key before navigatio
     '../components/StorageFeatureCard': { StorageFeatureCard: 'Storage' },
     '../components/FeedPipelineCard': { FeedPipelineCard: 'Pipeline' },
     '../components/FeedFeatureCard': { FeedFeatureCard: 'Feature' },
+    '../components/FeedCreditBalancePill': { FeedCreditBalancePill: 'CreditBalance' },
+    '../feed/useFeedCreditBalance': { useFeedCreditBalance: () => ({ balance: null, isLoading: false, refreshFailed: false }) },
   });
   const configuration = { keys: { china: 'cn-fixture', global: '' }, language: 'en', loaded: true };
   const props = { configuration, onCamera: (...args) => navigations.push(['camera', ...args]),

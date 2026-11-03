@@ -100,13 +100,24 @@ export class XmaxClient {
    * Each call reads the current server balance using the configured general API environment.
    * Fractional credits are preserved. This query does not create a realtime session.
    *
+   * @param options Optional cancellation for this query.
    * @returns The account's remaining credits; rejects with XmaxError if credentials, transport,
-   *   or the response are invalid.
+   *   or the response are invalid, or with CANCELLED when the query is aborted.
    */
-  async getCreditBalance(): Promise<XmaxCreditBalance> {
+  async getCreditBalance(
+    options?: {
+
+      /**
+       * Cancels this query without affecting other client operations.
+       */
+      signal?: AbortSignal;
+    }
+  ): Promise<XmaxCreditBalance> {
     const response = await this.getAPIService().request(
       'GET',
-      '/balance'
+      '/balance',
+      undefined,
+      options?.signal,
     );
     const currentBalance = record(response)?.currentBalance;
     if (

@@ -125,3 +125,28 @@ test('concurrent credit queries return their own responses without serializing o
   pending[0](response({ currentBalance: 10 }));
   assert.equal((await first).currentBalance, 10);
 });
+
+test('caller cancellation aborts only its credit request and leaves parallel queries running', async t => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', (_url, options) => new Promise((resolve, reject) => {
+    requests.push({ signal: options.signal, resolve });
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+  }));
+  const account = client();
+  const controller = new AbortController();
+  const cancelled = assert.rejects(account.getCreditBalance({ signal: controller.signal }), { code: 'CANCELLED' });
+  const parallel = account.getCreditBalance();
+  controller.abort();
+  await cancelled;
+  assert.equal(requests[0].signal.aborted, true);
+  assert.equal(requests[1].signal.aborted, false);
+  requests[1].resolve(response({ currentBalance: 42.5 }));
+  assert.equal((await parallel).currentBalance, 42.5);
+});
+
+test('an already aborted credit query never reaches transport', async t => {
+  t.mock.method(globalThis, 'fetch', () => assert.fail('Aborted query reached transport'));
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(client().getCreditBalance({ signal: controller.signal }), { code: 'CANCELLED' });
+});
