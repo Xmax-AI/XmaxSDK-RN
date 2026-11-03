@@ -114,7 +114,8 @@ export class StreamController implements StreamControlling {
           taskID,
           format,
           context,
-          options
+          options,
+          signal
         )
           .then(
           () => {
@@ -158,19 +159,22 @@ export class StreamController implements StreamControlling {
    * @param context The prompt and reference image location; reusable operations retain the last
    *   successful conditions when omitted.
    * @param options The returned dimensions, face restoration, and input-containment settings.
+   * @param signal Cancels an unresolved condition update and its pending attempts.
    */
   updateGeneration(
     taskID: string,
     format: RealtimeVideoFormat,
     context: RealtimeContext,
     options: GenerationParameters = {},
+    signal?: AbortSignal,
   ): Promise<void> {
     return this.room.send(
       'change_condition',
       taskID,
       format,
       context,
-      options
+      options,
+      signal,
     );
   }
 
@@ -207,6 +211,7 @@ export class StreamController implements StreamControlling {
   async stopGeneration(
     taskID: string
   ): Promise<void> {
+    this.room.cancelGenerationCommands(taskID);
     const remote = this.audioStream;
     this.audioStream = null;
     try {

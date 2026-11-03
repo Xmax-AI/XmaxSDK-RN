@@ -158,6 +158,34 @@ internal class XmaxAgoraEngine(
           }
 
           /**
+           * Forwards a bounded data-stream packet and its sender account.
+           *
+           * @param uid The sender's numeric RTC identifier.
+           * @param streamId The sender's data-stream identifier.
+           * @param data The UTF-8 room message or provider fragment.
+           */
+          override fun onStreamMessage(
+            uid: Int,
+            streamId: Int,
+            data: ByteArray
+          ) {
+            if (closed || roomID.isEmpty() || data.size > 262144) return
+            val info = UserInfo()
+            if (engine.getUserInfoByUid(uid, info) == 0 && !info.userAccount.isNullOrEmpty()) {
+              event(
+                "account",
+                "uid" to uid,
+                "userID" to info.userAccount
+              )
+            }
+            event(
+              "message",
+              "uid" to uid,
+              "message" to data.toString(Charsets.UTF_8)
+            )
+          }
+
+          /**
            * Reports successful local video publication for startup timing.
            *
            * @param source The local video source being published.

@@ -71,12 +71,14 @@ export interface StreamControlling {
    * @param context The prompt and reference image location; reusable operations retain the last
    *   successful conditions when omitted.
    * @param options The returned dimensions, face restoration, and input-containment settings.
+   * @param signal Cancels an unresolved condition update and its pending attempts.
    */
   updateGeneration(
     taskID: string,
     format: RealtimeVideoFormat,
     context: RealtimeContext,
     options?: GenerationParameters,
+    signal?: AbortSignal,
   ): Promise<void>;
 
   /**

@@ -592,10 +592,12 @@ export class RtcManager implements RtcManaging {
    *
    * @param message The message content to send.
    * @param interaction Whether this is a coalescible task interaction message; defaults to false.
+   * @param signal Cancels this attempt, including its unsent fragments.
    */
   async send(
     message: string,
-    interaction = false
+    interaction = false,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (!this.room || !this.active) throw cancelledError();
     const task = interaction
@@ -612,6 +614,7 @@ export class RtcManager implements RtcManaging {
     await this.room.sendRoomMessage(
       message,
       task ? `tracks:${task}` : undefined,
+      signal,
     );
   }
 

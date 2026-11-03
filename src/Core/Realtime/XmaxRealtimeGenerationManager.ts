@@ -116,6 +116,7 @@ export class XmaxRealtimeGenerationManager {
         generationVideoFormat,
         resolved,
         options,
+        signal,
       );
       ensureActive(signal);
 

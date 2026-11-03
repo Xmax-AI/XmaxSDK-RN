@@ -573,6 +573,30 @@ final class XmaxAgoraEngine: NSObject, AgoraRtcEngineDelegate, @unchecked Sendab
     event("joined")
   }
 
+  /// Forwards a bounded UTF-8 data-stream packet and its sender account.
+  ///
+  /// - Parameters:
+  ///   - engine: The RTC engine receiving the packet.
+  ///   - uid: The sender's numeric RTC identifier.
+  ///   - streamId: The sender's data-stream identifier.
+  ///   - data: The encoded room message or provider fragment.
+  func rtcEngine(
+    _ engine: AgoraRtcEngineKit,
+    receiveStreamMessageFromUid uid: UInt,
+    streamId: Int,
+    data: Data
+  ) {
+    guard self.engine != nil, !roomID.isEmpty, data.count <= 262144,
+      let message = String(data: data, encoding: .utf8)
+    else { return }
+    if let info = engine.getUserInfo(byUid: uid, withError: nil),
+      let account = info.userAccount, !account.isEmpty
+    {
+      event("account", ["uid": uid, "userID": account])
+    }
+    event("message", ["uid": uid, "message": message])
+  }
+
   /// Reports successful local video publication for startup timing.
   ///
   /// - Parameters:

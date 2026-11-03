@@ -115,10 +115,12 @@ export interface RtcRoom {
    *
    * @param message The complete JSON message.
    * @param key The coalescing key replacing older unsent messages.
+   * @param signal Cancels only this attempt and its unsent fragments.
    */
   sendRoomMessage(
     message: string,
-    key?: string
+    key?: string,
+    signal?: AbortSignal,
   ): Promise<void>;
 
   /**

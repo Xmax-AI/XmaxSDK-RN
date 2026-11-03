@@ -55,6 +55,7 @@ export interface RoomControlling {
    *   successful conditions when omitted.
    * @param options The return dimensions, face restoration, and containment settings. Defaults
    *   preserve the return size, disable face restoration, and omit containment padding.
+   * @param signal Cancels the unresolved send and its pending redundant attempts.
    */
   send(
     event: 'start' | 'change_condition' | 'change_target_size' | 'stop',
@@ -62,7 +63,17 @@ export interface RoomControlling {
     format?: RealtimeVideoFormat,
     context?: RealtimeContext,
     options?: GenerationParameters,
+    signal?: AbortSignal,
   ): Promise<void>;
+
+  /**
+   * Cancels task commands before media cleanup can suspend.
+   *
+   * @param taskID The ended task; omission cancels every room command.
+   */
+  cancelGenerationCommands(
+    taskID?: string
+  ): void;
 
   /**
    * Submits one interaction sample; recoverable send failures do not end generation.

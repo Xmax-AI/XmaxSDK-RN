@@ -230,10 +230,12 @@ export interface RtcManaging {
    *
    * @param message The message content to send.
    * @param interaction Whether this is a coalescible task interaction message; defaults to false.
+   * @param signal Cancels this attempt, including its unsent fragments.
    */
   send(
     message: string,
-    interaction?: boolean
+    interaction?: boolean,
+    signal?: AbortSignal,
   ): Promise<void>;
 
   /**

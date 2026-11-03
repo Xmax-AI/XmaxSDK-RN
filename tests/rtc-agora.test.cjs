@@ -414,39 +414,43 @@ test('RTC room admission times out at fifteen seconds and removes its waiter', a
 });
 
 for (const event of ['start', 'change_condition', 'stop']) {
-  test(`${event} discards pending control messages and unsent fragments before submission`, async () => {
+  test(`${event} cancels superseded command fragments before submission`, async t => {
     const { RoomController } = require('../lib/commonjs/Stream/Room/RoomController');
-    let release;
+    let release, id = 0;
     const sent = [];
     const queue = new RtcMessageQueue(async packet => {
       sent.push(packet);
       if (sent.length === 1) await new Promise(resolve => { release = resolve; });
-    }, () => 'id');
-    const old = queue.enqueue('x'.repeat(2000));
+    }, () => `packet-${++id}`);
+    const rtc = { runtime: { platform: 'ios' }, randomUUID: () => `command-${++id}`,
+      join: async () => {}, leave: async () => queue.close(), onEvent: () => () => {},
+      discardPendingMessages: key => queue.drop(key),
+      send: (value, interaction, signal) => queue.enqueue(value, undefined, signal) };
+    const room = new RoomController(rtc);
+    await room.join({ roomID: 'room', userID: 'fixture' }, false, new AbortController().signal);
+    t.after(() => room.leave());
+    const old = room.send(event === 'stop' ? 'start' : event, 'task', format, { prompt: 'x'.repeat(2000) });
     const rejectedOld = assert.rejects(old, { code: 'CANCELLED' });
     await tick();
-    const stale = queue.enqueue('stale-condition');
-    const rejectedStale = assert.rejects(stale, { code: 'CANCELLED' });
-    const rtc = { runtime: { platform: 'ios' }, discardPendingMessages: key => queue.drop(key),
-      send: value => queue.enqueue(value) };
-    const room = new RoomController(rtc);
-    room.connection = { userID: 'fixture' };
     const latest = room.send(event, 'task', format, { prompt: 'fixture' });
     release();
-    await Promise.all([rejectedOld, rejectedStale, latest]);
+    await Promise.all([rejectedOld, latest]);
     assert.equal(sent.length, 2, 'Only the in-flight old fragment and latest control may be sent');
     assert.equal(JSON.parse(sent[1]).event, event);
-    queue.close();
+    assert.equal(typeof JSON.parse(sent[1]).xid, event === 'stop' ? 'undefined' : 'string');
   });
 }
 
-test('target size updates keep earlier messages ordered rather than discarding them', async () => {
+test('target size updates keep earlier messages ordered rather than discarding them', async t => {
   const { RoomController } = require('../lib/commonjs/Stream/Room/RoomController');
   let discarded = 0;
   const sent = [];
-  const rtc = { runtime: { platform: 'ios' }, discardPendingMessages: () => discarded++, send: async value => sent.push(value) };
+  const rtc = { runtime: { platform: 'ios' }, randomUUID: () => 'command-id',
+    join: async () => {}, leave: async () => {}, onEvent: () => () => {},
+    discardPendingMessages: () => discarded++, send: async value => sent.push(value) };
   const room = new RoomController(rtc);
-  room.connection = { userID: 'fixture' };
+  await room.join({ roomID: 'room', userID: 'fixture' }, false, new AbortController().signal);
+  t.after(() => room.leave());
   await room.send('change_target_size', 'task', undefined, undefined, { targetSize: { width: 512, height: 960 } });
   assert.equal(discarded, 0);
   assert.equal(JSON.parse(sent[0]).event, 'change_target_size');
@@ -466,4 +470,27 @@ test('native media output resolves only the active result account and preserves 
   const count = calls.length;
   await rtc.setRemoteMediaFrameListener(null, null, null);
   assert.equal(calls.length, count, 'Retired managers cannot clear a replacement engine');
+});
+
+test('native data-stream receipts reach room commands only after account and room validation', async t => {
+  const { RoomController } = require('../lib/commonjs/Stream/Room/RoomController');
+  const rtc = await fixture(t, false);
+  const room = new RoomController(rtc);
+  await room.join({ roomID: 'room', userID: 'local', token: 'test-token', botName: 'bot' }, false, new AbortController().signal);
+  t.after(() => room.leave());
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const before = calls.length;
+  await room.send('start', 'task', format, { prompt: 'fixture' });
+  const signalCalls = () => calls.slice(before).filter(c => c.operation === 'send');
+  const xid = JSON.parse(signalCalls()[0].message).xid;
+  const ack = JSON.stringify({ event: 'xid_ack', xid, count: 1, user_id: 'local' });
+  emit({ type: 'message', uid: 42, message: ack }); // Unmapped identities cannot acknowledge commands.
+  emit({ type: 'account', uid: 43, userID: 'unrelated' });
+  emit({ type: 'message', uid: 43, message: ack });
+  t.mock.timers.tick(300); await tick(); assert.equal(signalCalls().length, 2);
+  emit({ type: 'account', uid: 42, userID: 'bot' });
+  emit({ type: 'message', uid: 42, message: ack, roomID: 'old' });
+  t.mock.timers.tick(700); await tick(); assert.equal(signalCalls().length, 3);
+  emit({ type: 'message', uid: 42, message: ack });
+  t.mock.timers.tick(6000); await tick(); assert.equal(signalCalls().length, 3);
 });

@@ -51,6 +51,7 @@ export interface GenerationParameters {
  *   successful conditions when omitted.
  * @param options The return dimensions, face restoration, and containment settings. Defaults
  *   preserve the target, disable face restoration, and omit containment padding.
+ * @param xid The logical command identifier retained across retransmissions.
  */
 export function roomEvent(
   event:
@@ -65,6 +66,7 @@ export function roomEvent(
   format?: RealtimeVideoFormat,
   context?: RealtimeContext,
   options: GenerationParameters = {},
+  xid?: string,
 ): string {
   let params: object | undefined;
   if (event === 'change_target_size' && options.targetSize) {
@@ -92,6 +94,7 @@ export function roomEvent(
   }
   return JSON.stringify({
     event,
+    ...(xid === undefined ? {} : { xid }),
     user_id: userID,
     ...(taskID ? { uid: taskID, session_uid: taskID } : {}),
     ...(params ? { params } : {}),

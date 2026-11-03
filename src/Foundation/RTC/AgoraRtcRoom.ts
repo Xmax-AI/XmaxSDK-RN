@@ -281,15 +281,18 @@ export class AgoraRtcRoom implements RtcRoom {
    *
    * @param message The complete JSON message.
    * @param key The optional coalescing key.
+   * @param signal Cancels only this attempt and its unsent fragments.
    */
   sendRoomMessage(
     message: string,
-    key?: string
+    key?: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (this.closed) return Promise.reject(cancelledError());
     return this.queue.enqueue(
       message,
-      key
+      key,
+      signal
     );
   }
 
@@ -454,6 +457,7 @@ export class AgoraRtcRoom implements RtcRoom {
     const userID = this.accounts.get(uid);
     if (
       [
+        'message',
         'publication',
         'rendered',
         'decoded',
@@ -480,7 +484,17 @@ export class AgoraRtcRoom implements RtcRoom {
     }
     if (userID && this.connection.botName && userID !== this.connection.botName)
       return;
-    if (event.type === 'publication') {
+    if (event.type === 'message') {
+      if (
+        typeof event.message === 'string' &&
+        userID !== this.connection.userID
+      )
+        this.emit({
+          type: 'message',
+          stream: { roomID: this.connection.roomID, userID: userID! },
+          message: event.message,
+        });
+    } else if (event.type === 'publication') {
       if (event.published)
         void this.command(
           'subscribe',

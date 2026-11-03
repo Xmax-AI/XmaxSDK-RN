@@ -18,6 +18,8 @@ import type { RealtimeContext } from '../../Service/Realtime/RealtimeContext';
 import type { RealtimeVideoFormat } from '../../Service/Realtime/RealtimeVideoFormat';
 import { repeatHeartbeat } from '../../Foundation/Runtime/Async';
 import { roomEvent, tracksEvent, type GenerationParameters } from './RoomEvent';
+import { RoomCommandController } from './RoomCommandController';
+import { RoomMessageDecoder } from './RoomMessageDecoder';
 import { cancelledError } from '../../Foundation/Errors/XmaxError';
 
 /**
@@ -34,6 +36,21 @@ export class RoomController implements RoomControlling {
    * Stops future heartbeats and cancels the in-flight heartbeat request.
    */
   private stopHeartbeat: (() => void) | null = null;
+
+  /**
+   * The command scheduler owned by the current joined room lifetime.
+   */
+  private commands: RoomCommandController | null = null;
+
+  /**
+   * The incoming fragment decoder cleared at room exit.
+   */
+  private readonly decoder = new RoomMessageDecoder();
+
+  /**
+   * Removes the current room's receipt and failure subscription.
+   */
+  private offEvents: (() => void) | null = null;
 
   /**
    * Creates a room controller.
@@ -78,6 +95,45 @@ export class RoomController implements RoomControlling {
     );
     this.timing?.finishRoomJoin();
     this.connection = connection;
+    const commands = new RoomCommandController(
+      (message, attemptSignal) => this.rtc.send(
+        message,
+        false,
+        attemptSignal
+      ),
+      () => this.rtc.randomUUID(),
+    );
+    this.commands = commands;
+    this.offEvents = this.rtc.onEvent(event => {
+      if (this.connection !== connection || this.commands !== commands) return;
+      if (event.type === 'error') {
+        commands.close();
+        this.decoder.reset();
+        return;
+      }
+      if (
+        event.type !== 'message' ||
+        event.stream.roomID !== connection.roomID ||
+        event.stream.userID === connection.userID ||
+        (connection.botName && event.stream.userID !== connection.botName)
+      )
+        return;
+      const message = this.decoder.decode(
+        event.stream.userID,
+        event.message
+      );
+      if (
+        message?.event !== 'xid_ack' ||
+        typeof message.xid !== 'string' ||
+        typeof message.count !== 'number' ||
+        (message.user_id != null && message.user_id !== connection.userID)
+      )
+        return;
+      commands.acknowledge(
+        message.xid,
+        message.count
+      );
+    });
     XmaxLogger.room.info(XmaxLogger.localized(
       '已加入房间',
       'Joined room'
@@ -115,6 +171,7 @@ export class RoomController implements RoomControlling {
    *   successful conditions when omitted.
    * @param options The return dimensions, face restoration, and containment settings. Defaults
    *   preserve the return size, disable face restoration, and omit containment padding.
+   * @param signal Cancels the unresolved send and its pending redundant attempts.
    */
   send(
     event: 'start' | 'change_condition' | 'change_target_size' | 'stop',
@@ -122,9 +179,17 @@ export class RoomController implements RoomControlling {
     format?: RealtimeVideoFormat,
     context?: RealtimeContext,
     options: GenerationParameters = {},
+    signal?: AbortSignal,
   ): Promise<void> {
-    if (!this.connection) throw cancelledError();
-    if (event !== 'change_target_size') this.rtc.discardPendingMessages();
+    const connection = this.connection;
+    const commands = this.commands;
+    if (!connection || !commands || signal?.aborted) throw cancelledError();
+    if (event === 'stop') {
+      this.cancelGenerationCommands(taskID);
+      this.rtc.discardPendingMessages();
+    } else if (event === 'start' || event === 'change_condition') {
+      this.rtc.discardPendingMessages(`tracks:${taskID}`);
+    }
 
     XmaxLogger.room.debug(
       () =>
@@ -135,17 +200,43 @@ export class RoomController implements RoomControlling {
             : XmaxLogger.localized('不变', 'unchanged')
         }`,
     );
-    return this.rtc.send(
+    const createMessage = (xid?: string) =>
       roomEvent(
         event,
-        this.connection.userID,
+        connection.userID,
         this.rtc.runtime,
         taskID,
         format,
         context,
         options,
-      ),
+        xid,
+      );
+    if (event === 'stop') return this.rtc.send(
+      createMessage(),
+      false,
+      signal
     );
+    return commands.send(
+      event,
+      taskID,
+      createMessage,
+      () => {
+        if (this.connection !== connection || this.commands !== commands)
+          throw cancelledError();
+      },
+      signal,
+    );
+  }
+
+  /**
+   * Cancels task commands before media cleanup can suspend.
+   *
+   * @param taskID The ended task; omission cancels every room command.
+   */
+  cancelGenerationCommands(
+    taskID?: string
+  ): void {
+    this.commands?.cancel(taskID);
   }
 
   /**
@@ -184,6 +275,11 @@ export class RoomController implements RoomControlling {
           'Leaving room'
         ),
       );
+    this.commands?.close();
+    this.commands = null;
+    this.offEvents?.();
+    this.offEvents = null;
+    this.decoder.reset();
     this.stopHeartbeat?.();
     this.stopHeartbeat = null;
     this.connection = null;

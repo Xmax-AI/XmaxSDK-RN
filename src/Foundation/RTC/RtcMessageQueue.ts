@@ -195,20 +195,24 @@ export class RtcMessageQueue {
    * @param value The room message to split and submit in order.
    * @param key The optional pending-message coalescing key; omission queues each message
    *   independently.
+   * @param signal Cancels this attempt without discarding other queued messages; cancellable attempts do not coalesce.
    */
   enqueue(
     value: string,
-    key?: string
+    key?: string,
+    signal?: AbortSignal
   ): Promise<void> {
+    if (signal?.aborted) return Promise.reject(cancelledError());
     if (this.closed) return Promise.reject(cancelledError());
     const packets = encodeRoomMessage(
       value,
       this.uuid()
     );
     return new Promise((resolve, reject) => {
-      const existing = key
-        ? this.pending.find(item => item.key === key)
-        : undefined;
+      const existing =
+        key && !signal
+          ? this.pending.find(item => item.key === key)
+          : undefined;
       if (existing) {
         existing.packets = packets;
         existing.completions.push({ resolve, reject });
@@ -217,7 +221,37 @@ export class RtcMessageQueue {
           reject(invalid('RTC message queue is full'));
           return;
         }
-        this.pending.push({ packets, key, completions: [{ resolve, reject }] });
+        const message: Message = {
+          packets,
+          key: signal ? undefined : key,
+          completions: [],
+        };
+        const detach = () => signal?.removeEventListener(
+          'abort',
+          abort
+        );
+        const abort = () => {
+          message.cancelled = true;
+          this.pending = this.pending.filter(item => item !== message);
+          detach();
+          reject(cancelledError());
+          this.wake?.();
+        };
+        message.completions.push({
+          resolve: () => {
+            detach();
+            resolve();
+          },
+          reject: error => {
+            detach();
+            reject(error);
+          },
+        });
+        signal?.addEventListener(
+          'abort',
+          abort
+        );
+        this.pending.push(message);
       }
       void this.drain();
     });
@@ -280,6 +314,7 @@ export class RtcMessageQueue {
               bytes: utf8Length(packet),
             });
           }
+          if (message.cancelled) throw cancelledError();
           for (const completion of message.completions) completion.resolve();
         } catch (error) {
           for (const completion of message.completions)

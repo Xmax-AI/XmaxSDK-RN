@@ -24,6 +24,23 @@ export type RtcEvent =
   | {
 
       /**
+       * A data-stream message from a mapped remote account.
+       */
+      type: 'message';
+
+      /**
+       * The sender's room and stable string account.
+       */
+      stream: RemoteStream;
+
+      /**
+       * The original JSON packet, including provider fragment envelopes.
+       */
+      message: string;
+    }
+  | {
+
+      /**
        * The one-shot decoded frame readiness event.
        */
       type: 'remoteFrameReady';
