@@ -198,7 +198,7 @@ export class XmaxClient {
     if (!this.apiService) {
       const runtime = {
         ...JSON.parse(NativeRuntime.runtimeInfo()),
-        sdk_version: '1.1.1',
+        sdk_version: '1.1.2',
       };
       this.apiService = new ApiService(
         this.configuration.apiKey,
