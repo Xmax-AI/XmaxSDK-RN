@@ -1,5 +1,6 @@
 import {
   XmaxClient,
+  type XmaxCreditBalance,
   DefaultTrajectoryEffectRenderer,
   type TrajectoryEffectRendering,
   RealtimeModel,
@@ -28,6 +29,14 @@ import { createElement } from 'react';
 import { XmaxVideo } from '../lib/typescript';
 
 // Compile the emitted consumer declarations, including negative calls. Never executed.
+export async function creditBalanceContract(client: XmaxClient) {
+  const balance: XmaxCreditBalance = await client.getCreditBalance();
+  const credits: number = balance.currentBalance;
+  // @ts-expect-error Server balances are read-only snapshots.
+  balance.currentBalance = 0;
+  return credits;
+}
+
 export async function cameraContract(client: XmaxClient) {
   const output: RealtimeMediaFrameListener = { nativeHandle: 'native-consumer' };
   const mediaOutput = client.createRealtimeManager({ model: RealtimeModel.x2_1 });

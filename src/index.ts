@@ -15,6 +15,8 @@ export const XmaxSDKInfo = Object.freeze({ version: '1.1.1' });
 
 export { XmaxClient } from './Core/XmaxClient';
 
+export type { XmaxCreditBalance } from './Core/Account/XmaxCreditBalance';
+
 export type { XmaxConfiguration } from './Core/XmaxConfiguration';
 
 export { XmaxEnvironment } from './Core/XmaxEnvironment';

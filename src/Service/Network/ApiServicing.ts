@@ -9,7 +9,7 @@
 //
 
 /**
- * The internal JSON request interface shared by realtime and storage services.
+ * The internal JSON request interface shared by account, realtime, and storage services.
  */
 export interface ApiServicing {
 

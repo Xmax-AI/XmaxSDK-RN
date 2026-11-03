@@ -14,19 +14,26 @@ import type { XmaxStorageManaging } from './Storage/XmaxStorageManaging';
 import { StorageService } from '../Service/Storage/StorageService';
 import { StorageManager } from '../Foundation/Storage/StorageManager';
 import { ApiService } from '../Service/Network/ApiService';
+import type { ApiServicing } from '../Service/Network/ApiServicing';
+import { record } from '../Service/Network/ApiResponse';
+import type { XmaxCreditBalance } from './Account/XmaxCreditBalance';
 import NativeRuntime from '../Foundation/Native/NativeXmaxRuntime';
 import { apiBaseURLs, XmaxEnvironment } from './XmaxEnvironment';
 import type { XmaxConfiguration } from './XmaxConfiguration';
 import { RealtimeModel } from '../Service/Realtime/RealtimeModel';
 import type { RealtimeConfiguration } from './Realtime/RealtimeConfiguration';
-import { invalid } from '../Foundation/Errors/XmaxError';
+import {
+  invalid,
+  XmaxError,
+  XmaxErrorCode,
+} from '../Foundation/Errors/XmaxError';
 import { XmaxRealtimeManager } from './Realtime/XmaxRealtimeManager';
 import type { XmaxRealtimeManaging } from './Realtime/XmaxRealtimeManaging';
 import { MediaService } from '../Service/Media/MediaService';
 import type { MediaServicing } from '../Service/Media/MediaServicing';
 
 /**
- * A client that provides access to Xmax realtime generation, storage, and media services.
+ * A client for account queries, realtime generation, storage, and media services.
  *
  * Client creation does not request permissions or connect. Close each realtime manager when your
  * app finishes using it.
@@ -37,6 +44,11 @@ export class XmaxClient {
    * The normalized, immutable configuration shared by this client's services.
    */
   readonly configuration: Readonly<Required<XmaxConfiguration>>;
+
+  /**
+   * The lazily created service for account queries, storage credentials, and media safety checks.
+   */
+  private apiService: ApiServicing | null = null;
 
   /**
    * Creates a client with the specified configuration.
@@ -83,6 +95,34 @@ export class XmaxClient {
   }
 
   /**
+   * Fetches remaining credits for the account owning this client's API key.
+   *
+   * Each call reads the current server balance using the configured general API environment.
+   * Fractional credits are preserved. This query does not create a realtime session.
+   *
+   * @returns The account's remaining credits; rejects with XmaxError if credentials, transport,
+   *   or the response are invalid.
+   */
+  async getCreditBalance(): Promise<XmaxCreditBalance> {
+    const response = await this.getAPIService().request(
+      'GET',
+      '/balance'
+    );
+    const currentBalance = record(response)?.currentBalance;
+    if (
+      typeof currentBalance !== 'number' ||
+      !Number.isFinite(currentBalance) ||
+      currentBalance < 0
+    )
+      throw new XmaxError({
+        code: XmaxErrorCode.apiError,
+        message: 'Credit balance must be a finite, nonnegative number',
+      });
+
+    return Object.freeze({ currentBalance });
+  }
+
+  /**
    * Creates a manager for local media inputs and realtime generation.
    *
    * Camera capture starts when createLocalCameraStream() is called. Close the manager after use.
@@ -114,20 +154,12 @@ export class XmaxClient {
   createStorageManager(): XmaxStorageManaging {
     if (!this.configuration.apiKey) throw invalid('API key cannot be empty');
 
-    const runtime = {
-      ...JSON.parse(NativeRuntime.runtimeInfo()),
-      sdk_version: '1.1.1',
-    };
-
     return new XmaxStorageManager(
       new StorageService(
-        new ApiService(
-          this.configuration.apiKey,
-          apiBaseURLs[this.configuration.environment],
-          runtime,
-        ),
+        this.getAPIService(),
         new StorageManager(),
-        () => NativeRuntime.randomUUID(),
+        () =>
+          NativeRuntime.randomUUID(),
       ),
     );
   }
@@ -146,5 +178,24 @@ export class XmaxClient {
       throw invalid('Unsupported realtime model');
 
     return new MediaService(model);
+  }
+
+  /**
+   * Returns the general API service shared by account queries and storage managers.
+   */
+  private getAPIService(): ApiServicing {
+    if (!this.apiService) {
+      const runtime = {
+        ...JSON.parse(NativeRuntime.runtimeInfo()),
+        sdk_version: '1.1.1',
+      };
+      this.apiService = new ApiService(
+        this.configuration.apiKey,
+        apiBaseURLs[this.configuration.environment],
+        runtime,
+      );
+    }
+
+    return this.apiService;
   }
 }

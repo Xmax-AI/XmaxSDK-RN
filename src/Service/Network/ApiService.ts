@@ -114,6 +114,7 @@ export class ApiService implements ApiServicing {
             'X-OS-Version': this.runtime.os_version,
             'X-SDK-Version': this.runtime.sdk_version,
             'X-Device-Model': this.runtime.device_model,
+            ...(method === 'GET' ? { 'Cache-Control': 'no-cache' } : {}),
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           signal: controller.signal,

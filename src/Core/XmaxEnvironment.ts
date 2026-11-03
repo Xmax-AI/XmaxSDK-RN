@@ -9,7 +9,7 @@
 //
 
 /**
- * The realtime and storage service environment.
+ * The account, realtime, and storage service environment.
  */
 export enum XmaxEnvironment {
 
@@ -25,7 +25,7 @@ export enum XmaxEnvironment {
 }
 
 /**
- * The default storage API roots by environment.
+ * The general API roots for account queries and storage by environment.
  */
 export const apiBaseURLs = {
   [XmaxEnvironment.china]: 'https://cloud.xmax.22duck.cn/open/api/v1',
