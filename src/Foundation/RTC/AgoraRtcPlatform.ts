@@ -25,7 +25,7 @@ export class AgoraRtcPlatform implements RtcPlatform {
    */
   readonly runtime = {
     ...JSON.parse(NativeRuntime.runtimeInfo()),
-    sdk_version: '1.1.2',
+    sdk_version: '1.1.3',
   };
 
   /**
