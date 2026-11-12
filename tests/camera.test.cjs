@@ -298,7 +298,7 @@ const {
   XmaxRealtimeManager,
 } = require('../lib/commonjs/Core/Realtime/XmaxRealtimeManager');
 const config = { apiKey: 'test-key', environment: 'china', loggerOptions: 0 };
-const createManager = () => new XmaxRealtimeManager(config, { model: 'x2.1' });
+const createManager = (model = 'x2.1') => new XmaxRealtimeManager(config, { model });
 
 for (const model of ['x2.1']) {
 test(`camera validates buckets before permission and preserves accepted dimensions and fps (${model})`, async () => {
@@ -347,7 +347,7 @@ test(`image source keeps its aspect ratio independently of generation buckets ($
 });
 }
 
-test('client accepts X2.1 and sends its identifier to the session API', async t => {
+test('client accepts both realtime models and sends their identifiers to the session API', async t => {
   const configured = [], nativeLogs = [];
   // Storage native modules are unrelated to realtime model selection.
   mock.module(require.resolve('../lib/commonjs/Foundation/Storage/StorageManager.js'), {
@@ -389,9 +389,8 @@ test('client accepts X2.1 and sends its identifier to the session API', async t 
     try {
       const media = client.createMediaService(model);
       assert.equal(media.model, model);
-      assert.deepEqual(media.resolveMediaSize({ width: 1080, height: 1920 }, 'camera'), {
-        width: 1080, height: 1920,
-      });
+      const { width, height } = realtimeModelSpecifications[model].defaultCameraVideoFormat;
+      assert.deepEqual(media.resolveMediaSize({ width, height }, 'camera'), { width, height });
       assert.equal(client.createMediaService().model, 'x2.1');
       const local = await manager.createLocalCameraStream();
       await manager.connect({ localStream: local });
@@ -406,31 +405,44 @@ test('client accepts X2.1 and sends its identifier to the session API', async t 
       await manager.close();
     }
   }
-  assert.deepEqual(requests, [{ model: 'x2.1' }]);
+  assert.deepEqual(requests, [{ model: 'x2.1' }, { model: 'x2.1-flash' }]);
 });
 
 for (const environment of ['china', 'global']) {
-  for (const model of ['x2.1']) {
+  for (const model of ['x2.1', 'x2.1-flash']) {
     test(`${environment} ${model} keeps create, heartbeat and close on its session backend`, async t => {
       const requests = [];
+      const payload = model === 'x2.1-flash' ? {
+        ...sessionPayload,
+        userUid: 'business-user',
+        modelExtra: {
+          room_id: 'room-1', room_token: 'test-room-token',
+          rtc_user_id: 'user-1', rtc_bot_id: 'bot-1',
+        },
+      } : sessionPayload;
       t.mock.timers.enable({ apis: ['setTimeout'] });
       t.mock.method(globalThis, 'fetch', async (url, init) => {
         requests.push({ method: init.method, url, body: init.body });
-        return response(init.method === 'DELETE' ? {} : sessionPayload);
+        return response(init.method === 'DELETE' ? {} : payload);
       });
       const manager = new XmaxRealtimeManager({ ...config, environment }, { model });
       try {
         const localStream = await manager.createLocalCameraStream();
+        const rtc = FakeRtc.instances.at(-1);
+        const join = t.mock.method(rtc, 'join');
         await manager.connect({ localStream });
+        assert.equal(join.mock.calls[0].arguments[0].userID, 'user-1');
         t.mock.timers.tick(10000);
         await nextTurn();
         assert.equal(requests.length, 1, 'Connected alone must not start HTTP heartbeats');
         const frame = defer();
-        const rtc = FakeRtc.instances.at(-1);
-        t.mock.method(rtc, 'waitUntilRemoteFrameReady', () => frame.promise);
+        const waitForFrame = t.mock.method(rtc, 'waitUntilRemoteFrameReady', () => frame.promise);
         const generating = manager.startGeneration({ context: { prompt: 'portrait' } });
         await nextTurn();
         assert.equal(requests.length, 1, 'Waiting for publication must not send HTTP heartbeats');
+        rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'other-user' } });
+        await nextTurn();
+        assert.equal(waitForFrame.mock.callCount(), 0, 'Only the RTC result account can confirm generation');
         rtc.emit({ type: 'publication', published: true, stream: { roomID: 'room-1', userID: 'bot-1' } });
         await nextTurn();
         assert.equal(requests.length, 1, 'Waiting for the first decoded frame must not send HTTP heartbeats');
@@ -443,6 +455,11 @@ for (const environment of ['china', 'global']) {
         assert(Number.isInteger(grace) && grace >= 0);
         t.mock.timers.tick(10000);
         await nextTurn();
+        const starts = rtc.packets.filter(packet => packet.event === 'start');
+        assert.equal(starts.length, model === 'x2.1' ? 6 : 1);
+        assert.deepEqual(starts[0].params.size, model === 'x2.1' ? [1080, 1920] : [704, 1280]);
+        assert.equal(starts[0].user_id, 'user-1');
+        assert.equal(typeof starts[0].xid, 'string');
       } finally {
         await manager.close();
       }
@@ -1504,8 +1521,8 @@ const { RealtimeCameraPreset } = require('../lib/commonjs/Service/Realtime/Realt
 const { RealtimeQualityLevel } = require('../lib/commonjs/Stream/Quality/RealtimeQualityLevel');
 const { realtimeModelSpecifications } = require('../lib/commonjs/Service/Realtime/RealtimeModel');
 
-async function readyCamera(t, options) {
-  const manager = createManager();
+async function readyCamera(t, options, model) {
+  const manager = createManager(model);
   t.after(() => manager.close());
   const local = await manager.createLocalCameraStream(options);
   videoBinding(local.videoTrack).onPreviewReady();
@@ -1523,37 +1540,40 @@ async function generatingCamera(t) {
   return fixture;
 }
 
-test('X2.1 accepts all five camera formats and their presets', async t => {
-  const formats = [
-    { width: 1920, height: 1080, fps: 30 },
-    { width: 1080, height: 1920, fps: 30 },
-    { width: 1408, height: 1408, fps: 30 },
-    { width: 1152, height: 1536, fps: 30 },
-    { width: 1536, height: 1152, fps: 30 },
-  ];
-  assert.deepEqual(Object.keys(realtimeModelSpecifications), ['x2.1']);
-  const spec = realtimeModelSpecifications['x2.1'];
-  assert.equal(spec.displayName, 'X2.1');
-  assert.deepEqual(spec.defaultCameraVideoFormat, { width: 1080, height: 1920, fps: 30 });
-  assert.deepEqual(spec.supportedVideoFormats, formats);
-  for (const videoFormat of formats) {
-    const preset = `${videoFormat.width}x${videoFormat.height}`;
-    for (const options of [{ videoFormat }, { preset }]) {
-      const { manager, local } = await readyCamera(t, options);
-      assert.deepEqual(manager.currentCameraVideoFormat, videoFormat);
-      assert.equal(manager.currentCameraPreset, preset);
-      assert.equal(local.videoTrack.videoFormat, manager.currentCameraVideoFormat);
-      await manager.close();
+for (const [model, displayName, dimensions, defaultIndex] of [
+  ['x2.1', 'X2.1', [[1920, 1080], [1080, 1920], [1408, 1408], [1152, 1536], [1536, 1152]], 1],
+  ['x2.1-flash', 'X2.1 Flash', [[704, 1280], [1280, 704], [960, 960], [1024, 768], [768, 1024]], 0],
+]) {
+  test(`${displayName} accepts its five camera formats and presets`, async t => {
+    const formats = dimensions.map(([width, height]) => ({ width, height, fps: 30 }));
+    const spec = realtimeModelSpecifications[model];
+    assert.equal(spec.displayName, displayName);
+    assert.deepEqual(spec.defaultCameraVideoFormat, formats[defaultIndex]);
+    assert.deepEqual(spec.supportedVideoFormats, formats);
+    for (const videoFormat of formats) {
+      const preset = `${videoFormat.width}x${videoFormat.height}`;
+      assert.equal(RealtimeCameraPreset[`resolution${preset}`], preset);
+      for (const options of [{ videoFormat }, { preset }]) {
+        const { manager, local } = await readyCamera(t, options, model);
+        assert.deepEqual(manager.currentCameraVideoFormat, videoFormat);
+        assert.equal(manager.currentCameraPreset, preset);
+        assert.equal(local.videoTrack.videoFormat, manager.currentCameraVideoFormat);
+        await manager.close();
+      }
     }
-  }
-  const manager = createManager();
-  t.after(() => manager.close());
-  for (const videoFormat of [
-    { width: 1024, height: 1920, fps: 30 },
-    { width: 1920, height: 1024, fps: 30 },
-  ]) await assert.rejects(manager.createLocalCameraStream({ videoFormat }), { code: 'INVALID_CONFIGURATION' });
-  assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
-});
+    const manager = createManager(model);
+    t.after(() => manager.close());
+    const otherModel = model === 'x2.1' ? 'x2.1-flash' : 'x2.1';
+    for (const videoFormat of [
+      { width: 1024, height: 1920, fps: 30 },
+      { width: 1920, height: 1024, fps: 30 },
+      realtimeModelSpecifications[otherModel].defaultCameraVideoFormat,
+    ]) {
+      await assert.rejects(manager.createLocalCameraStream({ videoFormat }), { code: 'INVALID_CONFIGURATION' });
+    }
+    assert.equal(FakePermissions.instances.at(-1).cameraCalls, 0);
+  });
+}
 
 test('camera format updates require ready disconnected camera and preserve stream identity and settings', async t => {
   const manager = createManager();

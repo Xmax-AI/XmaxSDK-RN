@@ -759,15 +759,15 @@ test('locale selects regional keys independently of models while active routes r
   let feed = routeComponent('Feed')({ navigation }).props;
   feed.onAPIKeyChange('new-global');
   assert.deepEqual(writes.at(-1), ['global', 'new-global']);
-  feed.onModelChange('x2.1');
-  assert.equal(configuration.model, 'x2.1');
-  feed.onModelChange('x2.1');
+  feed.onModelChange('x2.1-flash');
+  assert.equal(configuration.model, 'x2.1-flash');
+  feed = routeComponent('Feed')({ navigation }).props;
   feed.onCamera('global-fixture', 'global');
-  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1' }]);
+  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'global', model: 'x2.1-flash' }]);
   for (const name of ['Camera', 'Image', 'External', 'Storage']) {
-    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1' } }, navigation }).props;
+    const props = routeComponent(name)({ route: { params: { endpoint: 'global', model: 'x2.1-flash' } }, navigation }).props;
     if (name !== 'Storage') {
-      assert.equal(props.model, 'x2.1');
+      assert.equal(props.model, 'x2.1-flash');
       assert.equal(props.entryReady, false, 'Media routes forward native transition readiness');
     }
     assert.equal(props.environment, 'global');
@@ -779,7 +779,7 @@ test('locale selects regional keys independently of models while active routes r
   feed.onAPIKeyChange('new-china');
   assert.deepEqual(writes.at(-1), ['china', 'new-china']);
   feed.onCamera('cn-fixture', 'china');
-  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'china', model: 'x2.1' }]);
+  assert.deepEqual(routes.at(-1), ['Camera', { endpoint: 'china', model: 'x2.1-flash' }]);
   const china = routeComponent('Storage')({ route: { params: { endpoint: 'china' } }, navigation }).props;
   assert.equal(china.environment, 'china');
   assert.equal(china.baseURL, undefined);
@@ -811,7 +811,11 @@ test('all home feature entries require the current endpoint key before navigatio
   const originalAlert = native.Alert;
   native.Alert = { alert: (...args) => alerts.push(args) };
   t.after(() => { native.Alert = originalAlert; locale = 'zh-Hans'; h.dispose(); });
-  const sdk = { XmaxEnvironment: { china: 'china', global: 'global' }, RealtimeModel: require('../lib/commonjs/Service/Realtime/RealtimeModel').RealtimeModel, XmaxSDKInfo: { version: '1.0.0' } };
+  const sdk = {
+    XmaxEnvironment: { china: 'china', global: 'global' },
+    ...require('../lib/commonjs/Service/Realtime/RealtimeModel'),
+    XmaxSDKInfo: { version: '1.0.0' },
+  };
   const { FeedScreen } = load('screens/FeedScreen.tsx', h.react, {
     'react-native-image-picker': { launchImageLibrary: async () => {
       picks++;
@@ -835,15 +839,16 @@ test('all home feature entries require the current endpoint key before navigatio
   const draw = () => h.render(FeedScreen, props);
   for (const language of ['en', 'zh-Hans']) {
     locale = language;
-    const model = 'x2.1';
-    const preview = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === model.toUpperCase());
-    assert(preview, 'X2.1 must be available regardless of the current environment');
+    const model = 'x2.1-flash';
+    const flash = find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1 Flash');
+    assert(flash, 'X2.1 Flash must be available regardless of the current environment');
+    assert(find(draw(), node => node.props?.accessibilityRole === 'radio' && node.props?.accessibilityLabel === 'X2.1'));
     assert(!find(draw(), node => node.props?.accessibilityLabel?.includes('PREVIEW')));
     assert(!find(draw(), node => node.props?.children === 'API ENDPOINT'));
     assert(!find(draw(), node => node.props?.children === 'UPLOAD BITRATE (KBPS)'));
-    preview.props.onPress();
+    flash.props.onPress();
     assert.equal(configuration.model, model);
-    assert.equal(find(draw(), node => node.props?.accessibilityLabel === model.toUpperCase()).props.accessibilityState.checked, true);
+    assert.equal(find(draw(), node => node.props?.accessibilityLabel === 'X2.1 Flash').props.accessibilityState.checked, true);
   }
   const press = target => {
     const tree = draw();
@@ -905,7 +910,7 @@ test('image input opens on touch animation without automatically generating; cam
 });
 
 
-for (const model of ['x2.1']) {
+for (const model of ['x2.1', 'x2.1-flash']) {
 test(`XLab initializes camera and image managers with the route-selected ${model}`, async t => {
   const camera = screenFixture(t, { model });
   const image = screenFixture(t, { model, fileURL: 'file:///image.jpg' });

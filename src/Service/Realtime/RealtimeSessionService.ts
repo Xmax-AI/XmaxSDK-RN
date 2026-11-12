@@ -65,7 +65,10 @@ export class RealtimeSessionService implements RealtimeSessionServicing {
     const connection = record(extra);
     const roomID = nonEmpty(connection?.room_id),
       token = nonEmpty(connection?.room_token),
-      userID = nonEmpty(connection?.user_id) ?? nonEmpty(value?.userUid);
+      userID =
+        nonEmpty(connection?.rtc_user_id) ??
+        nonEmpty(connection?.user_id) ??
+        nonEmpty(value?.userUid);
 
     if (!id || !roomID || !token || !userID) {
       // Invalid connection information may still include an allocated billable session that must be released.
@@ -83,7 +86,8 @@ export class RealtimeSessionService implements RealtimeSessionServicing {
         roomID,
         token,
         userID,
-        botName: nonEmpty(connection?.bot_name),
+        botName:
+          nonEmpty(connection?.rtc_bot_id) ?? nonEmpty(connection?.bot_name),
       },
     };
   }

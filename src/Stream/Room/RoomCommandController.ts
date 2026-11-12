@@ -142,6 +142,11 @@ export class RoomCommandController {
      * Creates a fresh logical command identifier.
      */
     private readonly uuid: () => string,
+
+    /**
+     * Whether to schedule redundant RTC attempts after the original send.
+     */
+    private readonly retryEnabled = true,
   ) {}
 
   /**
@@ -231,6 +236,7 @@ export class RoomCommandController {
   ): void {
     const command = this.pending.get(xid);
     if (
+      !this.retryEnabled ||
       !Number.isSafeInteger(count) ||
       count <= 0 ||
       !command?.retrying ||
@@ -276,31 +282,33 @@ export class RoomCommandController {
   }
 
   /**
-   * Schedules two rounds at 0/300/1000 and 3000/3300/4000 ms, with a 6000 ms deadline.
+   * Sends the original command and, when enabled, schedules retries through the 6000 ms deadline.
    *
    * @param command The current logical command.
    */
   private begin(
     command: Command
   ): void {
-    for (const delay of [300, 1000, 3000, 3300, 4000, 6000]) {
-      command.timers.push(
-        setTimeout(
-          () => {
-            if (!command.retrying || command.cancelled) return;
-            if (delay === 6000) {
-              XmaxLogger.room.warn(
-                `RTC command ACK not received after 6000 ms; retries stopped: ${command.kind}, xid: ${command.xid}`,
+    if (this.retryEnabled) {
+      for (const delay of [300, 1000, 3000, 3300, 4000, 6000]) {
+        command.timers.push(
+          setTimeout(
+            () => {
+              if (!command.retrying || command.cancelled) return;
+              if (delay === 6000) {
+                XmaxLogger.room.warn(
+                  `RTC command ACK not received after 6000 ms; retries stopped: ${command.kind}, xid: ${command.xid}`,
+                );
+                this.stopRetries(command);
+              } else this.attempt(
+                command,
+                false
               );
-              this.stopRetries(command);
-            } else this.attempt(
-              command,
-              false
-            );
-          },
-          delay
-        ),
-      );
+            },
+            delay
+          ),
+        );
+      }
     }
     this.attempt(
       command,
@@ -385,7 +393,8 @@ export class RoomCommandController {
       command.sent = true;
       command.detach();
       command.resolve();
-      if (!command.retrying) this.pending.delete(command.xid);
+      if (!this.retryEnabled || !command.retrying)
+        this.pending.delete(command.xid);
     } else if (initial && !command.sent) {
       if (command.kind === 'start')
         this.cancelMatching(

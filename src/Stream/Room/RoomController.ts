@@ -65,6 +65,11 @@ export class RoomController implements RoomControlling {
      * The shared generation startup measurement.
      */
     private readonly timing?: RealtimeTiming,
+
+    /**
+     * Whether generation commands use bounded RTC retransmission.
+     */
+    private readonly retryCommands = true,
   ) {}
 
   /**
@@ -102,6 +107,7 @@ export class RoomController implements RoomControlling {
         attemptSignal
       ),
       () => this.rtc.randomUUID(),
+      this.retryCommands,
     );
     this.commands = commands;
     this.offEvents = this.rtc.onEvent(event => {

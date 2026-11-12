@@ -7,14 +7,19 @@ for (const model of Object.values(RealtimeModel)) {
   test(`${model}: media sizing matches the current fixed-canvas model limits`, () => {
     const service = new MediaService(model), spec = realtimeModelSpecifications[model];
     assert.equal(spec.minimumInputPixels, 200000);
-    assert.equal(spec.maximumInputPixels, 2100000);
+    const flash = model === RealtimeModel.x2_1_flash;
+    assert.equal(spec.maximumInputPixels, flash ? 960 * 960 : 2100000);
     assert.equal(spec.inputSizeAlignment, 32);
     for (const [source, expected] of [
       [[400, 752], [400, 752]], [[512, 960], [512, 960]],
       [[256, 480], [352, 660]], [[200, 200], [448, 448]], [[1, 1], [448, 448]],
-      [[3840, 2160], [1920, 1080]], [[8000, 6000], [1664, 1248]],
-      [[1001, 1000], [1000, 1000]], [[1001, 600], [1000, 600]],
-      [[1280, 1707], [1252, 1672]],
+      ...(flash ? [
+        [[1920, 1920], [960, 960]], [[2048, 1536], [1104, 828]],
+      ] : [
+        [[3840, 2160], [1920, 1080]], [[8000, 6000], [1664, 1248]],
+        [[1001, 1000], [1000, 1000]], [[1001, 600], [1000, 600]],
+        [[1280, 1707], [1252, 1672]],
+      ]),
     ]) {
       for (const swap of [false, true]) {
         const [width, height] = swap ? [...source].reverse() : source;
@@ -28,18 +33,25 @@ for (const model of Object.values(RealtimeModel)) {
   });
 }
 
-test('X2.1 selects each generation canvas by source aspect ratio without resizing the source', () => {
-  const service = new MediaService();
-  for (const [source, canvas] of [
-    [[1280, 720], [1920, 1080]],
-    [[720, 1280], [1080, 1920]],
-    [[1000, 1000], [1408, 1408]],
-    [[1200, 1600], [1152, 1536]],
-    [[1600, 1200], [1536, 1152]],
+test('both models select their own generation canvas from the source aspect ratio', () => {
+  const standard = new MediaService(RealtimeModel.x2_1);
+  const flash = new MediaService(RealtimeModel.x2_1_flash);
+  for (const [source, standardCanvas, flashCanvas] of [
+    [[1280, 720], [1920, 1080], [1280, 704]],
+    [[720, 1280], [1080, 1920], [704, 1280]],
+    [[1000, 1000], [1408, 1408], [960, 960]],
+    [[1200, 1600], [1152, 1536], [768, 1024]],
+    [[1600, 1200], [1536, 1152], [1024, 768]],
   ]) {
-    const media = service.resolveMediaSize({ width: source[0], height: source[1] }, 'image');
-    assert.deepEqual(service.resolveGenerationSize(media), { width: canvas[0], height: canvas[1] });
-    assert.deepEqual(media, { width: source[0], height: source[1] });
+    const size = { width: source[0], height: source[1] };
+    const media = standard.resolveMediaSize(size, 'image');
+    assert.deepEqual(standard.resolveGenerationSize(media), { width: standardCanvas[0], height: standardCanvas[1] });
+    assert.deepEqual(media, size);
+    for (const input of ['image', 'external']) {
+      const flashMedia = flash.resolveMediaSize(size, input);
+      assert(flashMedia.width * flashMedia.height <= 960 * 960);
+      assert.deepEqual(flash.resolveGenerationSize(flashMedia), { width: flashCanvas[0], height: flashCanvas[1] });
+    }
   }
 });
 

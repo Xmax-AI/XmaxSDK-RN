@@ -241,7 +241,7 @@ test('resolved interface language selects the service region independently of th
   assert.equal(endpointForLocale('en'), 'global');
   assert.equal(environmentForEndpoint('china'), 'china');
   assert.equal(environmentForEndpoint('global'), 'global');
-  assert.deepEqual(xlabModels, ['x2.1']);
+  assert.deepEqual(xlabModels, ['x2.1', 'x2.1-flash']);
 });
 
 test('obsolete endpoint and bitrate settings cannot override locale routing or block hydration', async () => {
@@ -263,12 +263,12 @@ test('obsolete endpoint and bitrate settings cannot override locale routing or b
 test('model selections persist and obsolete models fall back to a supported model', async () => {
   const disk = storage(), store = new ConfigurationStore(disk);
   await store.load();
-  store.selectModel('x2.1');
+  store.selectModel('x2.1-flash');
   store.selectModel('obsolete-model');
   await nextTurn();
   const reloaded = new ConfigurationStore(disk);
   await reloaded.load();
-  assert.equal(reloaded.getSnapshot().model, 'x2.1');
+  assert.equal(reloaded.getSnapshot().model, 'x2.1-flash');
   for (const model of ['obsolete-model', 'x2.0', 'x2.1.1-preview-cn', 'x2.1.1-preview-us']) {
     const obsolete = new ConfigurationStore(storage({ model, china: 'cn-fixture', global: 'global-fixture' }));
     await obsolete.load();

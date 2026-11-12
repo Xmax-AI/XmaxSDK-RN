@@ -13,7 +13,11 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { RealtimeModel, XmaxSDKInfo } from '@xmaxai/react-native-sdk';
+import {
+  RealtimeModel,
+  realtimeModelSpecifications,
+  XmaxSDKInfo,
+} from '@xmaxai/react-native-sdk';
 import { colors, feedFont as font } from '../theme/tokens';
 import { FeedLanguageButton } from '../components/FeedLanguageButton';
 import { useLocalization } from '../localization/LocalizationProvider';
@@ -243,7 +247,11 @@ export function FeedScreen({
                 Platform.OS === 'ios' ? 'RN / iOS' : 'RN / Android',
               ],
               [t('feed.os'), Platform.OS === 'ios' ? '15.1+' : '8.0+'],
-              [t('feed.latestModel'), 'X2.1'],
+              [
+                t('feed.latestModel'),
+                realtimeModelSpecifications[RealtimeModel.x2_1_flash]
+                  .displayName,
+              ],
             ].map(([label, value]) => (
               <View key={label} style={styles.metric}>
                 <FeedText
@@ -359,7 +367,9 @@ export function FeedScreen({
                 accessibilityState={{
                   checked: selectedModel === model,
                 }}
-                accessibilityLabel={model.toUpperCase()}
+                accessibilityLabel={
+                  realtimeModelSpecifications[model].displayName
+                }
                 onPress={() => onModelChange(model)}
                 style={[
                   styles.model,
@@ -369,7 +379,7 @@ export function FeedScreen({
                 <FeedText style={styles.modelDiamond}>◆</FeedText>
                 <View style={styles.modelText}>
                   <FeedText style={styles.modelTitle}>
-                    {model.toUpperCase()}
+                    {realtimeModelSpecifications[model].displayName}
                   </FeedText>
                   <FeedText style={styles.modelIdentifier}>
                     {`RealtimeModel.${identifier}`}

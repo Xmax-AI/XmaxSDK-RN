@@ -28,6 +28,7 @@ import { RoomController } from '../../Stream/Room/RoomController';
 import { EncodingController } from '../../Stream/Encoding/EncodingController';
 import { QualityController } from '../../Stream/Quality/QualityController';
 import { MediaService } from '../../Service/Media/MediaService';
+import { RealtimeModel } from '../../Service/Realtime/RealtimeModel';
 import type { MediaServicing } from '../../Service/Media/MediaServicing';
 import { ApiService } from '../../Service/Network/ApiService';
 import { RealtimeSessionService } from '../../Service/Realtime/RealtimeSessionService';
@@ -126,7 +127,8 @@ export class XmaxRealtimeFactory {
     const mediaService = new MediaService(options.model);
     const roomController = new RoomController(
       rtcManager,
-      timing
+      timing,
+      options.model === RealtimeModel.x2_1,
     );
     const interactionController = new InteractionController((taskID, points) =>
       roomController.sendTracks(

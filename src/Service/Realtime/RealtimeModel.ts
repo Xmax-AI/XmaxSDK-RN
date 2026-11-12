@@ -19,6 +19,11 @@ export enum RealtimeModel {
    * The X2.1 realtime generation model.
    */
   x2_1 = 'x2.1',
+
+  /**
+   * The X2.1 Flash realtime generation model.
+   */
+  x2_1_flash = 'x2.1-flash',
 }
 
 /**
@@ -69,7 +74,7 @@ export interface RealtimeModelSpecification {
 /**
  * The X2.1 media constraints and default camera format.
  */
-const specification: RealtimeModelSpecification = Object.freeze({
+const x2_1Specification: RealtimeModelSpecification = Object.freeze({
   displayName: 'X2.1',
   supportedVideoFormats: Object.freeze([
     Object.freeze({ width: 1920, height: 1080, fps: 30 }),
@@ -90,12 +95,36 @@ const specification: RealtimeModelSpecification = Object.freeze({
 });
 
 /**
+ * The X2.1 Flash media constraints and default camera format.
+ */
+const flashSpecification: RealtimeModelSpecification = Object.freeze({
+  displayName: 'X2.1 Flash',
+  supportedVideoFormats: Object.freeze([
+    Object.freeze({ width: 704, height: 1280, fps: 30 }),
+    Object.freeze({ width: 1280, height: 704, fps: 30 }),
+    Object.freeze({ width: 960, height: 960, fps: 30 }),
+    Object.freeze({ width: 1024, height: 768, fps: 30 }),
+    Object.freeze({ width: 768, height: 1024, fps: 30 }),
+  ]),
+  minimumInputPixels: 200000,
+  maximumInputPixels: 960 * 960,
+  inputSizeAlignment: 32,
+  defaultFrameRate: 30,
+  defaultCameraVideoFormat: Object.freeze({
+    width: 704,
+    height: 1280,
+    fps: 30,
+  }),
+});
+
+/**
  * The sizing constraints for supported generation models.
  */
 export const realtimeModelSpecifications: Readonly<
   Record<RealtimeModel, RealtimeModelSpecification>
 > = Object.freeze({
-  [RealtimeModel.x2_1]: specification,
+  [RealtimeModel.x2_1]: x2_1Specification,
+  [RealtimeModel.x2_1_flash]: flashSpecification,
 });
 
 /**
